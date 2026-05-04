@@ -63,6 +63,9 @@ export class CodeBlockGenerator {
   private async fetchLinkMetadata(
     url: string
   ): Promise<LinkMetadata | undefined> {
+    if (this.isYouTubeUrl(url)) {
+      return this.fetchYouTubeLinkMetadata(url);
+    }
     const res = await (async () => {
       try {
         return requestUrl({ url });
@@ -88,5 +91,62 @@ export class CodeBlockGenerator {
       result += characters.charAt(Math.floor(Math.random() * charactersLength));
     }
     return result;
+  }
+
+  private isYouTubeUrl(url: string): boolean {
+    return /^https?:\/\/(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(url);
+  }
+
+  private async fetchYouTubeLinkMetadata(
+    url: string
+  ): Promise<LinkMetadata | undefined> {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const res = await (async () => {
+      try {
+        return requestUrl({ url: oembedUrl });
+      } catch (e) {
+        console.log(e);
+        return;
+      }
+    })();
+    if (!res || res.status !== 200) return;
+
+    const data = JSON.parse(res.text);
+    const videoId = this.getYouTubeVideoId(url);  // ← extract ID
+    const image = videoId
+      ? await this.getBestYouTubeThumbnail(videoId)  // ← try HD first
+      : data.thumbnail_url;                           // ← fallback to oEmbed
+
+    return {
+      url,
+      title: data.title,
+      description: `By ${data.author_name}`,
+      host: "www.youtube.com",
+      favicon: "https://www.youtube.com/favicon.ico",
+      image,
+      indent: 0,
+    };
+  }
+
+  private getYouTubeVideoId(url: string): string | undefined {
+    const match = url.match(
+      /(?:youtube\.com\/watch\?.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/
+    );
+    return match?.[1];
+  }
+
+  private async getBestYouTubeThumbnail(videoId: string): Promise<string> {
+    // YouTube thumbnail qualities in descending order
+    const qualities = ["maxresdefault", "sddefault", "hqdefault"];
+    for (const q of qualities) {
+      const thumbUrl = `https://i.ytimg.com/vi/${videoId}/${q}.jpg`;
+      const res = await (async () => {
+        try { return requestUrl({ url: thumbUrl }); }
+        catch { return; }
+      })();
+      if (res && res.status === 200) return thumbUrl;
+    }
+    // last resort fallback
+    return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
   }
 }
