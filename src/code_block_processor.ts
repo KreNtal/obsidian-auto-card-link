@@ -122,6 +122,17 @@ export class CodeBlockProcessor {
       const faviconEl = document.createElement("img");
       faviconEl.addClass("auto-card-link-favicon");
       faviconEl.setAttr("src", data.favicon);
+
+      // Fallback to Google favicon service if direct URL fails to load
+      if (data.host) {
+        const fallbackUrl = `https://www.google.com/s2/favicons?domain=${data.host}&sz=32`;
+        faviconEl.onerror = () => {
+          if (faviconEl.src !== fallbackUrl) {
+            faviconEl.src = fallbackUrl;
+          }
+        };
+      }
+
       hostEl.appendChild(faviconEl);
     }
 

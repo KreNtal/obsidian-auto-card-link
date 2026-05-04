@@ -34,7 +34,7 @@ export class LinkMetadataParser {
   private getTitle(): string | undefined {
     const ogTitle = this.htmlDoc
       .querySelector("meta[property='og:title']")
-      ?.getAttr("content");
+      ?.getAttribute("content");
     if (ogTitle) return ogTitle;
 
     const title = this.htmlDoc.querySelector("title")?.textContent;
@@ -44,26 +44,26 @@ export class LinkMetadataParser {
   private getDescription(): string | undefined {
     const ogDescription = this.htmlDoc
       .querySelector("meta[property='og:description']")
-      ?.getAttr("content");
+      ?.getAttribute("content");
     if (ogDescription) return ogDescription;
 
     const metaDescription = this.htmlDoc
       .querySelector("meta[name='description']")
-      ?.getAttr("content");
+      ?.getAttribute("content");
     if (metaDescription) return metaDescription;
   }
 
   private async getFavicon(): Promise<string | undefined> {
     const favicon = this.htmlDoc
       .querySelector("link[rel='icon']")
-      ?.getAttr("href");
+      ?.getAttribute("href");
     if (favicon) return await this.fixImageUrl(favicon);
   }
 
   private async getImage(): Promise<string | undefined> {
     const ogImage = this.htmlDoc
       .querySelector("meta[property='og:image']")
-      ?.getAttr("content");
+      ?.getAttribute("content");
     if (ogImage) return await this.fixImageUrl(ogImage);
   }
 

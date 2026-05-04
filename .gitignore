@@ -1,2 +1,6 @@
 node_modules
-main.js
+# will allow main.js to be committed
+# so that it can be pulled down to other machines
+# without the need to build locally
+# main.js
+.DS_Store

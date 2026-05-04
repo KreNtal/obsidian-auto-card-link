@@ -15,24 +15,31 @@
     &[data-auto-card-link-depth="0"] {
         margin-left: calc(var(--auto-card-link-indent-size) * 0);
     }
+
     &[data-auto-card-link-depth="1"] {
         margin-left: calc(var(--auto-card-link-indent-size) * 1);
     }
+
     &[data-auto-card-link-depth="2"] {
         margin-left: calc(var(--auto-card-link-indent-size) * 2);
     }
+
     &[data-auto-card-link-depth="3"] {
         margin-left: calc(var(--auto-card-link-indent-size) * 3);
     }
+
     &[data-auto-card-link-depth="4"] {
         margin-left: calc(var(--auto-card-link-indent-size) * 4);
     }
+
     &[data-auto-card-link-depth="5"] {
         margin-left: calc(var(--auto-card-link-indent-size) * 5);
     }
+
     &[data-auto-card-link-depth="6"] {
         margin-left: calc(var(--auto-card-link-indent-size) * 6);
     }
+
     &[data-auto-card-link-depth="7"] {
         margin-left: calc(var(--auto-card-link-indent-size) * 7);
     }
@@ -48,9 +55,11 @@
     .auto-card-link-description {
         display: none;
     }
+
     .auto-card-link-thumbnail {
         max-width: 40% !important;
     }
+
     .auto-card-link-title {
         white-space: normal !important;
         --lh: 1.5em;
@@ -100,13 +109,18 @@
     gap: 0.18em;
     padding: 0.5em 0.6em;
     overflow: hidden;
-    text-align: left; /* necessary for ellipsis to work */
+    text-align: left;
+    /* necessary for ellipsis to work */
 }
 
 .auto-card-link-title {
     overflow: hidden;
-    white-space: nowrap;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     text-overflow: ellipsis;
+    flex-shrink: 0;
 
     &:hover {
         color: var(--link-external-color-hover)
@@ -114,8 +128,8 @@
 
     /* Prevent clash with edit block button */
     .is-live-preview .auto-card-link-container:hover &,
-    .is-live-preview .block-language-cardlink:has(+ .edit-block-button:hover) &  {
-      margin-right: var(--auto-card-link-button-width);
+    .is-live-preview .block-language-cardlink:has(+ .edit-block-button:hover) & {
+        margin-right: var(--auto-card-link-button-width);
     }
 }
 
@@ -123,9 +137,11 @@
     overflow: hidden;
     --lh: 1.4em;
     line-height: var(--lh);
-    height: calc(var(--lh) * 3);
+    max-height: calc(var(--lh) * 3);
     color: var(--text-muted);
     font-size: var(--font-smallest);
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .auto-card-link-host {
@@ -133,6 +149,8 @@
     display: flex;
     flex-direction: row;
     align-items: center;
+    gap: 0.4em;
+    flex-shrink: 0;
 
     & span {
         overflow: hidden;
@@ -143,7 +161,7 @@
     /* Prevent clash with copy url button */
     .auto-card-link-container:hover &,
     .is-mobile .auto-card-link-container & {
-      margin-right: var(--auto-card-link-button-width);
+        margin-right: var(--auto-card-link-button-width);
     }
 
     &:hover {
@@ -155,15 +173,17 @@
 .auto-card-link-favicon {
     width: 16px !important;
     height: auto !important;
-    margin: 0 0.5em 0 0 !important;
+    margin-right: 0.5em !important;
 }
 
 .auto-card-link-thumbnail {
     width: unset !important;
     border-radius: var(--radius-s) 0 0 var(--radius-s) !important;
     height: 100%;
-    object-fit: cover;
-    max-width: 50% !important;
+    object-fit: fill;
+    max-width: min(200px, 50%) !important;
+    padding: 4px;
+    box-sizing: border-box;
     pointer-events: none;
 }
 
@@ -175,6 +195,6 @@
 
     /* Show copy button only on hover on desktop */
     .obsidian-app:not(.is-mobile) .auto-card-link-container:not(:hover) & {
-      display: none;
+        display: none;
     }
 }

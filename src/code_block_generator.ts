@@ -60,15 +60,24 @@ export class CodeBlockGenerator {
     return codeBlockTexts.join("\n");
   }
 
+  private createBlockHash(): string {
+    let result = "";
+    const characters = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const charactersLength = characters.length;
+    for (let i = 0; i < 4; i++) {
+      result += characters.charAt(Math.floor(Math.random() * charactersLength));
+    }
+    return result;
+  }
+
   private async fetchLinkMetadata(
     url: string
   ): Promise<LinkMetadata | undefined> {
-    if (this.isYouTubeUrl(url)) {
+    if (this.isYouTubeUrl(url))
       return this.fetchYouTubeLinkMetadata(url);
-    }
-    if (this.isRedditUrl(url)) {
+
+    if (this.isRedditUrl(url))
       return this.fetchRedditLinkMetadata(url);
-    }
 
     const res = await (async () => {
       try {
@@ -85,6 +94,7 @@ export class CodeBlockGenerator {
         return;
       }
     })();
+
     if (!res || res.status != 200) {
       console.log(`bad response. response status code was ${res?.status}`);
       return;
@@ -92,16 +102,6 @@ export class CodeBlockGenerator {
 
     const parser = new LinkMetadataParser(url, res.text);
     return parser.parse();
-  }
-
-  private createBlockHash(): string {
-    let result = "";
-    const characters = "abcdefghijklmnopqrstuvwxyz0123456789";
-    const charactersLength = characters.length;
-    for (let i = 0; i < 4; i++) {
-      result += characters.charAt(Math.floor(Math.random() * charactersLength));
-    }
-    return result;
   }
 
   /* --- YOUTUBE --- */
