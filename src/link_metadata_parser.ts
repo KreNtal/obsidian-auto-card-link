@@ -13,18 +13,9 @@ export class LinkMetadataParser {
   }
 
   async parse(): Promise<LinkMetadata | undefined> {
-    const title = this.getTitle()
-      ?.replace(/\r\n|\n|\r/g, "")
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"')
-      .trim();
+    const title = LinkMetadataParser.sanitizeText(this.getTitle());
     if (!title) return;
-
-    const description = this.getDescription()
-      ?.replace(/\r\n|\n|\r/g, "")
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"')
-      .trim();
+    const description = LinkMetadataParser.sanitizeText(this.getDescription());
     const { hostname } = new URL(this.url);
     const favicon = await this.getFavicon();
     const image = await this.getImage();
@@ -115,5 +106,14 @@ export class LinkMetadataParser {
     }
 
     return image;
+  }
+
+  static sanitizeText(text: string | undefined): string | undefined {
+    if (!text) return undefined;
+    return text
+      .replace(/\r\n|\n|\r/g, " ")  // newlines → space (safer than stripping)
+      .replace(/\\/g, "\\\\")        // escape backslashes first
+      .replace(/"/g, '\\"')          // escape double quotes
+      .trim();
   }
 }

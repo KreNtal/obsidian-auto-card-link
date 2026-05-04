@@ -66,9 +66,20 @@ export class CodeBlockGenerator {
     if (this.isYouTubeUrl(url)) {
       return this.fetchYouTubeLinkMetadata(url);
     }
+    if (this.isRedditUrl(url)) {
+      return this.fetchRedditLinkMetadata(url);
+    }
+
     const res = await (async () => {
       try {
-        return requestUrl({ url });
+        return requestUrl({
+          url,
+          headers: {                                          // ← ADD
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+          },                                                  // ← END ADD
+        });
       } catch (e) {
         console.log(e);
         return;
@@ -93,6 +104,7 @@ export class CodeBlockGenerator {
     return result;
   }
 
+  /* --- YOUTUBE --- */
   private isYouTubeUrl(url: string): boolean {
     return /^https?:\/\/(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(url);
   }
@@ -119,8 +131,8 @@ export class CodeBlockGenerator {
 
     return {
       url,
-      title: data.title,
-      description: `By ${data.author_name}`,
+      title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+      description: LinkMetadataParser.sanitizeText(`By ${data.author_name}`) ?? `By ${data.author_name}`,
       host: "www.youtube.com",
       favicon: "https://www.youtube.com/favicon.ico",
       image,
@@ -148,5 +160,148 @@ export class CodeBlockGenerator {
     }
     // last resort fallback
     return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  }
+
+  /* --- REDDIT --- */
+  private isRedditUrl(url: string): boolean {
+    return /reddit\.com\/(r|u|user)\//.test(url);
+  }
+
+  private async fetchRedditLinkMetadata(
+    url: string
+  ): Promise<LinkMetadata | undefined> {
+    // Normalize: strip old.reddit.com → www.reddit.com, ensure trailing slash
+    const normalized = url
+      .replace("old.reddit.com", "www.reddit.com")
+      .replace(/\/?$/, "/");
+
+    const isPost = /reddit\.com\/r\/\w+\/comments\//.test(normalized);
+    const isSubreddit = /reddit\.com\/r\/\w+\/?$/.test(normalized);
+    const isUser = /reddit\.com\/(?:u|user)\/\w+/.test(normalized);
+
+    if (isPost) {
+      return this.fetchRedditPost(url, normalized);
+    } else if (isSubreddit) {
+      return this.fetchRedditSubreddit(url, normalized);
+    } else if (isUser) {
+      return this.fetchRedditUser(url, normalized);
+    }
+  }
+
+  private async fetchRedditPost(
+    originalUrl: string,
+    normalized: string
+  ): Promise<LinkMetadata | undefined> {
+    const jsonUrl = normalized.replace(/\/?$/, ".json") + "?limit=1";
+    const res = await (async () => {
+      try {
+        return requestUrl({
+          url: jsonUrl,
+          headers: { "User-Agent": "obsidian-auto-card-link/1.0" },
+        });
+      } catch (e) {
+        console.log(e);
+        return;
+      }
+    })();
+    if (!res || res.status !== 200) return;
+
+    const data = JSON.parse(res.text);
+    const post = data[0]?.data?.children?.[0]?.data;
+    if (!post) return;
+
+    // preview.images URLs are HTML-encoded — decode the ampersands
+    const rawImage =
+      post.preview?.images?.[0]?.source?.url?.replace(/&amp;/g, "&");
+    const image = rawImage && !["self", "default", "nsfw", ""].includes(rawImage)
+      ? rawImage
+      : undefined;
+
+    return {
+      url: originalUrl,
+      title: LinkMetadataParser.sanitizeText(post.title) ?? post.title,
+      description: LinkMetadataParser.sanitizeText(
+        post.selftext
+          ? post.selftext.slice(0, 200).replace(/\n/g, " ") + "…"
+          : `Posted by u/${post.author} in r/${post.subreddit}`),
+      host: "www.reddit.com",
+      favicon: "https://www.reddit.com/favicon.ico",
+      image,
+      indent: 0,
+    };
+  }
+
+  private async fetchRedditSubreddit(
+    originalUrl: string,
+    normalized: string
+  ): Promise<LinkMetadata | undefined> {
+    // Use /about.json to get subreddit metadata (description, icon, etc.)
+    const aboutUrl = normalized.replace(/\/?$/, "/about.json");
+    const res = await (async () => {
+      try {
+        return requestUrl({
+          url: aboutUrl,
+          headers: { "User-Agent": "obsidian-auto-card-link/1.0" },
+        });
+      } catch (e) {
+        console.log(e);
+        return;
+      }
+    })();
+    if (!res || res.status !== 200) return;
+
+    const sub = JSON.parse(res.text)?.data;
+    if (!sub) return;
+
+    // community_icon has URL-encoded chars; icon_img is fallback
+    const rawIcon = sub.community_icon || sub.icon_img || "";
+    const image = rawIcon.split("?")[0] || undefined; // strip query params
+
+    return {
+      url: originalUrl,
+      title: `r/${sub.display_name}`,
+      description: sub.public_description?.trim() || undefined,
+      host: "www.reddit.com",
+      favicon: "https://www.reddit.com/favicon.ico",
+      image: image || undefined,
+      indent: 0,
+    };
+  }
+
+  private async fetchRedditUser(
+    originalUrl: string,
+    normalized: string
+  ): Promise<LinkMetadata | undefined> {
+    // Extract username and call /user/{name}/about.json
+    const match = normalized.match(/reddit\.com\/(?:u|user)\/(\w+)/);
+    if (!match) return;
+    const username = match[1];
+
+    const aboutUrl = `https://www.reddit.com/user/${username}/about.json`;
+    const res = await (async () => {
+      try {
+        return requestUrl({
+          url: aboutUrl,
+          headers: { "User-Agent": "obsidian-auto-card-link/1.0" },
+        });
+      } catch (e) {
+        console.log(e);
+        return;
+      }
+    })();
+    if (!res || res.status !== 200) return;
+
+    const user = JSON.parse(res.text)?.data;
+    if (!user) return;
+
+    return {
+      url: originalUrl,
+      title: `u/${user.name}`,
+      description: user.subreddit?.public_description?.trim() || undefined,
+      host: "www.reddit.com",
+      favicon: "https://www.reddit.com/favicon.ico",
+      image: user.icon_img?.split("?")[0] || undefined,
+      indent: 0,
+    };
   }
 }

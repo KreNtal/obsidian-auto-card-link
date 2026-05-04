@@ -1,3 +1,5 @@
+> NOTE: This fork is maintained by KreNtal
+
 # Auto Card Link
 
 - Automatically fetches metadata from a url and makes it as a card-styled link.
@@ -8,29 +10,30 @@
 </p>
 
 # Feature
+
 - Paste and enhance copied url
 - Enhance selected url
 - Setting for enhancing default paste
 - Support for local images through internal links (`image: "[[image.png]]"`)
 
-
 # `cardlink` syntax
+
 The code block `cardlink` uses YAML syntax for displaying card-styled link.
 
-
 ## attributes
-|name|required|description|
-|---|---|---|
-|url|true|url to open when you click the link|
-|title|true|title of the link|
-|description|false|description of the link|
-|host|false|host of the link|
-|favicon|false|favicon of the link|
-|image|false|thumbnail image to show in the card link|
 
+| name        | required | description                              |
+| ----------- | -------- | ---------------------------------------- |
+| url         | true     | url to open when you click the link      |
+| title       | true     | title of the link                        |
+| description | false    | description of the link                  |
+| host        | false    | host of the link                         |
+| favicon     | false    | favicon of the link                      |
+| image       | false    | thumbnail image to show in the card link |
 
 ## example
-```
+
+````
 ​```cardlink
 url: https://obsidian.md/
 title: "Obsidian"
@@ -39,11 +42,13 @@ host: obsidian.md
 favicon: https://obsidian.md/favicon.ico
 image: https://obsidian.md/images/banner.png
 ​```
-```
+````
 
 # Customizing Style
+
 Card-styled link is styled by [styles.css](./styles.css). To customize, you can try making [CSS snippets](https://help.obsidian.md/How+to/Add+custom+styles#Use+Themes+and+or+CSS+snippets).
 
 # Motivation
+
 - Wanted to show beautiful links in my notes
 - Didn't want to mess up my notes with HTML tags
