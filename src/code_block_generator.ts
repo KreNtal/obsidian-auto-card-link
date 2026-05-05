@@ -13,37 +13,47 @@ export class CodeBlockGenerator {
 
   async convertUrlToCodeBlock(url: string): Promise<void> {
     const selectedText = this.editor.getSelection();
-
-    // Generate a unique id for find/replace operations.
     const pasteId = this.createBlockHash();
     const fetchingText = `[Fetching Data#${pasteId}](${url})`;
 
-    // Instantly paste so you don't wonder if paste is broken
     this.editor.replaceSelection(fetchingText);
 
-    const linkMetadata = await this.fetchLinkMetadata(url);
+    try {
+      const linkMetadata = await this.fetchLinkMetadata(url);
 
-    const text = this.editor.getValue();
-    const start = text.indexOf(fetchingText);
+      const text = this.editor.getValue();
+      const start = text.indexOf(fetchingText);
 
-    if (start < 0) {
-      console.log(
-        `Unable to find text "${fetchingText}" in current editor, bailing out; link ${url}`
-      );
-      return;
-    }
+      if (start < 0) {
+        console.log(`Unable to find text "${fetchingText}" in current editor, bailing out; link ${url}`);
+        return;
+      }
 
-    const end = start + fetchingText.length;
-    const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
-    const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
+      const end = start + fetchingText.length;
+      const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
+      const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
 
-    // if failed to link metadata, show notification and revert
-    if (!linkMetadata) {
+      if (!linkMetadata) {
+        new Notice("Couldn't fetch link metadata");
+        this.editor.replaceRange(selectedText || `[${url}](${url})`, startPos, endPos);
+        return;
+      }
+
+      this.editor.replaceRange(this.genCodeBlock(linkMetadata), startPos, endPos);
+    } catch (e) {
+      console.error("convertUrlToCodeBlock failed:", e);
       new Notice("Couldn't fetch link metadata");
-      this.editor.replaceRange(selectedText || url, startPos, endPos);
-      return;
+
+      // find and revert the placeholder
+      const text = this.editor.getValue();
+      const start = text.indexOf(fetchingText);
+      if (start >= 0) {
+        const end = start + fetchingText.length;
+        const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
+        const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
+        this.editor.replaceRange(selectedText || `[${url}](${url})`, startPos, endPos);
+      }
     }
-    this.editor.replaceRange(this.genCodeBlock(linkMetadata), startPos, endPos);
   }
 
   genCodeBlock(linkMetadata: LinkMetadata): string {
@@ -97,7 +107,13 @@ export class CodeBlockGenerator {
 
     if (!res || res.status != 200) {
       console.log(`bad response. response status code was ${res?.status}`);
-      return;
+      return {
+        url,
+        title: "Fetch error",
+        description: res ? `HTTP ${res.status}` : "Request failed",
+        host: new URL(url).hostname,
+        indent: 0,
+      };
     }
 
     const parser = new LinkMetadataParser(url, res.text);

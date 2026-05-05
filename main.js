@@ -293,24 +293,35 @@ var CodeBlockGenerator = class {
       const pasteId = this.createBlockHash();
       const fetchingText = `[Fetching Data#${pasteId}](${url})`;
       this.editor.replaceSelection(fetchingText);
-      const linkMetadata = yield this.fetchLinkMetadata(url);
-      const text = this.editor.getValue();
-      const start = text.indexOf(fetchingText);
-      if (start < 0) {
-        console.log(
-          `Unable to find text "${fetchingText}" in current editor, bailing out; link ${url}`
-        );
-        return;
-      }
-      const end = start + fetchingText.length;
-      const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
-      const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
-      if (!linkMetadata) {
+      try {
+        const linkMetadata = yield this.fetchLinkMetadata(url);
+        const text = this.editor.getValue();
+        const start = text.indexOf(fetchingText);
+        if (start < 0) {
+          console.log(`Unable to find text "${fetchingText}" in current editor, bailing out; link ${url}`);
+          return;
+        }
+        const end = start + fetchingText.length;
+        const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
+        const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
+        if (!linkMetadata) {
+          new import_obsidian2.Notice("Couldn't fetch link metadata");
+          this.editor.replaceRange(selectedText || `[${url}](${url})`, startPos, endPos);
+          return;
+        }
+        this.editor.replaceRange(this.genCodeBlock(linkMetadata), startPos, endPos);
+      } catch (e) {
+        console.error("convertUrlToCodeBlock failed:", e);
         new import_obsidian2.Notice("Couldn't fetch link metadata");
-        this.editor.replaceRange(selectedText || url, startPos, endPos);
-        return;
+        const text = this.editor.getValue();
+        const start = text.indexOf(fetchingText);
+        if (start >= 0) {
+          const end = start + fetchingText.length;
+          const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
+          const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
+          this.editor.replaceRange(selectedText || `[${url}](${url})`, startPos, endPos);
+        }
       }
-      this.editor.replaceRange(this.genCodeBlock(linkMetadata), startPos, endPos);
     });
   }
   genCodeBlock(linkMetadata) {
@@ -360,7 +371,13 @@ var CodeBlockGenerator = class {
       }))();
       if (!res || res.status != 200) {
         console.log(`bad response. response status code was ${res == null ? void 0 : res.status}`);
-        return;
+        return {
+          url,
+          title: "Fetch error",
+          description: res ? `HTTP ${res.status}` : "Request failed",
+          host: new URL(url).hostname,
+          indent: 0
+        };
       }
       const parser = new LinkMetadataParser(url, res.text);
       return parser.parse();
@@ -786,16 +803,18 @@ var ObsidianAutoCardLink = class extends import_obsidian4.Plugin {
     });
   }
   enhanceSelectedURL(editor) {
-    const selectedText = (EditorExtensions.getSelectedText(editor) || "").trim();
-    const codeBlockGenerator = new CodeBlockGenerator(editor);
-    for (const line of selectedText.split(/[\n ]/)) {
-      if (CheckIf.isUrl(line)) {
-        codeBlockGenerator.convertUrlToCodeBlock(line);
-      } else if (CheckIf.isLinkedUrl(line)) {
-        const url = this.getUrlFromLink(line);
-        codeBlockGenerator.convertUrlToCodeBlock(url);
+    return __async(this, null, function* () {
+      const selectedText = (EditorExtensions.getSelectedText(editor) || "").trim();
+      const codeBlockGenerator = new CodeBlockGenerator(editor);
+      for (const line of selectedText.split(/[\n ]/)) {
+        if (CheckIf.isUrl(line)) {
+          yield codeBlockGenerator.convertUrlToCodeBlock(line);
+        } else if (CheckIf.isLinkedUrl(line)) {
+          const url = this.getUrlFromLink(line);
+          yield codeBlockGenerator.convertUrlToCodeBlock(url);
+        }
       }
-    }
+    });
   }
   manualPasteAndEnhanceURL(editor) {
     return __async(this, null, function* () {
@@ -807,8 +826,6 @@ var ObsidianAutoCardLink = class extends import_obsidian4.Plugin {
         editor.replaceSelection(clipboardText);
         return;
       }
-      console.log(clipboardText);
-      console.log(CheckIf.isUrl(clipboardText));
       if (!CheckIf.isUrl(clipboardText) || CheckIf.isImage(clipboardText)) {
         editor.replaceSelection(clipboardText);
         return;

@@ -57,7 +57,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     this.addSettingTab(new ObsidianAutoCardLinkSettingTab(this.app, this));
   }
 
-  private enhanceSelectedURL(editor: Editor): void {
+  private async enhanceSelectedURL(editor: Editor): Promise<void> {
     const selectedText = (
       EditorExtensions.getSelectedText(editor) || ""
     ).trim();
@@ -66,10 +66,10 @@ export default class ObsidianAutoCardLink extends Plugin {
 
     for (const line of selectedText.split(/[\n ]/)) {
       if (CheckIf.isUrl(line)) {
-        codeBlockGenerator.convertUrlToCodeBlock(line);
+        await codeBlockGenerator.convertUrlToCodeBlock(line);
       } else if (CheckIf.isLinkedUrl(line)) {
         const url = this.getUrlFromLink(line);
-        codeBlockGenerator.convertUrlToCodeBlock(url);
+        await codeBlockGenerator.convertUrlToCodeBlock(url);
       }
     }
   }
@@ -87,8 +87,8 @@ export default class ObsidianAutoCardLink extends Plugin {
       return;
     }
 
-    console.log(clipboardText);
-    console.log(CheckIf.isUrl(clipboardText));
+    // console.log(clipboardText);
+    // console.log(CheckIf.isUrl(clipboardText));
 
     // If not URL, just paste
     if (!CheckIf.isUrl(clipboardText) || CheckIf.isImage(clipboardText)) {
