@@ -32,13 +32,26 @@ export class LinkMetadataParser {
   }
 
   private getTitle(): string | undefined {
+    // 1. Try OpenGraph Title
     const ogTitle = this.htmlDoc
       .querySelector("meta[property='og:title']")
       ?.getAttribute("content");
-    if (ogTitle) return ogTitle;
+    if (ogTitle && ogTitle.trim().length > 0) return ogTitle.trim();
 
+    // 2. Try Twitter Title fallback
+    const twitterTitle = this.htmlDoc
+      .querySelector("meta[name='twitter:title']")
+      ?.getAttribute("content");
+    if (twitterTitle && twitterTitle.trim().length > 0) return twitterTitle.trim();
+
+    // 3. Try Standard HTML Title
     const title = this.htmlDoc.querySelector("title")?.textContent;
-    if (title) return title;
+    if (title && title.trim().length > 0) return title.trim();
+
+    // 4. Last resort: The first H1 tag 
+    // (Common in simple HTML pages or articles)
+    const h1 = this.htmlDoc.querySelector("h1")?.textContent;
+    if (h1 && h1.trim().length > 0) return h1.trim();
 
     return undefined;
   }
@@ -76,17 +89,55 @@ export class LinkMetadataParser {
     return `${origin}/favicon.ico`;
   }
 
-  private async getImage(): Promise<string | undefined> {
-    const ogImage = this.htmlDoc
-      .querySelector("meta[property='og:image']")
-      ?.getAttribute("content");
-    if (ogImage) return this.resolveUrl(ogImage);
+  private getJsonLdData(): any {
+    try {
+      const scripts = this.htmlDoc.querySelectorAll("script[type='application/ld+json']");
+      for (const script of Array.from(scripts)) {
+        const content = JSON.parse(script.textContent || "{}");
+        // JSON-LD can be a single object or an array of objects (@graph)
+        if (Array.isArray(content)) return content[0];
+        if (content["@graph"] && Array.isArray(content["@graph"])) return content["@graph"][0];
+        return content;
+      }
+    } catch (e) {
+      return null;
+    }
+    return null;
+  }
 
-    // Also try twitter:image as fallback
-    const twitterImage = this.htmlDoc
-      .querySelector("meta[name='twitter:image'], meta[property='twitter:image']")
-      ?.getAttribute("content");
-    if (twitterImage) return this.resolveUrl(twitterImage);
+  private async getImage(): Promise<string | undefined> {
+    // 1. Try JSON-LD first (Best for Printables/Amazon)
+    const jsonLd = this.getJsonLdData();
+    if (jsonLd) {
+      const img = jsonLd.image;
+      if (Array.isArray(img) && img.length > 0) return this.resolveUrl(img[0]);
+      if (typeof img === 'string') return this.resolveUrl(img);
+      if (img?.url) return this.resolveUrl(img.url);
+    }
+
+    // 2. Fallback to standard meta tags
+    const metaSelectors = [
+      "meta[property='og:image']",
+      "meta[name='twitter:image']",
+      "meta[itemprop='image']",
+      "link[rel='image_src']",
+      "#landingImage",     // Amazon Product
+      "#imgBlkFront",      // Amazon Books
+      "#main-image",       // Amazon General
+      ".printable-image"   // Printables fallback
+    ];
+
+    for (const selector of metaSelectors) {
+      const url = this.htmlDoc.querySelector(selector)?.getAttribute("content");
+      if (url) return this.resolveUrl(url);
+    }
+
+    // 3. Fallback to site-specific IDs (Amazon/Printables legacy)
+    const idSelectors = ["#landingImage", "#imgBlkFront", ".printable-image"];
+    for (const selector of idSelectors) {
+      const url = this.htmlDoc.querySelector(selector)?.getAttribute("src");
+      if (url) return this.resolveUrl(url);
+    }
 
     return undefined;
   }

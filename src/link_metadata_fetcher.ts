@@ -18,18 +18,17 @@ export class LinkMetadataFetcher {
    /* --- GENERIC --- */
    private async fetchGeneric(url: string): Promise<LinkMetadata | undefined> {
       const res = await this.request(url, {
-         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-         "Accept-Language": "en-US,en;q=0.5",
+         "Referer": "https://www.google.com/"
       });
 
       if (!res || res.status !== 200) {
-         console.log(`bad response. response status code was ${res?.status}`);
-         new Notice("Couldn't fetch link metadata");
+         console.log(`Fetch failed for ${url}. Status: ${res?.status}`);
+         new Notice(`Couldn't fetch metadata for ${new URL(url).hostname}`);
+
          return {
             url,
             title: "Fetch error",
-            description: res ? `HTTP ${res.status}` : "Request failed",
+            // description: res ? `HTTP ${res.status}` : "Request failed (Timeout or Network Error)",
             host: new URL(url).hostname,
             indent: 0,
          };
@@ -219,16 +218,25 @@ export class LinkMetadataFetcher {
    }
 
    /* --- SHARED HELPER --- */
-   private async request(url: string, headers: Record<string, string> = { "User-Agent": "obsidian-auto-card-link/1.0" }) {
+   private async request(url: string, customHeaders: Record<string, string> = {}) {
+      const headers = {
+         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+         "Accept-Language": "en-US,en;q=0.9",
+         "Cache-Control": "no-cache",
+         "Pragma": "no-cache",
+         ...customHeaders
+      };
+
       try {
          return await Promise.race([
             requestUrl({ url, headers }),
             new Promise<never>((_, reject) =>
-               setTimeout(() => reject(new Error("Request timeout")), 5000)
+               setTimeout(() => reject(new Error("Timeout")), 5000)
             ),
          ]);
       } catch (e) {
-         console.log(e);
+         console.error(`Fetch failed for ${url}:`, e);
          return undefined;
       }
    }

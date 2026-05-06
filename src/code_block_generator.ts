@@ -61,12 +61,12 @@ export class CodeBlockGenerator {
     const codeBlockTexts = ["```cardlink"];
     codeBlockTexts.push(`url: "${linkMetadata.url}"`);
     codeBlockTexts.push(`title: "${linkMetadata.title}"`);
-    if (linkMetadata.description)
-      codeBlockTexts.push(`description: "${linkMetadata.description}"`);
+
+    if (linkMetadata.description) codeBlockTexts.push(`description: "${linkMetadata.description}"`);
     if (linkMetadata.host) codeBlockTexts.push(`host: "${linkMetadata.host}"`);
-    if (linkMetadata.favicon)
-      codeBlockTexts.push(`favicon: "${linkMetadata.favicon}"`);
+    if (linkMetadata.favicon) codeBlockTexts.push(`favicon: "${linkMetadata.favicon}"`);
     if (linkMetadata.image) codeBlockTexts.push(`image: "${linkMetadata.image}"`);
+
     codeBlockTexts.push("```\n");
     return codeBlockTexts.join("\n");
   }
