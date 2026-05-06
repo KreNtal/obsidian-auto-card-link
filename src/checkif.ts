@@ -23,4 +23,8 @@ export class CheckIf {
   public static isRedditUrl(url: string): boolean {
     return /reddit\.com\/(r|u|user)\//.test(url);
   }
+
+  public static isImdbUrl(url: string): boolean {
+    return /imdb\.com\//.test(url);
+  }
 }

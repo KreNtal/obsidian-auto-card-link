@@ -92,7 +92,7 @@
     color: var(--link-external-color);
     background: var(--background-primary-alt);
     border: solid var(--border-width) var(--divider-color);
-    border-radius: var(--radius-s);
+    border-radius: var(--radius-m);
 
     &:hover {
         background: var(--background-modifier-hover);
@@ -178,7 +178,7 @@
 
 .auto-card-link-thumbnail {
     width: unset !important;
-    border-radius: var(--radius-s) 0 0 var(--radius-s) !important;
+    border-radius: var(--radius-m);
     height: 100%;
     object-fit: fill;
     max-width: min(200px, 50%) !important;

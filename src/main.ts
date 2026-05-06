@@ -4,7 +4,9 @@ import {
   ObsidianAutoCardLinkSettings,
   ObsidianAutoCardLinkSettingTab,
   DEFAULT_SETTINGS,
+  applyThumbnailPosition
 } from "src/settings";
+
 import { EditorExtensions } from "src/editor_enhancements";
 import { CheckIf } from "src/checkif";
 import { CodeBlockGenerator } from "src/code_block_generator";
@@ -21,6 +23,8 @@ export default class ObsidianAutoCardLink extends Plugin {
       const processor = new CodeBlockProcessor(this.app);
       await processor.run(source, el);
     });
+
+    applyThumbnailPosition(this.settings?.thumbnailPosition ?? "left");
 
     this.addCommand({
       id: "auto-card-link-paste-and-enhance",

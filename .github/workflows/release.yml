@@ -36,6 +36,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2.3.2
         with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          fail_on_unmatched_files: false
           files: |
             main.js
             manifest.json
