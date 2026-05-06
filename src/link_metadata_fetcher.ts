@@ -1,4 +1,4 @@
-import { requestUrl } from "obsidian";
+import { Notice, requestUrl } from "obsidian";
 import { LinkMetadata } from "src/interfaces";
 import { LinkMetadataParser } from "src/link_metadata_parser";
 import { CheckIf } from "src/checkif";
@@ -25,6 +25,7 @@ export class LinkMetadataFetcher {
 
       if (!res || res.status !== 200) {
          console.log(`bad response. response status code was ${res?.status}`);
+         new Notice("Couldn't fetch link metadata");
          return {
             url,
             title: "Fetch error",

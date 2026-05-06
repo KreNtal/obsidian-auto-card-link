@@ -58,62 +58,51 @@ export class LinkMetadataParser {
   }
 
   private async getFavicon(): Promise<string | undefined> {
-    const favicon = this.htmlDoc
-      .querySelector("link[rel='icon']")
-      ?.getAttribute("href");
-    if (favicon) return await this.fixImageUrl(favicon);
+    // Try all common favicon link rel variants in order
+    const selectors = [
+      "link[rel='icon']",
+      "link[rel='shortcut icon']",
+      "link[rel='apple-touch-icon']",
+      "link[rel='apple-touch-icon-precomposed']",
+    ];
 
-    return undefined;
+    for (const selector of selectors) {
+      const href = this.htmlDoc.querySelector(selector)?.getAttribute("href");
+      if (href) return this.resolveUrl(href);
+    }
+
+    // Fallback: /favicon.ico always exists on well-behaved sites
+    const { origin } = new URL(this.url);
+    return `${origin}/favicon.ico`;
   }
 
   private async getImage(): Promise<string | undefined> {
     const ogImage = this.htmlDoc
       .querySelector("meta[property='og:image']")
       ?.getAttribute("content");
-    if (ogImage) return await this.fixImageUrl(ogImage);
+    if (ogImage) return this.resolveUrl(ogImage);
+
+    // Also try twitter:image as fallback
+    const twitterImage = this.htmlDoc
+      .querySelector("meta[name='twitter:image'], meta[property='twitter:image']")
+      ?.getAttribute("content");
+    if (twitterImage) return this.resolveUrl(twitterImage);
 
     return undefined;
   }
 
-  private async fixImageUrl(url: string | undefined): Promise<string> {
-    if (url === undefined) return "";
-    const { hostname } = new URL(this.url);
-    let image = url;
-    // check if image url use double protocol
-    if (url && url.startsWith("//")) {
-      //   check if url can access via https or http
-      const testUrlHttps = `https:${url}`;
-      const testUrlHttp = `http:${url}`;
-      if (await checkUrlAccessibility(testUrlHttps)) {
-        image = testUrlHttps;
-      } else if (await checkUrlAccessibility(testUrlHttp)) {
-        image = testUrlHttp;
-      }
-    } else if (url && url.startsWith("/") && hostname) {
-      //   check if image url is relative path
-      const testUrlHttps = `https://${hostname}${url}`;
-      const testUrlHttp = `http://${hostname}${url}`;
-      const resUrlHttps = await checkUrlAccessibility(testUrlHttps);
-      const resUrlHttp = await checkUrlAccessibility(testUrlHttp);
-      //   check if url can access via https or http
-      if (resUrlHttps) {
-        image = testUrlHttps;
-      } else if (resUrlHttp) {
-        image = testUrlHttp;
-      }
+  // Replace fixImageUrl with a simpler resolver that trusts the URL
+  private resolveUrl(url: string): string {
+    if (!url) return "";
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    if (url.startsWith("//")) return `https:${url}`;
+    if (url.startsWith("/")) {
+      const { origin } = new URL(this.url);
+      return `${origin}${url}`;
     }
-
-    // check if url is accessible via image element
-    async function checkUrlAccessibility(url: string): Promise<boolean> {
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => resolve(true);
-        img.onerror = () => resolve(false);
-        img.src = url;
-      });
-    }
-
-    return image;
+    // relative path
+    const base = this.url.replace(/\/[^/]*$/, "/");
+    return `${base}${url}`;
   }
 
   static sanitizeText(text: string | undefined): string | undefined {
