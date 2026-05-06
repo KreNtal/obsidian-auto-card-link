@@ -1,4 +1,5 @@
-> NOTE: This fork is maintained by KreNtal
+This is a fork of [obsidian-auto-card-link](https://github.com/nekoshita/obsidian-auto-card-link)
+by [Nekoshita Yuki](https://github.com/nekoshita), maintained by [KreNtal](https://github.com/KreNtal).
 
 # Auto Card Link
 

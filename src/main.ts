@@ -41,6 +41,8 @@ export default class ObsidianAutoCardLink extends Plugin {
         if (checking) return true;
 
         this.enhanceSelectedURL(editor);
+
+        return true;
       },
       hotkeys: [
         {
@@ -179,7 +181,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     if (regExpExecArray === null || regExpExecArray.length < 2) {
       return "";
     }
-    return regExpExecArray[2];
+    return regExpExecArray[2] ?? "";
   }
 
   onunload() {

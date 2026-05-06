@@ -1,37 +1,39 @@
 {
-  "name": "obsidian-auto-card-link",
-  "version": "1.2.3",
-  "description": "Automatically fetches metadata from a url and makes it as a card-styled link",
-  "main": "main.js",
-  "type": "module",
-  "scripts": {
-    "dev": "node esbuild.config.js",
-    "build": "tsc -noEmit && node esbuild.config.js production",
-    "lint": "tsc --noEmit && eslint . --ext .ts",
-    "fix": "eslint . --fix --ext .ts",
-    "version": "node version-bump.js && git add manifest.json versions.json"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/nekoshita/obsidian-auto-card-link.git"
-  },
-  "author": "Nekoshita Yuki",
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/nekoshita/obsidian-auto-card-link/issues"
-  },
-  "homepage": "https://github.com/nekoshita/obsidian-auto-card-link#readme",
-  "devDependencies": {
-    "@types/node": "^17.0.23",
-    "@typescript-eslint/eslint-plugin": "^5.17.0",
-    "@typescript-eslint/parser": "^5.17.0",
-    "builtin-modules": "^3.2.0",
-    "esbuild": "^0.14.28",
-    "eslint": "^8.12.0",
-    "eslint-config-prettier": "^8.5.0",
-    "eslint-plugin-prettier": "^4.0.0",
-    "obsidian": "^0.14.3",
-    "prettier": "^2.6.1",
-    "typescript": "^4.6.3"
-  }
+	"name": "obsidian-auto-card-link",
+	"version": "1.2.4",
+	"description": "Automatically fetches metadata from a url and makes it as a card-styled link",
+	"main": "main.js",
+	"type": "module",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"lint": "eslint .",
+		"fix": "eslint . --fix",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
+	},
+	"author": "KreNtal",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/KreNtal/obsidian-auto-card-link.git"
+	},
+	"bugs": {
+		"url": "https://github.com/KreNtal/obsidian-auto-card-link/issues"
+	},
+	"homepage": "https://github.com/KreNtal/obsidian-auto-card-link#readme",
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^17.0.23",
+		"esbuild": "0.25.5",
+		"builtin-modules": "^3.2.0",
+		"eslint-plugin-obsidianmd": "0.1.9",
+		"globals": "14.0.0",
+		"tslib": "2.4.0",
+		"typescript": "^5.8.3",
+		"typescript-eslint": "8.35.1",
+		"@eslint/js": "9.30.1",
+		"jiti": "2.6.1"
+	},
+	"dependencies": {
+		"obsidian": "latest"
+	}
 }

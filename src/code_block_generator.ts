@@ -3,6 +3,7 @@ import { Editor, Notice, requestUrl } from "obsidian";
 import { LinkMetadata } from "src/interfaces";
 import { EditorExtensions } from "src/editor_enhancements";
 import { LinkMetadataParser } from "src/link_metadata_parser";
+import { CheckIf } from "./checkif";
 
 export class CodeBlockGenerator {
   editor: Editor;
@@ -83,10 +84,10 @@ export class CodeBlockGenerator {
   private async fetchLinkMetadata(
     url: string
   ): Promise<LinkMetadata | undefined> {
-    if (this.isYouTubeUrl(url))
+    if (CheckIf.isYouTubeUrl(url))
       return this.fetchYouTubeLinkMetadata(url);
 
-    if (this.isRedditUrl(url))
+    if (CheckIf.isRedditUrl(url))
       return this.fetchRedditLinkMetadata(url);
 
     const res = await (async () => {
@@ -121,10 +122,6 @@ export class CodeBlockGenerator {
   }
 
   /* --- YOUTUBE --- */
-  private isYouTubeUrl(url: string): boolean {
-    return /^https?:\/\/(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(url);
-  }
-
   private async fetchYouTubeLinkMetadata(
     url: string
   ): Promise<LinkMetadata | undefined> {
@@ -179,10 +176,6 @@ export class CodeBlockGenerator {
   }
 
   /* --- REDDIT --- */
-  private isRedditUrl(url: string): boolean {
-    return /reddit\.com\/(r|u|user)\//.test(url);
-  }
-
   private async fetchRedditLinkMetadata(
     url: string
   ): Promise<LinkMetadata | undefined> {
@@ -202,6 +195,8 @@ export class CodeBlockGenerator {
     } else if (isUser) {
       return this.fetchRedditUser(url, normalized);
     }
+
+    return undefined;
   }
 
   private async fetchRedditPost(

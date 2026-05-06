@@ -15,4 +15,12 @@ export class CheckIf {
     const regex = new RegExp(linkRegex);
     return regex.test(text);
   }
+
+  public static isYouTubeUrl(url: string): boolean {
+    return /^https?:\/\/(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(url);
+  }
+
+  public static isRedditUrl(url: string): boolean {
+    return /reddit\.com\/(r|u|user)\//.test(url);
+  }
 }
