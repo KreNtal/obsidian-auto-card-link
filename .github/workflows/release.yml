@@ -38,6 +38,8 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          draft: true
+          prerelease: false
           fail_on_unmatched_files: false
           files: |
             main.js
