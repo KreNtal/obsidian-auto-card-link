@@ -107,40 +107,29 @@ export class LinkMetadataParser {
   }
 
   private async getImage(): Promise<string | undefined> {
-    // Trust og:image and twitter:image directly — no validation needed
+    // Trust og:image and twitter:image directly — check both property and name attributes
     const trustedImage =
       this.htmlDoc.querySelector("meta[property='og:image']")?.getAttribute("content") ??
+      this.htmlDoc.querySelector("meta[name='og:image']")?.getAttribute("content") ??
+      this.htmlDoc.querySelector("meta[property='twitter:image']")?.getAttribute("content") ??
       this.htmlDoc.querySelector("meta[name='twitter:image']")?.getAttribute("content");
 
     if (trustedImage) return this.resolveUrl(trustedImage);
 
-    // For other sources (JSON-LD, src attributes) still validate
+    // For other sources, validate via browser img element
     const url = this.findImageUrl();
     if (!url) return undefined;
 
-    const imageHeaders = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
-      "Referer": new URL(this.url).origin + "/",
-    };
+    return this.checkImageWithBrowser(url);
+  }
 
-    try {
-      const res = await requestUrl({ url, method: "HEAD", headers: imageHeaders });
-      const contentType = res.headers?.["content-type"] ?? "";
-      if (res.status >= 200 && res.status < 400 && contentType.startsWith("image/")) {
-        return url;
-      }
-    } catch { /* HEAD blocked, try GET */ }
-
-    try {
-      const res = await requestUrl({ url, method: "GET", headers: imageHeaders });
-      const contentType = res.headers?.["content-type"] ?? "";
-      if (res.status >= 200 && res.status < 400 && contentType.startsWith("image/")) {
-        return url;
-      }
-    } catch { /* both failed */ }
-
-    return undefined;
+  private checkImageWithBrowser(url: string): Promise<string | undefined> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(url);
+      img.onerror = () => resolve(undefined);
+      img.src = url;
+    });
   }
 
   private findImageUrl(): string | undefined {
@@ -180,7 +169,6 @@ export class LinkMetadataParser {
     return undefined;
   }
 
-  // Replace fixImageUrl with a simpler resolver that trusts the URL
   private resolveUrl(url: string): string {
     if (!url) return "";
     if (url.startsWith("http://")) url = url.replace("http://", "https://");
