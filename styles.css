@@ -181,15 +181,34 @@
     margin-right: 0.5em !important;
 }
 
+.auto-card-link-thumbnail-wrap {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    width: min(200px, 40%);
+}
+
 .auto-card-link-thumbnail {
-    width: unset !important;
+    width: 100%;
     border-radius: var(--radius-m);
-    height: 100%;
-    object-fit: fill;
-    max-width: min(200px, 50%) !important;
+    object-fit: cover;
     padding: 4px;
     box-sizing: border-box;
     pointer-events: none;
+}
+
+.auto-card-link-duration {
+    position: absolute;
+    bottom: 7px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.8);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 4px;
+    pointer-events: none;
+    letter-spacing: 0.3px;
 }
 
 .auto-card-link-copy-url {

@@ -70,6 +70,7 @@ export class CodeBlockProcessor {
       host: yaml.host,
       favicon: yaml.favicon,
       image: yaml.image,
+      duration: yaml.duration,
       indent,
     };
   }
@@ -146,11 +147,22 @@ export class CodeBlockProcessor {
       if (!CheckIf.isUrl(data.image))
         data.image = this.getLocalImagePath(data.image);
 
+      const thumbnailWrapEl = document.createElement("div");
+      thumbnailWrapEl.addClass("auto-card-link-thumbnail-wrap");
+      cardEl.appendChild(thumbnailWrapEl);
+
       const thumbnailEl = document.createElement("img");
       thumbnailEl.addClass("auto-card-link-thumbnail");
       thumbnailEl.setAttr("src", data.image);
       thumbnailEl.setAttr("draggable", "false");
-      cardEl.appendChild(thumbnailEl);
+      thumbnailWrapEl.appendChild(thumbnailEl);
+
+      if (data.duration) {
+        const durationEl = document.createElement("span");
+        durationEl.addClass("auto-card-link-duration");
+        durationEl.textContent = data.duration;
+        thumbnailWrapEl.appendChild(durationEl);
+      }
     }
 
     new ButtonComponent(containerEl)

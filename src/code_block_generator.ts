@@ -40,12 +40,13 @@ export class CodeBlockGenerator {
         return;
       }
 
-      this.editor.replaceRange(this.genCodeBlock(linkMetadata), startPos, endPos);
+      // If the placeholder didn't start at column 0, prepend a newline
+      const prefix = startPos.ch > 0 ? "\n" : "";
+      this.editor.replaceRange(prefix + this.genCodeBlock(linkMetadata), startPos, endPos);
     } catch (e) {
       console.error("convertUrlToCodeBlock failed:", e);
       new Notice("Couldn't fetch link metadata");
 
-      // find and revert the placeholder
       const text = this.editor.getValue();
       const start = text.indexOf(fetchingText);
       if (start >= 0) {
@@ -59,13 +60,14 @@ export class CodeBlockGenerator {
 
   genCodeBlock(linkMetadata: LinkMetadata): string {
     const codeBlockTexts = ["```cardlink"];
-    codeBlockTexts.push(`url: "${linkMetadata.url}"`);
-    codeBlockTexts.push(`title: "${linkMetadata.title}"`);
 
+    codeBlockTexts.push(`url: ${linkMetadata.url}`);
+    codeBlockTexts.push(`title: "${linkMetadata.title}"`);
     if (linkMetadata.description) codeBlockTexts.push(`description: "${linkMetadata.description}"`);
-    if (linkMetadata.host) codeBlockTexts.push(`host: "${linkMetadata.host}"`);
-    if (linkMetadata.favicon) codeBlockTexts.push(`favicon: "${linkMetadata.favicon}"`);
-    if (linkMetadata.image) codeBlockTexts.push(`image: "${linkMetadata.image}"`);
+    if (linkMetadata.host) codeBlockTexts.push(`host: ${linkMetadata.host}`);
+    if (linkMetadata.favicon) codeBlockTexts.push(`favicon: ${linkMetadata.favicon}`);
+    if (linkMetadata.image) codeBlockTexts.push(`image: ${linkMetadata.image}`);
+    if (linkMetadata.duration) codeBlockTexts.push(`duration: "${linkMetadata.duration}"`);
 
     codeBlockTexts.push("```\n");
     return codeBlockTexts.join("\n");

@@ -6,10 +6,9 @@ import { CheckIf } from "./checkif";
 export class LinkMetadataFetcher {
 
    async fetch(url: string): Promise<LinkMetadata | undefined> {
+      url = url.trim().replace(/^["']|["']$/g, "");
       if (CheckIf.isYouTubeUrl(url)) return this.fetchYouTube(url);
-
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url);
-
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
 
       return this.fetchGeneric(url);
@@ -84,10 +83,7 @@ export class LinkMetadataFetcher {
          ? await this.getBestYouTubeThumbnail(videoId)
          : data.thumbnail_url;
 
-      // Try to get description from the video page's embedded ytInitialData
-      const description = videoId
-         ? await this.getYouTubeDescription(url, data.author_name)
-         : `By ${data.author_name}`;
+      const { description, duration } = await this.getYouTubePageData(url, data.author_name);
 
       return {
          url,
@@ -96,15 +92,20 @@ export class LinkMetadataFetcher {
          host: "www.youtube.com",
          favicon: "https://www.youtube.com/favicon.ico",
          image,
+         duration,   // ← add
          indent: 0,
       };
    }
 
-   private async getYouTubeDescription(
+   private getYouTubeVideoId(url: string): string | undefined {
+      return url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+   }
+
+   private async getYouTubePageData(
       url: string,
       authorName: string
-   ): Promise<string> {
-      const fallback = `By ${authorName}`;
+   ): Promise<{ description: string; duration?: string; }> {
+      const fallback = { description: `By ${authorName}` };
 
       const res = await this.request(url, {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -113,28 +114,30 @@ export class LinkMetadataFetcher {
 
       if (!res || res.status !== 200) return fallback;
 
-      // YouTube embeds video metadata in ytInitialData on the page
-      const match = res.text.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
-      if (!match) return fallback;
-
-      // Unescape JSON escape sequences (\n, \u0026, etc.)
-      try {
-         const firstLine = JSON.parse(`"${match[1]}"`)
-            // .split("\n")[0]
-            .trim();
-
-         if (!firstLine) return fallback;
-
-         return firstLine.length > 160
-            ? firstLine.slice(0, 160) + "..."
-            : firstLine;
-      } catch {
-         return fallback;
+      // Extract shortDescription
+      let description = fallback.description;
+      const descMatch = res.text.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
+      if (descMatch) {
+         try {
+            const raw = JSON.parse(`"${descMatch[1]}"`).trim();
+            if (raw) description = raw.length > 160 ? raw.slice(0, 160) + "..." : raw;
+         } catch { /* keep fallback */ }
       }
-   }
 
-   private getYouTubeVideoId(url: string): string | undefined {
-      return url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+      // Extract duration from lengthSeconds
+      let duration: string | undefined;
+      const lengthMatch = res.text.match(/"lengthSeconds":"(\d+)"/);
+      if (lengthMatch) {
+         const seconds = parseInt(lengthMatch[1]!, 10);
+         const h = Math.floor(seconds / 3600);
+         const m = Math.floor((seconds % 3600) / 60);
+         const s = seconds % 60;
+         duration = h > 0
+            ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+            : `${m}:${String(s).padStart(2, "0")}`;
+      }
+
+      return { description, duration };
    }
 
    private async getBestYouTubeThumbnail(videoId: string): Promise<string> {

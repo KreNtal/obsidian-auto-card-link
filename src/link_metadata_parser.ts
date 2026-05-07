@@ -1,3 +1,4 @@
+import { requestUrl } from "obsidian";
 import { LinkMetadata } from "./interfaces";
 
 export class LinkMetadataParser {
@@ -106,6 +107,36 @@ export class LinkMetadataParser {
   }
 
   private async getImage(): Promise<string | undefined> {
+    const url = this.findImageUrl();
+    if (!url) return undefined;
+
+    // Use image-specific headers that CDNs expect from <img> tag requests
+    const imageHeaders = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+      "Referer": new URL(this.url).origin + "/",
+    };
+
+    try {
+      const res = await requestUrl({ url, method: "HEAD", headers: imageHeaders });
+      const contentType = res.headers?.["content-type"] ?? "";
+      if (res.status >= 200 && res.status < 400 && contentType.startsWith("image/")) {
+        return url;
+      }
+    } catch { /* HEAD blocked, try GET */ }
+
+    try {
+      const res = await requestUrl({ url, method: "GET", headers: imageHeaders });
+      const contentType = res.headers?.["content-type"] ?? "";
+      if (res.status >= 200 && res.status < 400 && contentType.startsWith("image/")) {
+        return url;
+      }
+    } catch { /* both failed */ }
+
+    return undefined;
+  }
+
+  private findImageUrl(): string | undefined {
     // 1. Try JSON-LD first (Best for Printables/Amazon)
     const jsonLd = this.getJsonLdData() as Record<string, unknown> | undefined;
     if (jsonLd) {
@@ -121,10 +152,10 @@ export class LinkMetadataParser {
       "meta[name='twitter:image']",
       "meta[itemprop='image']",
       "link[rel='image_src']",
-      "#landingImage",     // Amazon Product
-      "#imgBlkFront",      // Amazon Books
-      "#main-image",       // Amazon General
-      ".printable-image"   // Printables fallback
+      "#landingImage",
+      "#imgBlkFront",
+      "#main-image",
+      ".printable-image"
     ];
 
     for (const selector of metaSelectors) {
@@ -145,13 +176,16 @@ export class LinkMetadataParser {
   // Replace fixImageUrl with a simpler resolver that trusts the URL
   private resolveUrl(url: string): string {
     if (!url) return "";
-    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    if (url.startsWith("http://")) url = url.replace("http://", "https://");
+    if (url.startsWith("https://")) {
+      // Fix double slashes in path (after the protocol)
+      return url.replace(/([^:])\/\/+/g, "$1/");
+    }
     if (url.startsWith("//")) return `https:${url}`;
     if (url.startsWith("/")) {
       const { origin } = new URL(this.url);
       return `${origin}${url}`;
     }
-    // relative path
     const base = this.url.replace(/\/[^/]*$/, "/");
     return `${base}${url}`;
   }
