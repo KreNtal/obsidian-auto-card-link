@@ -83,6 +83,10 @@
     }
 }
 
+.auto-card-link-thumbnail-right .auto-card-link-card {
+    flex-direction: row;
+}
+
 .auto-card-link-card {
     display: flex;
     flex-direction: row-reverse;

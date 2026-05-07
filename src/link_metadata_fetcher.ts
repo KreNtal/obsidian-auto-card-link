@@ -24,18 +24,51 @@ export class LinkMetadataFetcher {
       if (!res || res.status !== 200) {
          console.log(`Fetch failed for ${url}. Status: ${res?.status}`);
          new Notice(`Couldn't fetch metadata for ${new URL(url).hostname}`);
-
-         return {
-            url,
-            title: "Fetch error",
-            // description: res ? `HTTP ${res.status}` : "Request failed (Timeout or Network Error)",
-            host: new URL(url).hostname,
-            indent: 0,
-         };
+         return this.fetchTitleOnly(url);
       }
 
       const parser = new LinkMetadataParser(url, res.text);
-      return parser.parse();
+      return parser.parse() ?? this.fetchTitleOnly(url);
+   }
+
+   private async fetchTitleOnly(url: string): Promise<LinkMetadata> {
+      const hostname = new URL(url).hostname;
+
+      const res = await this.request(url, {
+         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      });
+
+      // Even on non-200, some sites return HTML in the body (e.g. 202, 403 with a page)
+      // so we attempt to parse the title regardless of status
+      if (res?.text) {
+         const match = res.text.match(/<title[^>]*>([^<]+)<\/title>/i);
+         const title = match?.[1]?.trim()
+            ?.replace(/&amp;/g, "&")
+            ?.replace(/&lt;/g, "<")
+            ?.replace(/&gt;/g, ">")
+            ?.replace(/&quot;/g, '"')
+            ?.replace(/&#039;/g, "'");
+
+         if (title) {
+            return {
+               url,
+               title: LinkMetadataParser.sanitizeText(title) ?? title,
+               host: hostname,
+               favicon: `https://${hostname}/favicon.ico`,
+               indent: 0,
+            };
+         }
+      }
+
+      // Nothing worked — return a minimal card with just the hostname as title
+      return {
+         url,
+         title: hostname,
+         host: hostname,
+         favicon: `https://${hostname}/favicon.ico`,
+         indent: 0,
+      };
    }
 
    /* --- YOUTUBE --- */

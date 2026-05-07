@@ -4,7 +4,7 @@ import ObsidianAutoCardLink from "src/main";
 export interface ObsidianAutoCardLinkSettings {
   showInMenuItem: boolean;
   enhanceDefaultPaste: boolean;
-  thumbnailPosition: "left" | "right";  // ← add
+  thumbnailPosition: "left" | "right";
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
@@ -26,7 +26,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     // --- General ---
-    containerEl.createEl("h3", { text: "General" });
+    new Setting(containerEl).setName("General").setHeading();
 
     new Setting(containerEl)
       .setName("Enhance Default Paste")
@@ -57,7 +57,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
       });
 
     // --- Appearance ---
-    containerEl.createEl("h3", { text: "Appearance" });
+    new Setting(containerEl).setName("Appearance").setHeading();
 
     new Setting(containerEl)
       .setName("Thumbnail position")
