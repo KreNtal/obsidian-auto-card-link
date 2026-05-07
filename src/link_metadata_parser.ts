@@ -107,10 +107,17 @@ export class LinkMetadataParser {
   }
 
   private async getImage(): Promise<string | undefined> {
+    // Trust og:image and twitter:image directly — no validation needed
+    const trustedImage =
+      this.htmlDoc.querySelector("meta[property='og:image']")?.getAttribute("content") ??
+      this.htmlDoc.querySelector("meta[name='twitter:image']")?.getAttribute("content");
+
+    if (trustedImage) return this.resolveUrl(trustedImage);
+
+    // For other sources (JSON-LD, src attributes) still validate
     const url = this.findImageUrl();
     if (!url) return undefined;
 
-    // Use image-specific headers that CDNs expect from <img> tag requests
     const imageHeaders = {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",

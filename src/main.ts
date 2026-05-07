@@ -268,8 +268,6 @@ export default class ObsidianAutoCardLink extends Plugin {
     // Refetch: always shown when hovering a card, regardless of settings
     const cardlinkAtMouse = this.getCardlinkAtMouse();
     const cardlinkAtCursor = cardlinkAtMouse ?? this.getCardlinkUrlAtCursor(editor);
-    console.log(cardlinkAtMouse);
-
 
     menu.addSeparator();
     if (cardlinkAtCursor) {
