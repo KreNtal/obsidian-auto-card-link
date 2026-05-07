@@ -79,19 +79,58 @@ export class LinkMetadataFetcher {
 
       const data = JSON.parse(res.text);
       const videoId = this.getYouTubeVideoId(url);
+
       const image = videoId
          ? await this.getBestYouTubeThumbnail(videoId)
          : data.thumbnail_url;
 
+      // Try to get description from the video page's embedded ytInitialData
+      const description = videoId
+         ? await this.getYouTubeDescription(url, data.author_name)
+         : `By ${data.author_name}`;
+
       return {
          url,
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
-         description: LinkMetadataParser.sanitizeText(`By ${data.author_name}`),
+         description: LinkMetadataParser.sanitizeText(description),
          host: "www.youtube.com",
          favicon: "https://www.youtube.com/favicon.ico",
          image,
          indent: 0,
       };
+   }
+
+   private async getYouTubeDescription(
+      url: string,
+      authorName: string
+   ): Promise<string> {
+      const fallback = `By ${authorName}`;
+
+      const res = await this.request(url, {
+         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+         "Accept-Language": "en-US,en;q=0.9",
+      });
+
+      if (!res || res.status !== 200) return fallback;
+
+      // YouTube embeds video metadata in ytInitialData on the page
+      const match = res.text.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
+      if (!match) return fallback;
+
+      // Unescape JSON escape sequences (\n, \u0026, etc.)
+      try {
+         const firstLine = JSON.parse(`"${match[1]}"`)
+            // .split("\n")[0]
+            .trim();
+
+         if (!firstLine) return fallback;
+
+         return firstLine.length > 160
+            ? firstLine.slice(0, 160) + "..."
+            : firstLine;
+      } catch {
+         return fallback;
+      }
    }
 
    private getYouTubeVideoId(url: string): string | undefined {
