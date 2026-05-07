@@ -1,8 +1,8 @@
-import { Editor, Notice, requestUrl } from "obsidian";
+import { Editor, Notice } from "obsidian";
 
-import { LinkMetadata } from "src/interfaces";
-import { EditorExtensions } from "src/editor_enhancements";
-import { LinkMetadataFetcher } from "src/link_metadata_fetcher";
+import { LinkMetadata } from "./interfaces";
+import { EditorExtensions } from "./editor_enhancements";
+import { LinkMetadataFetcher } from "./link_metadata_fetcher";
 
 export class CodeBlockGenerator {
   editor: Editor;

@@ -5,13 +5,13 @@ import {
   ObsidianAutoCardLinkSettingTab,
   DEFAULT_SETTINGS,
   applyThumbnailPosition
-} from "src/settings";
+} from "./settings";
 
-import { EditorExtensions } from "src/editor_enhancements";
-import { CheckIf } from "src/checkif";
-import { CodeBlockGenerator } from "src/code_block_generator";
-import { CodeBlockProcessor } from "src/code_block_processor";
-import { linkRegex } from "src/regex";
+import { EditorExtensions } from "./editor_enhancements";
+import { CheckIf } from "./checkif";
+import { CodeBlockGenerator } from "./code_block_generator";
+import { CodeBlockProcessor } from "./code_block_processor";
+import { linkRegex } from "./regex";
 
 export default class ObsidianAutoCardLink extends Plugin {
   settings?: ObsidianAutoCardLinkSettings;

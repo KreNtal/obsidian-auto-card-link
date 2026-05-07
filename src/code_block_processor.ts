@@ -1,7 +1,7 @@
 import { App, parseYaml, Notice, ButtonComponent, getLinkpath } from "obsidian";
 
-import { YamlParseError, NoRequiredParamsError } from "src/errors";
-import { LinkMetadata } from "src/interfaces";
+import { YamlParseError, NoRequiredParamsError } from "./errors";
+import { LinkMetadata } from "./interfaces";
 import { CheckIf } from "./checkif";
 
 export class CodeBlockProcessor {

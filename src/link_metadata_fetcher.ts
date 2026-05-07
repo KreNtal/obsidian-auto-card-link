@@ -1,7 +1,7 @@
 import { Notice, requestUrl } from "obsidian";
-import { LinkMetadata } from "src/interfaces";
-import { LinkMetadataParser } from "src/link_metadata_parser";
-import { CheckIf } from "src/checkif";
+import { LinkMetadata } from "./interfaces";
+import { LinkMetadataParser } from "./link_metadata_parser";
+import { CheckIf } from "./checkif";
 
 export class LinkMetadataFetcher {
 

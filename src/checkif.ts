@@ -1,4 +1,4 @@
-import { urlRegex, linkRegex, imageRegex } from "src/regex";
+import { urlRegex, linkRegex, imageRegex } from "./regex";
 
 export class CheckIf {
   public static isUrl(text: string): boolean {

@@ -1,4 +1,4 @@
-import { LinkMetadata } from "src/interfaces";
+import { LinkMetadata } from "./interfaces";
 
 export class LinkMetadataParser {
   url: string;

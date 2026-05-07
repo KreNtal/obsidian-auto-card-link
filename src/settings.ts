@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
-import ObsidianAutoCardLink from "src/main";
+import ObsidianAutoCardLink from "./main";
 
 export interface ObsidianAutoCardLinkSettings {
   showInMenuItem: boolean;

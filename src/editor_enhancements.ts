@@ -1,6 +1,6 @@
 import { Editor, EditorPosition } from "obsidian";
 
-import { linkLineRegex, lineRegex } from "src/regex";
+import { linkLineRegex, lineRegex } from "./regex";
 
 interface WordBoundaries {
   start: { line: number; ch: number };
