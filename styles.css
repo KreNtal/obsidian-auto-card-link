@@ -47,7 +47,7 @@
 }
 
 @container (max-width: 300px) {
-    .auto-card-link-thumbnail {
+    .auto-card-link-thumbnail-wrap {
         display: none;
     }
 }
@@ -55,10 +55,6 @@
 @container (max-width: 500px) {
     .auto-card-link-description {
         display: none;
-    }
-
-    .auto-card-link-thumbnail {
-        max-width: 40% !important;
     }
 
     .auto-card-link-title {

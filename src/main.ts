@@ -15,9 +15,12 @@ import { linkRegex } from "./regex";
 
 export default class ObsidianAutoCardLink extends Plugin {
   settings?: ObsidianAutoCardLinkSettings;
+  private cachedClipboard = "";
 
   async onload() {
     await this.loadSettings();
+    this.registerDomEvent(window, "focus", this.updateClipboardCache);
+    this.registerDomEvent(document, "contextmenu", this.updateClipboardCache);
 
     this.registerMarkdownCodeBlockProcessor("cardlink", async (source, el, ctx) => {
       const processor = new CodeBlockProcessor(this.app);
@@ -134,30 +137,26 @@ export default class ObsidianAutoCardLink extends Plugin {
       i++;
     }
 
-    return bestUrl;
+    return bestDistance === 0 ? bestUrl : undefined;
   }
 
-  private async refetchCardlink(
+  private resolveCardlinkRange(
     editor: Editor,
     cardlink: string | { url: string; lineStart: number; lineEnd: number; }
-  ): Promise<void> {
+  ): { url: string; startPos: { line: number; ch: number }; endPos: { line: number; ch: number }; } | undefined {
     const url = typeof cardlink === "string" ? cardlink : cardlink.url;
-    const content = editor.getValue();
-    const lines = content.split(/\r?\n/);
+    const lines = editor.getValue().split(/\r?\n/);
 
     let blockStart = -1;
     let blockEnd = -1;
 
     if (typeof cardlink === "object") {
-      // Use exact line numbers from the rendered element data attributes
       blockStart = cardlink.lineStart;
       blockEnd = cardlink.lineEnd;
     } else {
-      // Cursor-based search fallback for source mode
       const cursor = editor.getCursor();
-      const searchRadius = 20;
       let bestDistance = Infinity;
-      let i = Math.max(0, cursor.line - searchRadius);
+      let i = Math.max(0, cursor.line - 20);
 
       while (i < lines.length) {
         const line = lines[i] ?? "";
@@ -189,11 +188,10 @@ export default class ObsidianAutoCardLink extends Plugin {
       }
     }
 
-    if (blockStart < 0 || blockEnd < 0) return;
+    if (blockStart < 0 || blockEnd < 0) return undefined;
 
     const startPos = { line: blockStart, ch: 0 };
 
-    // Consume the block + any trailing empty lines after it
     let consumeUntil = blockEnd;
     while (
       consumeUntil + 1 < lines.length &&
@@ -206,12 +204,32 @@ export default class ObsidianAutoCardLink extends Plugin {
       ? { line: consumeUntil + 1, ch: 0 }
       : { line: consumeUntil, ch: (lines[consumeUntil] ?? "").length };
 
+    return { url, startPos, endPos };
+  }
+
+  private async refetchCardlink(
+    editor: Editor,
+    cardlink: string | { url: string; lineStart: number; lineEnd: number; }
+  ): Promise<void> {
+    const range = this.resolveCardlinkRange(editor, cardlink);
+    if (!range) return;
+    const { url, startPos, endPos } = range;
+
     editor.replaceRange(url, startPos, endPos);
     editor.setCursor(startPos);
-    editor.setSelection(startPos, { line: blockStart, ch: url.length });
+    editor.setSelection(startPos, { line: startPos.line, ch: url.length });
 
     const codeBlockGenerator = new CodeBlockGenerator(editor);
     await codeBlockGenerator.convertUrlToCodeBlock(url);
+  }
+
+  private deleteCardlink(
+    editor: Editor,
+    cardlink: string | { url: string; lineStart: number; lineEnd: number; }
+  ): void {
+    const range = this.resolveCardlinkRange(editor, cardlink);
+    if (!range) return;
+    editor.replaceRange("", range.startPos, range.endPos);
   }
 
   private async enhanceSelectedURL(editor: Editor): Promise<void> {
@@ -246,6 +264,14 @@ export default class ObsidianAutoCardLink extends Plugin {
     await codeBlockGenerator.convertUrlToCodeBlock(clipboardText);
   }
 
+  private updateClipboardCache = async () => {
+    try {
+      this.cachedClipboard = await navigator.clipboard.readText();
+    } catch {
+      // Clipboard permission unavailable — keep previous cached value
+    }
+  };
+
   private onPaste = async (evt: ClipboardEvent, editor: Editor): Promise<void> => {
     if (!this.settings?.enhanceDefaultPaste) return;
     if (!navigator.onLine) return;
@@ -254,6 +280,8 @@ export default class ObsidianAutoCardLink extends Plugin {
 
     const clipboardText = evt.clipboardData.getData("text/plain");
     if (clipboardText == null || clipboardText == "") return;
+
+    this.cachedClipboard = clipboardText;
 
     if (!CheckIf.isUrl(clipboardText) || CheckIf.isImage(clipboardText)) return;
 
@@ -265,38 +293,58 @@ export default class ObsidianAutoCardLink extends Plugin {
   };
 
   private onEditorMenu = (menu: Menu, editor: Editor) => {
-    // Refetch: always shown when hovering a card, regardless of settings
     const cardlinkAtMouse = this.getCardlinkAtMouse();
     const cardlinkAtCursor = cardlinkAtMouse ?? this.getCardlinkUrlAtCursor(editor);
 
+    const selectedText = (EditorExtensions.getSelectedText(editor) || "").trim();
+    const hasSelectedUrl = selectedText.split(/[\n ]/).some(
+      (line) => CheckIf.isUrl(line) || CheckIf.isLinkedUrl(line)
+    );
+
+    const online = navigator.onLine && !!this.settings?.showInMenuItem;
+    const canPaste = online && (this.cachedClipboard === "" || (CheckIf.isUrl(this.cachedClipboard) && !CheckIf.isImage(this.cachedClipboard)));
+    const canEnhance = online && hasSelectedUrl;
+
+    if (!cardlinkAtCursor && !canPaste && !canEnhance) return;
+
     menu.addSeparator();
+
     if (cardlinkAtCursor) {
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Refetch card link")
+          .setTitle("Refresh Card Link")
           .setIcon("refresh-cw")
           .onClick(async () => {
             await this.refetchCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
           });
       });
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Delete Card Link")
+          .setIcon("trash")
+          .onClick(() => {
+            this.deleteCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
+          });
+      });
     }
 
-    if (!this.settings?.showInMenuItem) return;
-    if (!navigator.onLine) return;
+    if (canPaste) {
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Paste URL to a Card Link")
+          .setIcon("paste")
+          .onClick(async () => { await this.manualPasteAndEnhanceURL(editor); });
+      });
+    }
 
-    menu.addItem((item: MenuItem) => {
-      item
-        .setTitle("Paste URL and enhance to card link")
-        .setIcon("paste")
-        .onClick(async () => { await this.manualPasteAndEnhanceURL(editor); });
-    });
-
-    menu.addItem((item: MenuItem) => {
-      item
-        .setTitle("Enhance selected URL to card link")
-        .setIcon("link")
-        .onClick(() => { this.enhanceSelectedURL(editor); });
-    });
+    if (canEnhance) {
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Convert selected URL to Card Link")
+          .setIcon("link")
+          .onClick(() => { this.enhanceSelectedURL(editor); });
+      });
+    }
   };
 
   private getUrlFromLink(link: string): string {

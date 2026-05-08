@@ -58,17 +58,16 @@ export class LinkMetadataParser {
   }
 
   private getDescription(): string | undefined {
-    const ogDescription = this.htmlDoc
-      .querySelector("meta[property='og:description']")
-      ?.getAttribute("content");
-    if (ogDescription) return ogDescription;
+    const raw =
+      this.htmlDoc.querySelector("meta[property='og:description']")?.getAttribute("content") ??
+      this.htmlDoc.querySelector("meta[name='description']")?.getAttribute("content");
 
-    const metaDescription = this.htmlDoc
-      .querySelector("meta[name='description']")
-      ?.getAttribute("content");
-    if (metaDescription) return metaDescription;
+    if (!raw) return undefined;
 
-    return undefined;
+    const div = document.createElement("div");
+    div.innerHTML = raw;
+    const text = (div.textContent ?? "").replace(/\s+/g, " ").trim();
+    return text || undefined;
   }
 
   private async getFavicon(): Promise<string | undefined> {
@@ -107,16 +106,18 @@ export class LinkMetadataParser {
   }
 
   private async getImage(): Promise<string | undefined> {
-    // Trust og:image and twitter:image directly — check both property and name attributes
     const trustedImage =
+      this.htmlDoc.querySelector("meta[property='og:image:secure_url']")?.getAttribute("content") ??
       this.htmlDoc.querySelector("meta[property='og:image']")?.getAttribute("content") ??
       this.htmlDoc.querySelector("meta[name='og:image']")?.getAttribute("content") ??
       this.htmlDoc.querySelector("meta[property='twitter:image']")?.getAttribute("content") ??
       this.htmlDoc.querySelector("meta[name='twitter:image']")?.getAttribute("content");
 
-    if (trustedImage) return this.resolveUrl(trustedImage);
+    if (trustedImage) {
+      const validated = await this.checkImageWithBrowser(this.resolveUrl(trustedImage));
+      if (validated) return validated;
+    }
 
-    // For other sources, validate via browser img element
     const url = this.findImageUrl();
     if (!url) return undefined;
 
@@ -126,14 +127,18 @@ export class LinkMetadataParser {
   private checkImageWithBrowser(url: string): Promise<string | undefined> {
     return new Promise((resolve) => {
       const img = new Image();
-      img.onload = () => resolve(url);
-      img.onerror = () => resolve(undefined);
+      const timer = setTimeout(() => {
+        img.src = "";
+        resolve(undefined);
+      }, 5000);
+      img.onload = () => { clearTimeout(timer); resolve(url); };
+      img.onerror = () => { clearTimeout(timer); resolve(undefined); };
       img.src = url;
     });
   }
 
   private findImageUrl(): string | undefined {
-    // 1. Try JSON-LD first (Best for Printables/Amazon)
+    // 1. Try JSON-LD first (best for Printables/Amazon)
     const jsonLd = this.getJsonLdData() as Record<string, unknown> | undefined;
     if (jsonLd) {
       const img = jsonLd.image as string | string[] | { url: string; } | undefined;
@@ -142,16 +147,10 @@ export class LinkMetadataParser {
       if (img && typeof img === 'object' && 'url' in img) return this.resolveUrl((img as { url: string; }).url);
     }
 
-    // 2. Fallback to standard meta tags
+    // 2. Meta tags with content attribute
     const metaSelectors = [
-      "meta[property='og:image']",
-      "meta[name='twitter:image']",
       "meta[itemprop='image']",
       "link[rel='image_src']",
-      "#landingImage",
-      "#imgBlkFront",
-      "#main-image",
-      ".printable-image"
     ];
 
     for (const selector of metaSelectors) {
@@ -159,9 +158,9 @@ export class LinkMetadataParser {
       if (url) return this.resolveUrl(url);
     }
 
-    // 3. Fallback to site-specific IDs (Amazon/Printables legacy)
-    const idSelectors = ["#landingImage", "#imgBlkFront", ".printable-image"];
-    for (const selector of idSelectors) {
+    // 3. DOM elements with src attribute (Amazon, Printables, etc.)
+    const srcSelectors = ["#landingImage", "#imgBlkFront", "#main-image", ".printable-image"];
+    for (const selector of srcSelectors) {
       const url = this.htmlDoc.querySelector(selector)?.getAttribute("src");
       if (url) return this.resolveUrl(url);
     }
@@ -185,12 +184,14 @@ export class LinkMetadataParser {
     return `${base}${url}`;
   }
 
-  static sanitizeText(text: string | undefined): string | undefined {
+  static sanitizeText(text: string | undefined, maxLength = 160): string | undefined {
     if (!text) return undefined;
-    return text
-      .replace(/\r\n|\n|\r/g, " ")  // newlines → space (safer than stripping)
-      .replace(/\\/g, "\\\\")        // escape backslashes first
-      .replace(/"/g, '\\"')          // escape double quotes
+    let result = text
+      .replace(/\r\n|\n|\r/g, " ")
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
       .trim();
+    if (result.length > maxLength) result = result.slice(0, maxLength).trimEnd() + "...";
+    return result;
   }
 }

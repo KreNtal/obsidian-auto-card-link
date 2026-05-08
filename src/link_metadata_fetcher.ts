@@ -7,6 +7,7 @@ export class LinkMetadataFetcher {
 
    async fetch(url: string): Promise<LinkMetadata | undefined> {
       url = url.trim().replace(/^["']|["']$/g, "");
+      if (url.startsWith("http://")) url = "https://" + url.slice(7);
       if (CheckIf.isYouTubeUrl(url)) return this.fetchYouTube(url);
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url);
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
