@@ -27,7 +27,8 @@ export class LinkMetadataFetcher {
          return this.fetchTitleOnly(url);
       }
 
-      const parser = new LinkMetadataParser(url, res.text);
+      const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+      const parser = new LinkMetadataParser(url, decodedText);
       return parser.parse() ?? this.fetchTitleOnly(url);
    }
 
@@ -291,6 +292,69 @@ export class LinkMetadataFetcher {
          favicon: "https://www.imdb.com/favicon.ico",
          indent: 0,
       };
+   }
+
+   /* --- ENCODING --- */
+   private async decodeHtmlContent(arrayBuffer: ArrayBuffer, fallbackText: string): Promise<string> {
+      try {
+         const uint8Array = new Uint8Array(arrayBuffer);
+         const sampleText = new TextDecoder("utf-8", { fatal: false }).decode(uint8Array.slice(0, 2048));
+
+         const charsetMatch = sampleText.match(
+            /<meta[^>]+(?:charset=["']?([^"'>\s]+)["']?|content=["'][^"']*charset=([^"'>\s;]+))/i
+         );
+         const detectedCharset = (charsetMatch?.[1] ?? charsetMatch?.[2])?.toLowerCase();
+
+         if (detectedCharset) {
+            const normalized = this.normalizeCharset(detectedCharset);
+            if (normalized !== "utf-8") {
+               try {
+                  return new TextDecoder(normalized, { fatal: true }).decode(uint8Array);
+               } catch {
+                  // fall through
+               }
+            }
+         }
+
+         if (this.isGarbledText(fallbackText)) {
+            for (const encoding of ["shift_jis", "euc-kr", "euc-jp", "iso-2022-jp"]) {
+               try {
+                  const decoded = new TextDecoder(encoding, { fatal: true }).decode(uint8Array);
+                  if (!this.isGarbledText(decoded)) return decoded;
+               } catch {
+                  // try next
+               }
+            }
+         }
+
+         return fallbackText;
+      } catch {
+         return fallbackText;
+      }
+   }
+
+   private normalizeCharset(charset: string): string {
+      const key = charset.toLowerCase().replace(/[-_]/g, "");
+      const map: Record<string, string> = {
+         shiftjis:    "shift_jis",
+         sjis:        "shift_jis",
+         xsjis:       "shift_jis",
+         euckr:       "euc-kr",
+         ksc56011987: "euc-kr",
+         eucjp:       "euc-jp",
+         iso2022jp:   "iso-2022-jp",
+         utf8:        "utf-8",
+         iso88591:    "iso-8859-1",
+         latin1:      "iso-8859-1",
+      };
+      return map[key] ?? charset;
+   }
+
+   private isGarbledText(text: string): boolean {
+      if (/�/.test(text)) return true;
+      if (/\?{3,}/.test(text)) return true;
+      const suspicious = text.match(/[À-ɏ]/g);
+      return suspicious !== null && suspicious.length / text.length > 0.1;
    }
 
    /* --- SHARED HELPER --- */
