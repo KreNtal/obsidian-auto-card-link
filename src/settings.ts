@@ -1,16 +1,50 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { AbstractInputSuggest, App, PluginSettingTab, Setting } from "obsidian";
 import ObsidianAutoCardLink from "./main";
+
+class FolderSuggest extends AbstractInputSuggest<string> {
+  private folders: string[];
+  private input: HTMLInputElement;
+
+  constructor(app: App, inputEl: HTMLInputElement) {
+    super(app, inputEl);
+    this.input = inputEl;
+    this.folders = ["/"].concat(this.app.vault.getAllFolders().map(f => f.path));
+  }
+
+  getSuggestions(query: string): string[] {
+    const lower = query.toLowerCase();
+    return this.folders.filter(f => f.toLowerCase().includes(lower));
+  }
+
+  renderSuggestion(folder: string, el: HTMLElement): void {
+    el.createEl("div", { text: folder });
+  }
+
+  selectSuggestion(folder: string): void {
+    this.input.value = folder;
+    this.input.dispatchEvent(new Event("input"));
+    this.close();
+  }
+}
 
 export interface ObsidianAutoCardLinkSettings {
   showInMenuItem: boolean;
   enhanceDefaultPaste: boolean;
   thumbnailPosition: "left" | "right";
+  downloadImages: boolean;
+  downloadFavicons: boolean;
+  imageFolder: string;
+  faviconFolder: string;
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   showInMenuItem: true,
   enhanceDefaultPaste: false,
   thumbnailPosition: "left",
+  downloadImages: false,
+  downloadFavicons: false,
+  imageFolder: "AutoCardLink",
+  faviconFolder: "AutoCardLink/favicons",
 };
 
 export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
@@ -54,6 +88,69 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
             this.plugin.settings.showInMenuItem = value;
             await this.plugin.saveSettings();
           });
+      });
+
+    // --- Images ---
+    new Setting(containerEl).setName("Images").setHeading();
+
+    new Setting(containerEl)
+      .setName("Save images locally")
+      .setDesc("Download and save card thumbnail images to your vault instead of linking to remote URLs.")
+      .addToggle((val) => {
+        if (!this.plugin.settings) return;
+        return val
+          .setValue(this.plugin.settings.downloadImages)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.downloadImages = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Image folder")
+      .setDesc("Vault folder where downloaded images are saved.")
+      .addSearch((search) => {
+        if (!this.plugin.settings) return;
+        search
+          .setPlaceholder("AutoCardLink")
+          .setValue(this.plugin.settings.imageFolder)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.imageFolder = value.trim() || "AutoCardLink";
+            await this.plugin.saveSettings();
+          });
+        new FolderSuggest(this.app, search.inputEl);
+      });
+
+    new Setting(containerEl)
+      .setName("Save favicons locally")
+      .setDesc("Download and save card favicons to your vault instead of linking to remote URLs.")
+      .addToggle((val) => {
+        if (!this.plugin.settings) return;
+        return val
+          .setValue(this.plugin.settings.downloadFavicons)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.downloadFavicons = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Favicon folder")
+      .setDesc("Vault folder where downloaded favicons are saved.")
+      .addSearch((search) => {
+        if (!this.plugin.settings) return;
+        search
+          .setPlaceholder("AutoCardLink/favicons")
+          .setValue(this.plugin.settings.faviconFolder)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.faviconFolder = value.trim() || "AutoCardLink/favicons";
+            await this.plugin.saveSettings();
+          });
+        new FolderSuggest(this.app, search.inputEl);
       });
 
     // --- Appearance ---

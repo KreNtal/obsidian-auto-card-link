@@ -1,15 +1,22 @@
-import { Editor, Notice } from "obsidian";
+import { App, Editor, Notice } from "obsidian";
 
 import { LinkMetadata } from "./interfaces";
 import { EditorExtensions } from "./editor_enhancements";
 import { LinkMetadataFetcher } from "./link_metadata_fetcher";
+import { ObsidianAutoCardLinkSettings } from "./settings";
+import { downloadImage } from "./image_downloader";
+import { CheckIf } from "./checkif";
 
 export class CodeBlockGenerator {
   editor: Editor;
+  private app?: App;
+  private settings?: ObsidianAutoCardLinkSettings;
   private fetcher = new LinkMetadataFetcher();
 
-  constructor(editor: Editor) {
+  constructor(editor: Editor, app?: App, settings?: ObsidianAutoCardLinkSettings) {
     this.editor = editor;
+    this.app = app;
+    this.settings = settings;
   }
 
   async convertUrlToCodeBlock(url: string): Promise<void> {
@@ -84,6 +91,19 @@ export class CodeBlockGenerator {
   }
 
   private async fetchLinkMetadata(url: string): Promise<LinkMetadata | undefined> {
-    return this.fetcher.fetch(url);  // ← replaces everything that was here
+    const metadata = await this.fetcher.fetch(url);
+    if (!metadata || !this.app || !this.settings) return metadata;
+
+    if (this.settings.downloadImages && metadata.image && CheckIf.isUrl(metadata.image)) {
+      const localPath = await downloadImage(this.app, metadata.image, this.settings.imageFolder || "AutoCardLink");
+      if (localPath) metadata.image = `"[[${localPath}]]"`;
+    }
+
+    if (this.settings.downloadFavicons && metadata.favicon && CheckIf.isUrl(metadata.favicon)) {
+      const localPath = await downloadImage(this.app, metadata.favicon, this.settings.faviconFolder || "AutoCardLink/favicons");
+      if (localPath) metadata.favicon = `"[[${localPath}]]"`;
+    }
+
+    return metadata;
   }
 }
