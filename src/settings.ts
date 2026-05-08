@@ -35,6 +35,7 @@ export interface ObsidianAutoCardLinkSettings {
   downloadFavicons: boolean;
   imageFolder: string;
   faviconFolder: string;
+  cardStyle: "classic" | "modern" | "glass" | "compact";
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
@@ -45,6 +46,7 @@ export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   downloadFavicons: false,
   imageFolder: "AutoCardLink",
   faviconFolder: "AutoCardLink/favicons",
+  cardStyle: "classic",
 };
 
 export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
@@ -157,6 +159,25 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Appearance").setHeading();
 
     new Setting(containerEl)
+      .setName("Card style")
+      .setDesc("Visual style of the card link.")
+      .addDropdown((drop) => {
+        if (!this.plugin.settings) return drop;
+        return drop
+          .addOption("classic", "Classic")
+          .addOption("modern", "Modern")
+          .addOption("glass", "Glass")
+          .addOption("compact", "Compact")
+          .setValue(this.plugin.settings.cardStyle)
+          .onChange(async (value: string) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.cardStyle = value as "classic" | "modern" | "compact";
+            await this.plugin.saveSettings();
+            applyCardStyle(this.plugin.settings.cardStyle);
+          });
+      });
+
+    new Setting(containerEl)
       .setName("Thumbnail position")
       .setDesc("Which side of the card the thumbnail appears on")
       .addDropdown((drop) => {
@@ -180,4 +201,13 @@ export function applyThumbnailPosition(position: "left" | "right"): void {
     "auto-card-link-thumbnail-right",
     position === "right"
   );
+}
+
+export function applyCardStyle(style: "classic" | "modern" | "glass" | "compact"): void {
+  document.body.classList.remove(
+    "auto-card-link-style-modern",
+    "auto-card-link-style-glass",
+    "auto-card-link-style-compact"
+  );
+  if (style !== "classic") document.body.classList.add(`auto-card-link-style-${style}`);
 }
