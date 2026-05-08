@@ -16,8 +16,12 @@ It is maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-05.
 
 - Paste and enhance copied url
 - Enhance selected url
-- Setting for enhancing default paste
 - Support for local images through internal links (`image: "[[image.png]]"`)
+
+## Settings
+- Setting for enhancing default paste
+- Setting to show images on the left or right of the card
+- Settings to save images and favicons locally
 
 # `cardlink` syntax
 
@@ -33,6 +37,7 @@ The code block `cardlink` uses YAML syntax for displaying card-styled link.
 | host        | false    | host of the link                         |
 | favicon     | false    | favicon of the link                      |
 | image       | false    | thumbnail image to show in the card link |
+| duration    | false    | duration time for YouTube videos			|
 
 ## example
 
