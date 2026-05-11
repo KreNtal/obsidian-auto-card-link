@@ -62,7 +62,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     // --- General ---
-    new Setting(containerEl).setName("General").setHeading();
+    ;
 
     new Setting(containerEl)
       .setName("Enhance Default Paste")
