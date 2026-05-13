@@ -47,8 +47,7 @@ export class CodeBlockGenerator {
         return;
       }
 
-      // If the placeholder didn't start at column 0, prepend a newline
-      const prefix = startPos.ch > 0 ? "\n" : "";
+      const prefix = this.buildPrefix(text, startPos);
       this.editor.replaceRange(prefix + this.genCodeBlock(linkMetadata), startPos, endPos);
     } catch (e) {
       console.error("convertUrlToCodeBlock failed:", e);
@@ -63,6 +62,23 @@ export class CodeBlockGenerator {
         this.editor.replaceRange(selectedText || `[${url}](${url})`, startPos, endPos);
       }
     }
+  }
+
+  private buildPrefix(text: string, startPos: { line: number; ch: number; }): string {
+    const blankLine = this.settings?.blankLineBeforeCard ?? false;
+
+    if (startPos.ch > 0) {
+      // Cursor is mid-line: always break to a new line, optionally add blank line
+      return blankLine ? "\n\n" : "\n";
+    }
+
+    if (blankLine && startPos.line > 0) {
+      // At the start of a line: check if the line above is already blank
+      const prevLine = (text.split(/\r?\n/)[startPos.line - 1] ?? "").trim();
+      return prevLine !== "" ? "\n" : "";
+    }
+
+    return "";
   }
 
   genCodeBlock(linkMetadata: LinkMetadata): string {

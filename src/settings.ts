@@ -30,6 +30,7 @@ class FolderSuggest extends AbstractInputSuggest<string> {
 export interface ObsidianAutoCardLinkSettings {
   showInMenuItem: boolean;
   enhanceDefaultPaste: boolean;
+  blankLineBeforeCard: boolean;
   thumbnailPosition: "left" | "right";
   downloadImages: boolean;
   downloadFavicons: boolean;
@@ -41,6 +42,7 @@ export interface ObsidianAutoCardLinkSettings {
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   showInMenuItem: true,
   enhanceDefaultPaste: false,
+  blankLineBeforeCard: false,
   thumbnailPosition: "left",
   downloadImages: false,
   downloadFavicons: false,
@@ -62,11 +64,11 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     // --- General ---
-    ;
+    new Setting(containerEl).setName("General").setHeading();
 
     new Setting(containerEl)
       .setName("Enhance Default Paste")
-      .setDesc("Fetch the link metadata when pasting a url in the editor with the default paste command")
+      .setDesc("Fetch the link metadata when pasting a url in the editor with the default paste command.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
         return val
@@ -80,7 +82,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Add commands in menu item")
-      .setDesc("Whether to add commands in right click menu items")
+      .setDesc("Whether to add commands in right click menu items.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
         return val
@@ -88,6 +90,20 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             if (!this.plugin.settings) return;
             this.plugin.settings.showInMenuItem = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Add blank line before card")
+      .setDesc("Insert an empty line before each card link block when converting a URL.")
+      .addToggle((val) => {
+        if (!this.plugin.settings) return;
+        return val
+          .setValue(this.plugin.settings.blankLineBeforeCard)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.blankLineBeforeCard = value;
             await this.plugin.saveSettings();
           });
       });
@@ -171,7 +187,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.cardStyle)
           .onChange(async (value: string) => {
             if (!this.plugin.settings) return;
-            this.plugin.settings.cardStyle = value as "classic" | "modern" | "compact";
+            this.plugin.settings.cardStyle = value as "classic" | "modern" | "glass" | "compact";
             await this.plugin.saveSettings();
             applyCardStyle(this.plugin.settings.cardStyle);
           });
@@ -179,7 +195,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Thumbnail position")
-      .setDesc("Which side of the card the thumbnail appears on")
+      .setDesc("Which side of the card the thumbnail appears on.")
       .addDropdown((drop) => {
         if (!this.plugin.settings) return drop;
         return drop
