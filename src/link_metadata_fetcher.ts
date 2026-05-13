@@ -174,10 +174,6 @@ export class LinkMetadataFetcher {
       const post = JSON.parse(res.text)[0]?.data?.children?.[0]?.data;
       if (!post) return;
 
-      const rawImage = post.preview?.images?.[0]?.source?.url?.replace(/&amp;/g, "&");
-      const image = rawImage && !["self", "default", "nsfw", ""].includes(rawImage)
-         ? rawImage : undefined;
-
       return {
          url: originalUrl,
          title: LinkMetadataParser.sanitizeText(post.title) ?? post.title,
@@ -188,9 +184,42 @@ export class LinkMetadataFetcher {
          ),
          host: "www.reddit.com",
          favicon: "https://www.reddit.com/favicon.ico",
-         image,
+         image: this.getRedditPostImage(post),
          indent: 0,
       };
+   }
+
+   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   private getRedditPostImage(post: any): string | undefined {
+      // 1. Direct image post — post.url is the full-res image (i.redd.it)
+      if (
+         post.post_hint === "image" &&
+         post.url &&
+         /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(post.url)
+      ) {
+         return post.url;
+      }
+
+      // 2. Gallery post — grab the first image from media_metadata
+      if (post.is_gallery && post.media_metadata && post.gallery_data?.items?.length) {
+         const firstId = post.gallery_data.items[0]?.media_id;
+         if (firstId) {
+            const meta = post.media_metadata[firstId];
+            const url = meta?.s?.u?.replace(/&amp;/g, "&");
+            if (url) return url;
+         }
+      }
+
+      // 3. Preview image — works for link posts and crossposts
+      const previewUrl = post.preview?.images?.[0]?.source?.url?.replace(/&amp;/g, "&");
+      if (previewUrl) return previewUrl;
+
+      // 4. Fallback: any URL ending in an image extension
+      if (post.url && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(post.url)) {
+         return post.url;
+      }
+
+      return undefined;
    }
 
    private async fetchRedditSubreddit(originalUrl: string, normalized: string): Promise<LinkMetadata | undefined> {
