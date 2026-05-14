@@ -207,16 +207,60 @@
     letter-spacing: 0.3px;
 }
 
+.auto-card-link-thumbnail-right .auto-card-link-duration {
+    right: auto;
+    left: 8px;
+}
+
 .auto-card-link-copy-url {
     position: absolute;
     right: var(--size-2-2);
     bottom: var(--size-2-2);
     z-index: 1;
+    border-radius: var(--radius-s);
 
-    /* Show copy button only on hover on desktop */
-    .obsidian-app:not(.is-mobile) .auto-card-link-container:not(:hover) & {
+    /* Show copy button only on hover on desktop.
+       Also keep it visible when the adjacent edit-block-button is hovered,
+       since that moves the cursor outside the container. */
+    .obsidian-app:not(.is-mobile) .block-language-cardlink:not(:has(+ .edit-block-button:hover)) .auto-card-link-container:not(:hover) & {
         display: none;
     }
+}
+
+.auto-card-link-copy-url:hover {
+    color: var(--icon-color-active);
+}
+
+.auto-card-link-thumbnail-right .auto-card-link-copy-url {
+    background-color: var(--background-secondary);
+}
+
+.auto-card-link-thumbnail-right .auto-card-link-copy-url:hover {
+    background-color: var(--interactive-hover);
+    color: var(--icon-color-active);
+}
+
+/* Edit block button in cardlink — thumbnail left: no background, color-only hover */
+.is-live-preview .block-language-cardlink+.edit-block-button {
+    top: 10px !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+
+.is-live-preview .block-language-cardlink+.edit-block-button:hover {
+    background-color: var(--background-modifier-hover) !important;
+    color: var(--icon-color-active) !important;
+}
+
+/* Edit block button — thumbnail right: background with proper hover */
+body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.edit-block-button {
+    background-color: var(--background-secondary) !important;
+    box-shadow: var(--shadow-s) !important;
+}
+
+body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.edit-block-button:hover {
+    background-color: var(--interactive-hover) !important;
+    color: var(--icon-color-active) !important;
 }
 
 /* --- MODERN STYLE --- */
