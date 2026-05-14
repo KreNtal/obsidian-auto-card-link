@@ -28,25 +28,25 @@ class FolderSuggest extends AbstractInputSuggest<string> {
 }
 
 export interface ObsidianAutoCardLinkSettings {
-  showInMenuItem: boolean;
   enhanceDefaultPaste: boolean;
+  showInMenuItem: boolean;
   blankLineBeforeCard: boolean;
   thumbnailPosition: "left" | "right";
   downloadImages: boolean;
-  downloadFavicons: boolean;
   imageFolder: string;
+  downloadFavicons: boolean;
   faviconFolder: string;
   cardStyle: "classic" | "modern" | "glass" | "compact";
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
-  showInMenuItem: true,
   enhanceDefaultPaste: false,
+  showInMenuItem: true,
   blankLineBeforeCard: false,
   thumbnailPosition: "left",
   downloadImages: false,
-  downloadFavicons: false,
   imageFolder: "AutoCardLink",
+  downloadFavicons: false,
   faviconFolder: "AutoCardLink/favicons",
   cardStyle: "classic",
 };
@@ -67,7 +67,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("General").setHeading();
 
     new Setting(containerEl)
-      .setName("Enhance Default Paste")
+      .setName("Enhance default paste")
       .setDesc("Fetch the link metadata when pasting a url in the editor with the default paste command.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
@@ -82,7 +82,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Add commands in menu item")
-      .setDesc("Whether to add commands in right click menu items.")
+      .setDesc("Whether to add commands in right click menu items (refresh and delete will always be visible).")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
         return val

@@ -9,6 +9,10 @@ export class LinkMetadataFetcher {
       url = url.trim().replace(/^["']|["']$/g, "");
       if (url.startsWith("http://")) url = "https://" + url.slice(7);
       if (CheckIf.isYouTubeUrl(url)) return this.fetchYouTube(url);
+      if (CheckIf.isVimeoUrl(url)) return this.fetchVimeo(url);
+      if (CheckIf.isDailymotionUrl(url)) return this.fetchDailymotion(url);
+      if (CheckIf.isTwitchUrl(url)) return this.fetchTwitch(url);
+      if (CheckIf.isTedUrl(url)) return this.fetchTed(url);
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url);
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
 
@@ -94,7 +98,7 @@ export class LinkMetadataFetcher {
          host: "www.youtube.com",
          favicon: "https://www.youtube.com/favicon.ico",
          image,
-         duration,   // ← add
+         duration,
          indent: 0,
       };
    }
@@ -129,15 +133,7 @@ export class LinkMetadataFetcher {
       // Extract duration from lengthSeconds
       let duration: string | undefined;
       const lengthMatch = res.text.match(/"lengthSeconds":"(\d+)"/);
-      if (lengthMatch) {
-         const seconds = parseInt(lengthMatch[1]!, 10);
-         const h = Math.floor(seconds / 3600);
-         const m = Math.floor((seconds % 3600) / 60);
-         const s = seconds % 60;
-         duration = h > 0
-            ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
-            : `${m}:${String(s).padStart(2, "0")}`;
-      }
+      if (lengthMatch) duration = this.formatDuration(parseInt(lengthMatch[1]!, 10));
 
       return { description, duration };
    }
@@ -149,6 +145,105 @@ export class LinkMetadataFetcher {
          if (res && res.status === 200) return thumbUrl;
       }
       return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+   }
+
+   /* --- VIMEO --- */
+   private async fetchVimeo(url: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(
+         `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(url)}`
+      );
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      const data = JSON.parse(res.text);
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         description: data.description
+            ? LinkMetadataParser.sanitizeText(data.description.slice(0, 200))
+            : `By ${data.author_name}`,
+         host: "vimeo.com",
+         favicon: "https://vimeo.com/favicon.ico",
+         image: data.thumbnail_url,
+         duration: this.formatDuration(data.duration),
+         indent: 0,
+      };
+   }
+
+   /* --- DAILYMOTION --- */
+   private async fetchDailymotion(url: string): Promise<LinkMetadata | undefined> {
+      // oEmbed does not include duration — use the public API instead
+      const videoId = url.match(/(?:dailymotion\.com\/video\/|dai\.ly\/)([a-zA-Z0-9]+)/)?.[1];
+      if (!videoId) return this.fetchGeneric(url);
+
+      const res = await this.request(
+         `https://api.dailymotion.com/video/${videoId}?fields=title,description,duration,thumbnail_720_url,owner.screenname`
+      );
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      const data = JSON.parse(res.text);
+      const author = data["owner.screenname"];
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         description: data.description
+            ? LinkMetadataParser.sanitizeText(data.description.slice(0, 200))
+            : author ? `By ${author}` : undefined,
+         host: "www.dailymotion.com",
+         favicon: "https://www.dailymotion.com/favicon.ico",
+         image: data.thumbnail_720_url,
+         duration: this.formatDuration(data.duration),
+         indent: 0,
+      };
+   }
+
+   /* --- TWITCH --- */
+   private async fetchTwitch(url: string): Promise<LinkMetadata | undefined> {
+      // Twitch serves og: meta tags server-side for SEO (used by Discord/Twitter previews)
+      const res = await this.request(url, {
+         "Referer": "https://www.google.com/",
+         "Accept-Language": "en-US,en;q=0.9",
+      });
+
+      if (res && res.status === 200) {
+         const parser = new LinkMetadataParser(url, res.text);
+         const metadata = await parser.parse();
+         if (metadata) {
+            const duration = this.extractTwitchDuration(res.text);
+            const host = url.includes("clips.twitch.tv") ? "clips.twitch.tv" : "www.twitch.tv";
+            return { ...metadata, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+         }
+      }
+
+      // Fall back to generic if page fetch or parse failed
+      return this.fetchGeneric(url);
+   }
+
+   private extractTwitchDuration(html: string): string | undefined {
+      const secMatch = html.match(/"durationSeconds"\s*:\s*(\d+)/);
+      if (secMatch) return this.formatDuration(parseInt(secMatch[1]!, 10));
+
+      const ogMatch = html.match(/property="og:video:duration"\s+content="(\d+)"/);
+      if (ogMatch) return this.formatDuration(parseInt(ogMatch[1]!, 10));
+
+      return undefined;
+   }
+
+   /* --- TED --- */
+   private async fetchTed(url: string): Promise<LinkMetadata | undefined> {
+      // Fetch the talk page — TED serves og: tags + JSON-LD VideoObject with ISO 8601 duration
+      const res = await this.request(url);
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      const parser = new LinkMetadataParser(url, res.text);
+      const metadata = await parser.parse();
+      if (!metadata) return this.fetchGeneric(url);
+
+      return {
+         ...metadata,
+         host: "www.ted.com",
+         favicon: "https://www.ted.com/favicon.ico",
+         duration: this.extractIso8601Duration(res.text),
+      };
    }
 
    /* --- REDDIT --- */
@@ -189,7 +284,6 @@ export class LinkMetadataFetcher {
       };
    }
 
-   // eslint-disable-next-line @typescript-eslint/no-explicit-any
    private getRedditPostImage(post: any): string | undefined {
       // 1. Direct image post — post.url is the full-res image (i.redd.it)
       if (
@@ -362,19 +456,40 @@ export class LinkMetadataFetcher {
       }
    }
 
+   /* --- SHARED HELPERS --- */
+   private formatDuration(seconds: number | undefined): string | undefined {
+      if (!seconds || isNaN(seconds)) return undefined;
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      return h > 0
+         ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+         : `${m}:${String(s).padStart(2, "0")}`;
+   }
+
+   private extractIso8601Duration(html: string): string | undefined {
+      // JSON-LD VideoObject: "duration":"PT18M54S"
+      const match = html.match(/"duration"\s*:\s*"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?"/);
+      if (!match) return undefined;
+      const h = parseInt(match[1] ?? "0") || 0;
+      const m = parseInt(match[2] ?? "0") || 0;
+      const s = parseInt(match[3] ?? "0") || 0;
+      return this.formatDuration(h * 3600 + m * 60 + s);
+   }
+
    private normalizeCharset(charset: string): string {
       const key = charset.toLowerCase().replace(/[-_]/g, "");
       const map: Record<string, string> = {
-         shiftjis:    "shift_jis",
-         sjis:        "shift_jis",
-         xsjis:       "shift_jis",
-         euckr:       "euc-kr",
+         shiftjis: "shift_jis",
+         sjis: "shift_jis",
+         xsjis: "shift_jis",
+         euckr: "euc-kr",
          ksc56011987: "euc-kr",
-         eucjp:       "euc-jp",
-         iso2022jp:   "iso-2022-jp",
-         utf8:        "utf-8",
-         iso88591:    "iso-8859-1",
-         latin1:      "iso-8859-1",
+         eucjp: "euc-jp",
+         iso2022jp: "iso-2022-jp",
+         utf8: "utf-8",
+         iso88591: "iso-8859-1",
+         latin1: "iso-8859-1",
       };
       return map[key] ?? charset;
    }
@@ -386,7 +501,6 @@ export class LinkMetadataFetcher {
       return suspicious !== null && suspicious.length / text.length > 0.1;
    }
 
-   /* --- SHARED HELPER --- */
    private async request(url: string, customHeaders: Record<string, string> = {}) {
       const headers = {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",

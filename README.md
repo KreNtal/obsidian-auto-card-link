@@ -1,7 +1,7 @@
 This is a fork of [obsidian-auto-card-link](https://github.com/nekoshita/obsidian-auto-card-link)
 by [Nekoshita Yuki](https://github.com/nekoshita)
 
-It is maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-05.
+It is maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-04.
 
 # Auto Card Link
 
@@ -19,9 +19,12 @@ It is maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-05.
 - Support for local images through internal links (`image: "[[image.png]]"`)
 
 ## Settings
+
 - Setting for enhancing default paste
-- Setting to show images on the left or right of the card
+- Settings to add commands in right click menu
 - Settings to save images and favicons locally
+- Settings to change card style
+- Setting to show images on the left or right of the card
 
 # `cardlink` syntax
 
@@ -37,7 +40,7 @@ The code block `cardlink` uses YAML syntax for displaying card-styled link.
 | host        | false    | host of the link                         |
 | favicon     | false    | favicon of the link                      |
 | image       | false    | thumbnail image to show in the card link |
-| duration    | false    | duration time for YouTube videos			|
+| duration    | false    | duration time for YouTube videos         |
 
 ## example
 
