@@ -17,7 +17,7 @@ export class CheckIf {
   }
 
   public static isYouTubeUrl(url: string): boolean {
-    return /^https?:\/\/(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(url);
+    return /^https?:\/\/(www\.)?(youtube\.com\/(watch|shorts\/)|youtu\.be\/)/.test(url);
   }
 
   public static isVimeoUrl(url: string): boolean {
@@ -29,7 +29,7 @@ export class CheckIf {
   }
 
   public static isTwitchUrl(url: string): boolean {
-    return /^https?:\/\/(www\.twitch\.tv\/videos\/|clips\.twitch\.tv\/|www\.twitch\.tv\/\w+\/clip\/)/.test(url);
+    return /^https?:\/\/(www\.twitch\.tv\/\w|clips\.twitch\.tv\/)/.test(url);
   }
 
   public static isTedUrl(url: string): boolean {

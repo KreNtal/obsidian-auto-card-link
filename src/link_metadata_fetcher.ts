@@ -94,6 +94,7 @@ export class LinkMetadataFetcher {
       return {
          url,
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         author: data.author_name ?? undefined,
          description: LinkMetadataParser.sanitizeText(description),
          host: "www.youtube.com",
          favicon: "https://www.youtube.com/favicon.ico",
@@ -104,14 +105,14 @@ export class LinkMetadataFetcher {
    }
 
    private getYouTubeVideoId(url: string): string | undefined {
-      return url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+      return url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/)?.[1];
    }
 
    private async getYouTubePageData(
       url: string,
       authorName: string
-   ): Promise<{ description: string; duration?: string; }> {
-      const fallback = { description: `By ${authorName}` };
+   ): Promise<{ description: string | undefined; duration?: string; }> {
+      const fallback = { description: undefined as string | undefined };
 
       const res = await this.request(url, {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -158,9 +159,10 @@ export class LinkMetadataFetcher {
       return {
          url,
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         author: data.author_name ?? undefined,
          description: data.description
             ? LinkMetadataParser.sanitizeText(data.description.slice(0, 200))
-            : `By ${data.author_name}`,
+            : undefined,
          host: "vimeo.com",
          favicon: "https://vimeo.com/favicon.ico",
          image: data.thumbnail_url,
@@ -185,9 +187,10 @@ export class LinkMetadataFetcher {
       return {
          url,
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         author: author ?? undefined,
          description: data.description
             ? LinkMetadataParser.sanitizeText(data.description.slice(0, 200))
-            : author ? `By ${author}` : undefined,
+            : undefined,
          host: "www.dailymotion.com",
          favicon: "https://www.dailymotion.com/favicon.ico",
          image: data.thumbnail_720_url,
@@ -209,13 +212,70 @@ export class LinkMetadataFetcher {
          const metadata = await parser.parse();
          if (metadata) {
             const duration = this.extractTwitchDuration(res.text);
+            const isClip = /\/clip\//.test(url) || url.includes("clips.twitch.tv");
+            const isVod = /\/videos\//.test(url);
             const host = url.includes("clips.twitch.tv") ? "clips.twitch.tv" : "www.twitch.tv";
-            return { ...metadata, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+
+            if (isVod) {
+               // "VideoTitle - ChannelName on Twitch"
+               const { title, author: titleAuthor } = this.parseTwitchTitle(metadata.title);
+               const author = this.extractTwitchChannel(url) ?? titleAuthor;
+               return { ...metadata, title, author, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+            }
+
+            if (isClip) {
+               // Clips follow "ChannelName - ClipTitle on Twitch" (author first, opposite of VODs)
+               const withoutSuffix = metadata.title.replace(/\s+on\s+Twitch\s*$/i, "").trim();
+               const firstDash = withoutSuffix.indexOf(" - ");
+               let title: string;
+               let author: string | undefined;
+               if (firstDash >= 0) {
+                  author = withoutSuffix.slice(0, firstDash).trim() || undefined;
+                  title = withoutSuffix.slice(firstDash + 3).trim();
+               } else {
+                  // Fallback: og:title = "ChannelName", og:description = "Watch X clip titled \"Title\""
+                  author = metadata.title?.trim() || undefined;
+                  const m = metadata.description?.match(/clip titled\s+"([^"]+)"/i);
+                  title = m?.[1] ?? metadata.title ?? "";
+               }
+               const description = author ? `Watch a ${author} clip on Twitch` : undefined;
+               return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+            }
+
+            // Live: og:title = "ChannelName - Twitch", og:description = stream title
+            const author = metadata.title?.replace(/\s*-\s*Twitch\s*$/i, "").trim() || undefined;
+            const title = metadata.description ?? metadata.title ?? "";
+            const description = author ? `Watch ${author} live on Twitch` : undefined;
+            return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
          }
       }
 
       // Fall back to generic if page fetch or parse failed
       return this.fetchGeneric(url);
+   }
+
+   private extractTwitchChannel(url: string): string | undefined {
+      const parsed = new URL(url);
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      // clips.twitch.tv/SlugName — slug is not a channel name
+      if (parsed.hostname === "clips.twitch.tv") return undefined;
+      // twitch.tv/videos/ID — no channel in path
+      if (parts[0] === "videos") return undefined;
+      // twitch.tv/channelname/clip/xyz → parts[0] is the channel name
+      return parts[0] ?? undefined;
+   }
+
+   private parseTwitchTitle(raw: string): { title: string; author: string | undefined; } {
+      // Twitch titles follow "VideoTitle - ChannelName on Twitch"
+      const withoutSuffix = raw.replace(/\s+on\s+Twitch\s*$/i, "").trim();
+      const lastDash = withoutSuffix.lastIndexOf(" - ");
+      if (lastDash >= 0) {
+         return {
+            title: withoutSuffix.slice(0, lastDash).trim(),
+            author: withoutSuffix.slice(lastDash + 3).trim() || undefined,
+         };
+      }
+      return { title: withoutSuffix, author: undefined };
    }
 
    private extractTwitchDuration(html: string): string | undefined {
@@ -240,10 +300,27 @@ export class LinkMetadataFetcher {
 
       return {
          ...metadata,
+         author: this.extractTedSpeaker(res.text),
          host: "www.ted.com",
          favicon: "https://www.ted.com/favicon.ico",
          duration: this.extractIso8601Duration(res.text),
       };
+   }
+
+   private extractTedSpeaker(html: string): string | undefined {
+      // TED-specific field in their page data
+      const presenterMatch = html.match(/"presenterDisplayName"\s*:\s*"([^"]+)"/);
+      if (presenterMatch) return presenterMatch[1];
+
+      // JSON-LD: extract the author block first, then find "name" within it
+      // (avoids [^}]* failing when the object contains arrays or nested objects)
+      const authorBlock = html.match(/"author"\s*:\s*\{([^{}]+)\}/);
+      if (authorBlock?.[1]) {
+         const nameMatch = authorBlock[1].match(/"name"\s*:\s*"([^"]+)"/);
+         if (nameMatch) return nameMatch[1];
+      }
+
+      return undefined;
    }
 
    /* --- REDDIT --- */
@@ -272,6 +349,7 @@ export class LinkMetadataFetcher {
       return {
          url: originalUrl,
          title: LinkMetadataParser.sanitizeText(post.title) ?? post.title,
+         // author: post.author ? `u/${post.author}` : undefined,
          description: LinkMetadataParser.sanitizeText(
             post.selftext
                ? post.selftext.slice(0, 200).replace(/\n/g, " ") + "…"

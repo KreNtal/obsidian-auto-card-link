@@ -86,6 +86,7 @@ export class CodeBlockGenerator {
 
     codeBlockTexts.push(`url: ${linkMetadata.url}`);
     codeBlockTexts.push(`title: "${linkMetadata.title}"`);
+    if (linkMetadata.author) codeBlockTexts.push(`author: "${linkMetadata.author}"`);
     if (linkMetadata.description) codeBlockTexts.push(`description: "${linkMetadata.description}"`);
     if (linkMetadata.host) codeBlockTexts.push(`host: ${linkMetadata.host}`);
     if (linkMetadata.favicon) codeBlockTexts.push(`favicon: ${linkMetadata.favicon}`);
