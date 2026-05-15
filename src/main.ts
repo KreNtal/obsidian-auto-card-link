@@ -17,11 +17,19 @@ import { linkRegex } from "./regex";
 export default class ObsidianAutoCardLink extends Plugin {
   settings?: ObsidianAutoCardLinkSettings;
   private cachedClipboard = "";
+  private savedScrollTop = 0;
 
   async onload() {
     await this.loadSettings();
     this.registerDomEvent(window, "focus", this.updateClipboardCache);
     this.registerDomEvent(document, "contextmenu", this.updateClipboardCache);
+    // Capture scroll position before Obsidian's mousedown handler moves the cursor
+    this.registerDomEvent(document, "mousedown", (e: MouseEvent) => {
+      if (e.button !== 2) return;
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      const scroller = view?.containerEl.querySelector(".cm-scroller");
+      if (scroller) this.savedScrollTop = (scroller as HTMLElement).scrollTop;
+    }, { capture: true });
 
     this.registerMarkdownCodeBlockProcessor("cardlink", async (source, el, ctx) => {
       const processor = new CodeBlockProcessor(this.app);
@@ -145,7 +153,7 @@ export default class ObsidianAutoCardLink extends Plugin {
   private resolveCardlinkRange(
     editor: Editor,
     cardlink: string | { url: string; lineStart: number; lineEnd: number; }
-  ): { url: string; startPos: { line: number; ch: number }; endPos: { line: number; ch: number }; } | undefined {
+  ): { url: string; blockEnd: number; startPos: { line: number; ch: number }; endPos: { line: number; ch: number }; } | undefined {
     const url = typeof cardlink === "string" ? cardlink : cardlink.url;
     const lines = editor.getValue().split(/\r?\n/);
 
@@ -206,7 +214,7 @@ export default class ObsidianAutoCardLink extends Plugin {
       ? { line: consumeUntil + 1, ch: 0 }
       : { line: consumeUntil, ch: (lines[consumeUntil] ?? "").length };
 
-    return { url, startPos, endPos };
+    return { url, blockEnd, startPos, endPos };
   }
 
   private async refetchCardlink(
@@ -232,6 +240,18 @@ export default class ObsidianAutoCardLink extends Plugin {
     const range = this.resolveCardlinkRange(editor, cardlink);
     if (!range) return;
     editor.replaceRange("", range.startPos, range.endPos);
+  }
+
+  private addLineAfterCardlink(
+    editor: Editor,
+    cardlink: string | { url: string; lineStart: number; lineEnd: number; }
+  ): void {
+    const range = this.resolveCardlinkRange(editor, cardlink);
+    if (!range) return;
+    const lines = editor.getValue().split(/\r?\n/);
+    const fenceLine = lines[range.blockEnd] ?? "";
+    editor.replaceRange("\n", { line: range.blockEnd, ch: fenceLine.length });
+    editor.setCursor({ line: range.blockEnd + 1, ch: 0 });
   }
 
   private async enhanceSelectedURL(editor: Editor): Promise<void> {
@@ -296,6 +316,20 @@ export default class ObsidianAutoCardLink extends Plugin {
 
   private onEditorMenu = (menu: Menu, editor: Editor) => {
     const cardlinkAtMouse = this.getCardlinkAtMouse();
+
+    // When right-clicking a rendered cardlink, Obsidian moves the cursor and scrolls
+    // to it (often back to line 1). Restore the scroll position saved on contextmenu.
+    if (cardlinkAtMouse) {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      const scroller = view?.containerEl.querySelector(".cm-scroller");
+      if (scroller) {
+        const top = this.savedScrollTop;
+        requestAnimationFrame(() => {
+          (scroller as HTMLElement).scrollTop = top;
+        });
+      }
+    }
+
     const cardlinkAtCursor = cardlinkAtMouse ?? this.getCardlinkUrlAtCursor(editor);
 
     const selectedText = (EditorExtensions.getSelectedText(editor) || "").trim();
@@ -326,6 +360,14 @@ export default class ObsidianAutoCardLink extends Plugin {
           .setIcon("trash")
           .onClick(() => {
             this.deleteCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
+          });
+      });
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Add line after card link")
+          .setIcon("arrow-down")
+          .onClick(() => {
+            this.addLineAfterCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
           });
       });
     }
