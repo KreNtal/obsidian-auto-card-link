@@ -1,4 +1,4 @@
-import { Plugin, MarkdownView, Editor, Menu, MenuItem } from "obsidian";
+import { Plugin, MarkdownView, Editor, Menu, MenuItem, Notice } from "obsidian";
 
 import {
   ObsidianAutoCardLinkSettings,
@@ -18,6 +18,8 @@ export default class ObsidianAutoCardLink extends Plugin {
   settings?: ObsidianAutoCardLinkSettings;
   private cachedClipboard = "";
   private savedScrollTop = 0;
+  private refreshQueue = Promise.resolve();
+  private refreshQueueDepth = 0;
 
   async onload() {
     await this.loadSettings();
@@ -160,9 +162,50 @@ export default class ObsidianAutoCardLink extends Plugin {
     let blockStart = -1;
     let blockEnd = -1;
 
+    const findBlockByUrl = (searchUrl: string, startLine = 0): { start: number; end: number } | undefined => {
+      let i = startLine;
+      while (i < lines.length) {
+        const line = lines[i] ?? "";
+        if (line.trim().startsWith("```cardlink")) {
+          let end = -1;
+          let foundUrl: string | undefined;
+          for (let j = i + 1; j < lines.length; j++) {
+            const inner = lines[j] ?? "";
+            if (!foundUrl) {
+              const m = inner.match(/^url:\s*(.+)$/);
+              if (m) foundUrl = m[1]?.trim().replace(/^["']|["']$/g, "");
+            }
+            if (inner.trim() === "```") { end = j; break; }
+          }
+          if (end >= 0 && foundUrl === searchUrl) return { start: i, end };
+          i = end >= 0 ? end + 1 : i + 1;
+          continue;
+        }
+        i++;
+      }
+      return undefined;
+    };
+
     if (typeof cardlink === "object") {
-      blockStart = cardlink.lineStart;
-      blockEnd = cardlink.lineEnd;
+      // Verify the stored coordinates are still correct (they can go stale after edits)
+      const startLine = lines[cardlink.lineStart] ?? "";
+      const endLine = lines[cardlink.lineEnd] ?? "";
+      if (startLine.trim().startsWith("```cardlink") && endLine.trim() === "```") {
+        let storedUrl: string | undefined;
+        for (let j = cardlink.lineStart + 1; j < cardlink.lineEnd; j++) {
+          const m = (lines[j] ?? "").match(/^url:\s*(.+)$/);
+          if (m) { storedUrl = m[1]?.trim().replace(/^["']|["']$/g, ""); break; }
+        }
+        if (storedUrl === url) {
+          blockStart = cardlink.lineStart;
+          blockEnd = cardlink.lineEnd;
+        }
+      }
+      // Coordinates were stale — scan the whole document for the correct block
+      if (blockStart < 0) {
+        const found = findBlockByUrl(url);
+        if (found) { blockStart = found.start; blockEnd = found.end; }
+      }
     } else {
       const cursor = editor.getCursor();
       let bestDistance = Infinity;
@@ -217,7 +260,21 @@ export default class ObsidianAutoCardLink extends Plugin {
     return { url, blockEnd, startPos, endPos };
   }
 
-  private async refetchCardlink(
+  private refetchCardlink(
+    editor: Editor,
+    cardlink: string | { url: string; lineStart: number; lineEnd: number; }
+  ): void {
+    this.refreshQueueDepth++;
+    if (this.refreshQueueDepth > 1) {
+      new Notice(`Refresh queued — ${this.refreshQueueDepth - 1} already in progress`);
+    }
+    this.refreshQueue = this.refreshQueue
+      .then(() => this.doRefetchCardlink(editor, cardlink))
+      .catch(() => {})
+      .finally(() => { this.refreshQueueDepth--; });
+  }
+
+  private async doRefetchCardlink(
     editor: Editor,
     cardlink: string | { url: string; lineStart: number; lineEnd: number; }
   ): Promise<void> {
@@ -225,12 +282,15 @@ export default class ObsidianAutoCardLink extends Plugin {
     if (!range) return;
     const { url, startPos, endPos } = range;
 
+    // Save the original block so we can restore it exactly if the fetch fails
+    const originalBlock = editor.getRange(startPos, endPos);
+
     editor.replaceRange(url, startPos, endPos);
     editor.setCursor(startPos);
     editor.setSelection(startPos, { line: startPos.line, ch: url.length });
 
     const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
-    await codeBlockGenerator.convertUrlToCodeBlock(url);
+    await codeBlockGenerator.convertUrlToCodeBlock(url, originalBlock);
   }
 
   private deleteCardlink(
@@ -350,8 +410,8 @@ export default class ObsidianAutoCardLink extends Plugin {
         item
           .setTitle("Refresh Card Link")
           .setIcon("refresh-cw")
-          .onClick(async () => {
-            await this.refetchCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
+          .onClick(() => {
+            this.refetchCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
           });
       });
       menu.addItem((item: MenuItem) => {

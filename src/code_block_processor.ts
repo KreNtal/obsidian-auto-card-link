@@ -66,6 +66,7 @@ export class CodeBlockProcessor {
     return {
       url: yaml.url,
       title: yaml.title,
+      author: yaml.author,
       description: yaml.description,
       host: yaml.host,
       favicon: yaml.favicon,
@@ -142,6 +143,13 @@ export class CodeBlockProcessor {
       const hostNameEl = document.createElement("span");
       hostNameEl.textContent = data.host;
       hostEl.appendChild(hostNameEl);
+    }
+
+    if (data.author) {
+      const authorEl = document.createElement("span");
+      authorEl.addClass("auto-card-link-author");
+      authorEl.textContent = `· ${data.author}`;
+      hostEl.appendChild(authorEl);
     }
 
     if (data.image) {

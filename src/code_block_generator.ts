@@ -19,40 +19,14 @@ export class CodeBlockGenerator {
     this.settings = settings;
   }
 
-  async convertUrlToCodeBlock(url: string): Promise<void> {
-    const selectedText = this.editor.getSelection();
+  async convertUrlToCodeBlock(url: string, fallbackText?: string): Promise<boolean> {
+    const selectedText = fallbackText ?? this.editor.getSelection();
     const pasteId = this.createBlockHash();
     const fetchingText = `[Fetching Data#${pasteId}](${url})`;
 
     this.editor.replaceSelection(fetchingText);
 
-    try {
-      const linkMetadata = await this.fetchLinkMetadata(url);
-
-      const text = this.editor.getValue();
-      const start = text.indexOf(fetchingText);
-
-      if (start < 0) {
-        console.log(`Unable to find text "${fetchingText}" in current editor, bailing out; link ${url}`);
-        return;
-      }
-
-      const end = start + fetchingText.length;
-      const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
-      const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
-
-      if (!linkMetadata) {
-        new Notice("Couldn't fetch link metadata");
-        this.editor.replaceRange(selectedText || `[${url}](${url})`, startPos, endPos);
-        return;
-      }
-
-      const prefix = this.buildPrefix(text, startPos);
-      this.editor.replaceRange(prefix + this.genCodeBlock(linkMetadata), startPos, endPos);
-    } catch (e) {
-      console.error("convertUrlToCodeBlock failed:", e);
-      new Notice("Couldn't fetch link metadata");
-
+    const restoreFallback = () => {
       const text = this.editor.getValue();
       const start = text.indexOf(fetchingText);
       if (start >= 0) {
@@ -61,7 +35,39 @@ export class CodeBlockGenerator {
         const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
         this.editor.replaceRange(selectedText || `[${url}](${url})`, startPos, endPos);
       }
+    };
+
+    const tryFetch = () => this.fetchLinkMetadata(url);
+
+    let linkMetadata = await tryFetch().catch(() => null);
+
+    // One retry on transient failure
+    if (linkMetadata === null) {
+      await new Promise(r => setTimeout(r, 1500));
+      linkMetadata = await tryFetch().catch(() => undefined);
     }
+
+    const text = this.editor.getValue();
+    const start = text.indexOf(fetchingText);
+
+    if (start < 0) {
+      console.log(`Unable to find text "${fetchingText}" in current editor, bailing out; link ${url}`);
+      return false;
+    }
+
+    const end = start + fetchingText.length;
+    const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
+    const endPos = EditorExtensions.getEditorPositionFromIndex(text, end);
+
+    if (!linkMetadata) {
+      new Notice("Couldn't fetch link metadata");
+      restoreFallback();
+      return false;
+    }
+
+    const prefix = this.buildPrefix(text, startPos);
+    this.editor.replaceRange(prefix + this.genCodeBlock(linkMetadata), startPos, endPos);
+    return true;
   }
 
   private buildPrefix(text: string, startPos: { line: number; ch: number; }): string {
@@ -86,6 +92,7 @@ export class CodeBlockGenerator {
 
     codeBlockTexts.push(`url: ${linkMetadata.url}`);
     codeBlockTexts.push(`title: "${linkMetadata.title}"`);
+    if (linkMetadata.author) codeBlockTexts.push(`author: "${linkMetadata.author}"`);
     if (linkMetadata.description) codeBlockTexts.push(`description: "${linkMetadata.description}"`);
     if (linkMetadata.host) codeBlockTexts.push(`host: ${linkMetadata.host}`);
     if (linkMetadata.favicon) codeBlockTexts.push(`favicon: ${linkMetadata.favicon}`);

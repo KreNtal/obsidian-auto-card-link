@@ -15,6 +15,9 @@ export class LinkMetadataFetcher {
       if (CheckIf.isTedUrl(url)) return this.fetchTed(url);
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url);
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
+      if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url);
+      if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
+      if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
 
       return this.fetchGeneric(url);
    }
@@ -94,6 +97,7 @@ export class LinkMetadataFetcher {
       return {
          url,
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         author: data.author_name ?? undefined,
          description: LinkMetadataParser.sanitizeText(description),
          host: "www.youtube.com",
          favicon: "https://www.youtube.com/favicon.ico",
@@ -104,14 +108,14 @@ export class LinkMetadataFetcher {
    }
 
    private getYouTubeVideoId(url: string): string | undefined {
-      return url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)?.[1];
+      return url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/)?.[1];
    }
 
    private async getYouTubePageData(
       url: string,
       authorName: string
-   ): Promise<{ description: string; duration?: string; }> {
-      const fallback = { description: `By ${authorName}` };
+   ): Promise<{ description: string | undefined; duration?: string; }> {
+      const fallback = { description: undefined as string | undefined };
 
       const res = await this.request(url, {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -158,9 +162,10 @@ export class LinkMetadataFetcher {
       return {
          url,
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         author: data.author_name ?? undefined,
          description: data.description
             ? LinkMetadataParser.sanitizeText(data.description.slice(0, 200))
-            : `By ${data.author_name}`,
+            : undefined,
          host: "vimeo.com",
          favicon: "https://vimeo.com/favicon.ico",
          image: data.thumbnail_url,
@@ -185,9 +190,10 @@ export class LinkMetadataFetcher {
       return {
          url,
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         author: author ?? undefined,
          description: data.description
             ? LinkMetadataParser.sanitizeText(data.description.slice(0, 200))
-            : author ? `By ${author}` : undefined,
+            : undefined,
          host: "www.dailymotion.com",
          favicon: "https://www.dailymotion.com/favicon.ico",
          image: data.thumbnail_720_url,
@@ -197,25 +203,109 @@ export class LinkMetadataFetcher {
    }
 
    /* --- TWITCH --- */
-   private async fetchTwitch(url: string): Promise<LinkMetadata | undefined> {
-      // Twitch serves og: meta tags server-side for SEO (used by Discord/Twitter previews)
-      const res = await this.request(url, {
-         "Referer": "https://www.google.com/",
-         "Accept-Language": "en-US,en;q=0.9",
-      });
 
-      if (res && res.status === 200) {
+   // Rotated user agents to reduce Cloudflare fingerprint collisions on retries
+   private readonly twitchUserAgents = [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+   ];
+
+   private isTwitchResponseUsable(html: string): boolean {
+      // Detect the SPA shell: og:title is absent or is just "Twitch"
+      const m = html.match(/property="og:title"\s+content="([^"]*)"/i)
+               ?? html.match(/content="([^"]*)"\s+property="og:title"/i);
+      if (!m || !m[1]) return false;
+      return m[1].trim().length > 0 && !/^twitch\.?(tv)?$/i.test(m[1].trim());
+   }
+
+   private async fetchTwitch(url: string): Promise<LinkMetadata | undefined> {
+      // Twitch serves og: meta tags server-side, but sometimes returns the SPA shell
+      // (bot detection or CDN miss). Retry up to 3 times with increasing delays and
+      // rotated user agents to improve the hit rate.
+      const retryDelays = [0, 1500, 3000];
+
+      for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+         if (attempt > 0) await new Promise(r => setTimeout(r, retryDelays[attempt]));
+
+         const ua = this.twitchUserAgents[attempt % this.twitchUserAgents.length]!;
+         const res = await this.request(url, {
+            "User-Agent": ua,
+            "Referer": "https://www.google.com/",
+            "Accept-Language": "en-US,en;q=0.9",
+         }, 9000);
+
+         if (!res || res.status !== 200) continue;
+         if (!this.isTwitchResponseUsable(res.text)) continue;
+
          const parser = new LinkMetadataParser(url, res.text);
          const metadata = await parser.parse();
-         if (metadata) {
-            const duration = this.extractTwitchDuration(res.text);
-            const host = url.includes("clips.twitch.tv") ? "clips.twitch.tv" : "www.twitch.tv";
-            return { ...metadata, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+         if (!metadata) continue;
+
+         const duration = this.extractTwitchDuration(res.text);
+         const isClip = /\/clip\//.test(url) || url.includes("clips.twitch.tv");
+         const isVod = /\/videos\//.test(url);
+         const host = url.includes("clips.twitch.tv") ? "clips.twitch.tv" : "www.twitch.tv";
+
+         if (isVod) {
+            // "VideoTitle - ChannelName on Twitch"
+            const { title, author: titleAuthor } = this.parseTwitchTitle(metadata.title);
+            const author = this.extractTwitchChannel(url) ?? titleAuthor;
+            return { ...metadata, title, author, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
          }
+
+         if (isClip) {
+            // Clips follow "ChannelName - ClipTitle on Twitch" (author first, opposite of VODs)
+            const withoutSuffix = metadata.title.replace(/\s+on\s+Twitch\s*$/i, "").trim();
+            const firstDash = withoutSuffix.indexOf(" - ");
+            let title: string;
+            let author: string | undefined;
+            if (firstDash >= 0) {
+               author = withoutSuffix.slice(0, firstDash).trim() || undefined;
+               title = withoutSuffix.slice(firstDash + 3).trim();
+            } else {
+               // Fallback: og:title = "ChannelName", og:description = "Watch X clip titled \"Title\""
+               author = metadata.title?.trim() || undefined;
+               const m = metadata.description?.match(/clip titled\s+"([^"]+)"/i);
+               title = m?.[1] ?? metadata.title ?? "";
+            }
+            const description = author ? `Watch a ${author} clip on Twitch` : undefined;
+            return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+         }
+
+         // Live: og:title = "ChannelName - Twitch", og:description = stream title
+         const author = metadata.title?.replace(/\s*-\s*Twitch\s*$/i, "").trim() || undefined;
+         const title = metadata.description ?? metadata.title ?? "";
+         const description = author ? `Watch ${author} live on Twitch` : undefined;
+         return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
       }
 
-      // Fall back to generic if page fetch or parse failed
+      // All attempts returned the SPA shell — fall back to generic
       return this.fetchGeneric(url);
+   }
+
+   private extractTwitchChannel(url: string): string | undefined {
+      const parsed = new URL(url);
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      // clips.twitch.tv/SlugName — slug is not a channel name
+      if (parsed.hostname === "clips.twitch.tv") return undefined;
+      // twitch.tv/videos/ID — no channel in path
+      if (parts[0] === "videos") return undefined;
+      // twitch.tv/channelname/clip/xyz → parts[0] is the channel name
+      return parts[0] ?? undefined;
+   }
+
+   private parseTwitchTitle(raw: string): { title: string; author: string | undefined; } {
+      // Twitch titles follow "VideoTitle - ChannelName on Twitch"
+      const withoutSuffix = raw.replace(/\s+on\s+Twitch\s*$/i, "").trim();
+      const lastDash = withoutSuffix.lastIndexOf(" - ");
+      if (lastDash >= 0) {
+         return {
+            title: withoutSuffix.slice(0, lastDash).trim(),
+            author: withoutSuffix.slice(lastDash + 3).trim() || undefined,
+         };
+      }
+      return { title: withoutSuffix, author: undefined };
    }
 
    private extractTwitchDuration(html: string): string | undefined {
@@ -240,16 +330,34 @@ export class LinkMetadataFetcher {
 
       return {
          ...metadata,
+         author: this.extractTedSpeaker(res.text),
          host: "www.ted.com",
          favicon: "https://www.ted.com/favicon.ico",
          duration: this.extractIso8601Duration(res.text),
       };
    }
 
+   private extractTedSpeaker(html: string): string | undefined {
+      // TED-specific field in their page data
+      const presenterMatch = html.match(/"presenterDisplayName"\s*:\s*"([^"]+)"/);
+      if (presenterMatch) return presenterMatch[1];
+
+      // JSON-LD: extract the author block first, then find "name" within it
+      // (avoids [^}]* failing when the object contains arrays or nested objects)
+      const authorBlock = html.match(/"author"\s*:\s*\{([^{}]+)\}/);
+      if (authorBlock?.[1]) {
+         const nameMatch = authorBlock[1].match(/"name"\s*:\s*"([^"]+)"/);
+         if (nameMatch) return nameMatch[1];
+      }
+
+      return undefined;
+   }
+
    /* --- REDDIT --- */
    private async fetchReddit(url: string): Promise<LinkMetadata | undefined> {
       const normalized = url
          .replace("old.reddit.com", "www.reddit.com")
+         .replace(/\?.*$/, "")
          .replace(/\/?$/, "/");
 
       if (/reddit\.com\/r\/\w+\/comments\//.test(normalized))
@@ -272,10 +380,11 @@ export class LinkMetadataFetcher {
       return {
          url: originalUrl,
          title: LinkMetadataParser.sanitizeText(post.title) ?? post.title,
+         author: post.subreddit ? `r/${post.subreddit}` : undefined,
          description: LinkMetadataParser.sanitizeText(
             post.selftext
                ? post.selftext.slice(0, 200).replace(/\n/g, " ") + "…"
-               : `Posted by u/${post.author} in r/${post.subreddit}`
+               : post.author ? `u/${post.author}` : undefined
          ),
          host: "www.reddit.com",
          favicon: "https://www.reddit.com/favicon.ico",
@@ -417,6 +526,124 @@ export class LinkMetadataFetcher {
       };
    }
 
+   /* --- GITHUB --- */
+   private async fetchGitHub(url: string): Promise<LinkMetadata | undefined> {
+      const m = url.match(/github\.com\/([^/]+)\/([^/?#]+)/);
+      if (!m) return this.fetchGeneric(url);
+      const [, owner, repo] = m;
+
+      const [apiRes, htmlRes] = await Promise.all([
+         this.request(`https://api.github.com/repos/${owner}/${repo}`, {
+            "Accept": "application/vnd.github+json",
+         }),
+         this.request(`https://github.com/${owner}/${repo}`, {
+            "Referer": "https://www.google.com/",
+         }),
+      ]);
+
+      if (!apiRes || apiRes.status !== 200) return this.fetchGeneric(url);
+
+      const data = JSON.parse(apiRes.text);
+      const stars: number = data.stargazers_count ?? 0;
+      const starsLabel = stars >= 1000
+         ? `${(stars / 1000).toFixed(1)}k`
+         : String(stars);
+
+      const descParts: string[] = [];
+      if (data.description) descParts.push(data.description);
+      if (data.language) descParts.push(data.language);
+      descParts.push(`★ ${starsLabel}`);
+
+      const ogImage = htmlRes?.text
+         ? (htmlRes.text.match(/property="og:image"\s+content="([^"]+)"/i)?.[1]
+            ?? htmlRes.text.match(/content="([^"]+)"\s+property="og:image"/i)?.[1])
+         : undefined;
+
+      return {
+         url,
+         title: data.full_name ?? `${owner}/${repo}`,
+         author: owner,
+         description: descParts.join(" · "),
+         host: "github.com",
+         favicon: "https://github.com/favicon.ico",
+         image: ogImage ?? undefined,
+         indent: 0,
+      };
+   }
+
+   /* --- SPOTIFY --- */
+   private async fetchSpotify(url: string): Promise<LinkMetadata | undefined> {
+      // Normalize: strip locale prefix (intl-it/, intl-en/, …) and tracking params
+      const parsed = new URL(url);
+      const cleanPath = parsed.pathname.replace(/^\/intl-[a-z]+\//, "/");
+      const typeMatch = cleanPath.match(/^\/(track|album|playlist|artist|episode)\//);
+      if (!typeMatch) return this.fetchGeneric(url);
+      const cleanUrl = `https://open.spotify.com${cleanPath}`.replace(/\?.*$/, "");
+      const typeLabels: Record<string, string> = {
+         track: "Track", album: "Album", playlist: "Playlist", artist: "Artist", episode: "Episode",
+      };
+      const typeLabel = typeLabels[typeMatch[1]!] ?? typeMatch[1]!;
+
+      const res = await this.request(
+         `https://open.spotify.com/oembed?url=${encodeURIComponent(cleanUrl)}`,
+         {
+            "Accept": "application/json",
+            "Referer": "https://open.spotify.com/",
+         }
+      );
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      let data: Record<string, unknown>;
+      try {
+         data = JSON.parse(res.text);
+      } catch {
+         return this.fetchGeneric(url);
+      }
+
+      const title = typeof data.title === "string"
+         ? (LinkMetadataParser.sanitizeText(data.title) ?? data.title)
+         : undefined;
+      if (!title) return this.fetchGeneric(url);
+
+      const author = typeof data.author_name === "string" ? data.author_name : undefined;
+      const image = typeof data.thumbnail_url === "string" ? data.thumbnail_url : undefined;
+      const description = author ? `${typeLabel} · ${author}` : typeLabel;
+
+      return {
+         url,
+         title,
+         author,
+         description,
+         host: "open.spotify.com",
+         favicon: "https://open.spotify.com/favicon.ico",
+         image,
+         indent: 0,
+      };
+   }
+
+   /* --- WIKIPEDIA --- */
+   private async fetchWikipedia(url: string): Promise<LinkMetadata | undefined> {
+      const parsed = new URL(url);
+      const lang = parsed.hostname.split(".")[0] ?? "en";
+      const title = decodeURIComponent(parsed.pathname.replace(/^\/wiki\//, ""));
+
+      const res = await this.request(
+         `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`
+      );
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      const data = JSON.parse(res.text);
+      return {
+         url: data.content_urls?.desktop?.page ?? url,
+         title: data.title ?? title,
+         description: LinkMetadataParser.sanitizeText(data.extract),
+         host: `${lang}.wikipedia.org`,
+         favicon: `https://${lang}.wikipedia.org/favicon.ico`,
+         image: data.thumbnail?.source ?? data.originalimage?.source ?? undefined,
+         indent: 0,
+      };
+   }
+
    /* --- ENCODING --- */
    private async decodeHtmlContent(arrayBuffer: ArrayBuffer, fallbackText: string): Promise<string> {
       try {
@@ -501,7 +728,7 @@ export class LinkMetadataFetcher {
       return suspicious !== null && suspicious.length / text.length > 0.1;
    }
 
-   private async request(url: string, customHeaders: Record<string, string> = {}) {
+   private async request(url: string, customHeaders: Record<string, string> = {}, timeoutMs = 5000) {
       const headers = {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -515,7 +742,7 @@ export class LinkMetadataFetcher {
          return await Promise.race([
             requestUrl({ url, headers }),
             new Promise<never>((_, reject) =>
-               setTimeout(() => reject(new Error("Timeout")), 5000)
+               setTimeout(() => reject(new Error("Timeout")), timeoutMs)
             ),
          ]);
       } catch (e) {

@@ -106,6 +106,8 @@ export class LinkMetadataParser {
   }
 
   private async getImage(): Promise<string | undefined> {
+    // og:/twitter: meta tags are from the page author and almost always valid —
+    // return them directly without a browser probe to avoid blocking card creation.
     const trustedImage =
       this.htmlDoc.querySelector("meta[property='og:image:secure_url']")?.getAttribute("content") ??
       this.htmlDoc.querySelector("meta[property='og:image']")?.getAttribute("content") ??
@@ -113,24 +115,21 @@ export class LinkMetadataParser {
       this.htmlDoc.querySelector("meta[property='twitter:image']")?.getAttribute("content") ??
       this.htmlDoc.querySelector("meta[name='twitter:image']")?.getAttribute("content");
 
-    if (trustedImage) {
-      const validated = await this.checkImageWithBrowser(this.resolveUrl(trustedImage));
-      if (validated) return validated;
-    }
+    if (trustedImage) return this.resolveUrl(trustedImage);
 
+    // DOM-scraped fallback URLs are less reliable — probe with a short timeout
     const url = this.findImageUrl();
     if (!url) return undefined;
-
-    return this.checkImageWithBrowser(url);
+    return this.checkImageWithBrowser(url, 2000);
   }
 
-  private checkImageWithBrowser(url: string): Promise<string | undefined> {
+  private checkImageWithBrowser(url: string, timeoutMs = 2000): Promise<string | undefined> {
     return new Promise((resolve) => {
       const img = new Image();
       const timer = setTimeout(() => {
         img.src = "";
         resolve(undefined);
-      }, 5000);
+      }, timeoutMs);
       img.onload = () => { clearTimeout(timer); resolve(url); };
       img.onerror = () => { clearTimeout(timer); resolve(undefined); };
       img.src = url;
@@ -187,6 +186,11 @@ export class LinkMetadataParser {
   static sanitizeText(text: string | undefined, maxLength = 160): string | undefined {
     if (!text) return undefined;
     let result = text
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'")
       .replace(/\r\n|\n|\r/g, " ")
       .replace(/\\/g, "\\\\")
       .replace(/"/g, '\\"')
