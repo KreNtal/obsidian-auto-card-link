@@ -317,10 +317,10 @@ body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.e
     object-fit: cover;
 }
 
-.auto-card-link-style-compact .auto-card-link-title {
+/* .auto-card-link-style-compact .auto-card-link-title {
     -webkit-line-clamp: 1;
     line-clamp: 1;
-}
+} */
 
 .auto-card-link-style-compact .auto-card-link-main {
     padding: 0.35em 0.5em;

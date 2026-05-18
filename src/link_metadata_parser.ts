@@ -187,6 +187,11 @@ export class LinkMetadataParser {
   static sanitizeText(text: string | undefined, maxLength = 160): string | undefined {
     if (!text) return undefined;
     let result = text
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'")
       .replace(/\r\n|\n|\r/g, " ")
       .replace(/\\/g, "\\\\")
       .replace(/"/g, '\\"')
