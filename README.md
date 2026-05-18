@@ -75,4 +75,3 @@ To hide the author.
 - Wanted to show beautiful links in my notes
 - Didn't want to mess up my notes with HTML tags
 - Wanted to keep the original plugin updated
-- Wanted to keep the original plugin updated
