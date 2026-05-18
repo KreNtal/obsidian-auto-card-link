@@ -327,6 +327,7 @@ export class LinkMetadataFetcher {
    private async fetchReddit(url: string): Promise<LinkMetadata | undefined> {
       const normalized = url
          .replace("old.reddit.com", "www.reddit.com")
+         .replace(/\?.*$/, "")
          .replace(/\/?$/, "/");
 
       if (/reddit\.com\/r\/\w+\/comments\//.test(normalized))

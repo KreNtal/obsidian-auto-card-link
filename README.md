@@ -40,7 +40,8 @@ The code block `cardlink` uses YAML syntax for displaying card-styled link.
 | host        | false    | host of the link                         |
 | favicon     | false    | favicon of the link                      |
 | image       | false    | thumbnail image to show in the card link |
-| duration    | false    | duration time for YouTube videos         |
+| duration    | false    | duration time for videos                 |
+| author      | false    | channel or author for videos             |
 
 ## example
 
@@ -59,7 +60,18 @@ image: https://obsidian.md/images/banner.png
 
 Card-styled link is styled by [styles.css](./styles.css). To customize, you can try making [CSS snippets](https://help.obsidian.md/How+to/Add+custom+styles#Use+Themes+and+or+CSS+snippets).
 
+For example:
+
+```css
+.auto-card-link-author {
+	display: none;
+}
+```
+
+To hide the author.
+
 # Motivation
 
 - Wanted to show beautiful links in my notes
 - Didn't want to mess up my notes with HTML tags
+- Wanted to keep updated the original plugin
