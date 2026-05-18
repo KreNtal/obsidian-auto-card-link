@@ -42,6 +42,8 @@ The code block `cardlink` uses YAML syntax for displaying card-styled link.
 | image       | false    | thumbnail image to show in the card link |
 | duration    | false    | duration time for videos                 |
 | author      | false    | channel or author for videos             |
+| duration    | false    | duration time for videos                 |
+| author      | false    | channel or author for videos             |
 
 ## example
 
@@ -59,6 +61,16 @@ image: https://obsidian.md/images/banner.png
 # Customizing Style
 
 Card-styled link is styled by [styles.css](./styles.css). To customize, you can try making [CSS snippets](https://help.obsidian.md/How+to/Add+custom+styles#Use+Themes+and+or+CSS+snippets).
+
+For example:
+
+```css
+.auto-card-link-author {
+	display: none;
+}
+```
+
+To hide the author.
 
 For example:
 
