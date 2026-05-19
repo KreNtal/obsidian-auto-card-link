@@ -15,6 +15,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isTedUrl(url)) return this.fetchTed(url);
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url);
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
+      if (CheckIf.isPrintablesUrl(url)) return this.fetchPrintables(url);
       if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
@@ -466,6 +467,156 @@ export class LinkMetadataFetcher {
       };
    }
 
+   /* --- PRINTABLES --- */
+   private async fetchPrintables(url: string): Promise<LinkMetadata | undefined> {
+      // Printables uses Cloudflare bot protection that returns 403 for plain HTTP requests.
+      // Try three approaches in order, so the user always gets at least a working card.
+
+      const modelId = url.match(/printables\.com\/model\/(\d+)/)?.[1];
+      if (!modelId) return this.fetchGeneric(url);
+
+      // 1. GraphQL API — not behind the same Cloudflare wall as the web page
+      const apiResult = await this.fetchPrintablesApi(modelId, url);
+      if (apiResult) return apiResult;
+
+      // 2. Page fetch with Googlebot UA — Cloudflare typically lets verified bots through
+      const botResult = await this.fetchPrintablesBotPage(url);
+      if (botResult) return botResult;
+
+      // 3. URL-slug fallback — derive the title from the URL so the card is still useful
+      return this.buildPrintablesFallback(url, modelId);
+   }
+
+   private async tryPrintablesGraphQL(body: Record<string, unknown>): Promise<string | undefined> {
+      try {
+         const res = await Promise.race([
+            requestUrl({
+               url: "https://api.printables.com/graphql/",
+               method: "POST",
+               headers: {
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+                  "Origin": "https://www.printables.com",
+                  "Referer": "https://www.printables.com/",
+                  "Accept-Language": "en-US,en;q=0.9",
+               },
+               body: JSON.stringify(body),
+            }),
+            new Promise<never>((_, reject) =>
+               setTimeout(() => reject(new Error("Timeout")), 8000)
+            ),
+         ]);
+         return res?.status === 200 ? res.text : undefined;
+      } catch {
+         return undefined;
+      }
+   }
+
+   private async fetchPrintablesApi(modelId: string, url: string): Promise<LinkMetadata | undefined> {
+      // Printables GraphQL: operation name "PrintProfile", variable $id of type ID!
+      // Discovered from https://github.com/100prznt/PrintablesGraphQL
+      const query = `query PrintProfile($id: ID!) {
+        print(id: $id) {
+          name
+          summary
+          description
+          images { filePath }
+          user { publicUsername }
+        }
+      }`;
+
+      const raw = await this.tryPrintablesGraphQL({
+         operationName: "PrintProfile",
+         query,
+         variables: { id: modelId },
+      });
+
+      if (!raw) return undefined;
+
+      try {
+         const data = JSON.parse(raw);
+         const print = data?.data?.print;
+         if (!print?.name) return undefined;
+
+         const firstImg = Array.isArray(print.images) ? print.images[0] : null;
+         const imgPath: string | undefined = firstImg?.filePath ?? undefined;
+         const image = imgPath
+            ? (imgPath.startsWith("http") ? imgPath : `https://media.printables.com/${imgPath}`)
+            : undefined;
+
+         const rawDesc: string | undefined = print.summary || print.description || undefined;
+
+         return {
+            url,
+            title: LinkMetadataParser.sanitizeText(print.name) ?? print.name,
+            author: print.user?.publicUsername ?? undefined,
+            description: rawDesc
+               ? LinkMetadataParser.sanitizeText(rawDesc.slice(0, 200))
+               : undefined,
+            host: "www.printables.com",
+            favicon: "https://www.printables.com/favicon.ico",
+            image,
+            indent: 0,
+         };
+      } catch {
+         return undefined;
+      }
+   }
+
+   private async fetchPrintablesBotPage(url: string): Promise<LinkMetadata | undefined> {
+      // Cloudflare may pass Googlebot through for SEO content.
+      // Use requestUrl directly (not this.request) so 403s are caught silently.
+      try {
+         const res = await Promise.race([
+            requestUrl({
+               url,
+               headers: {
+                  "User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+                  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                  "Accept-Language": "en-US,en;q=0.9",
+                  "From": "googlebot(at)googlebot.com",
+               },
+            }),
+            new Promise<never>((_, reject) =>
+               setTimeout(() => reject(new Error("Timeout")), 8000)
+            ),
+         ]);
+
+         if (!res || res.status !== 200) return undefined;
+
+         const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+         const parser = new LinkMetadataParser(url, decodedText);
+         const metadata = await parser.parse();
+         if (!metadata) return undefined;
+
+         return {
+            ...metadata,
+            host: "www.printables.com",
+            favicon: "https://www.printables.com/favicon.ico",
+         };
+      } catch {
+         return undefined;
+      }
+   }
+
+   private buildPrintablesFallback(url: string, modelId: string): LinkMetadata {
+      // Derive a human-readable title from the URL slug
+      // e.g. "voronoi-mushroom-lamp" → "Voronoi Mushroom Lamp"
+      const slug = url.match(/printables\.com\/model\/\d+-(.+?)(?:[?#]|$)/)?.[1] ?? "";
+      const title = slug
+         ? slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+         : `Printables Model #${modelId}`;
+
+      return {
+         url,
+         title,
+         description: `3D model #${modelId} on Printables.com`,
+         host: "www.printables.com",
+         favicon: "https://www.printables.com/favicon.ico",
+         indent: 0,
+      };
+   }
+
    /* --- IMDB --- */
    private async fetchImdb(url: string): Promise<LinkMetadata | undefined> {
       // Try tt/nm IDs first via suggestions API
@@ -555,10 +706,12 @@ export class LinkMetadataFetcher {
       if (data.language) descParts.push(data.language);
       descParts.push(`★ ${starsLabel}`);
 
-      const ogImage = htmlRes?.text
-         ? (htmlRes.text.match(/property="og:image"\s+content="([^"]+)"/i)?.[1]
-            ?? htmlRes.text.match(/content="([^"]+)"\s+property="og:image"/i)?.[1])
-         : undefined;
+      // Use LinkMetadataParser for og:image extraction — more robust than a regex
+      let ogImage: string | undefined;
+      if (htmlRes?.text) {
+         const htmlMeta = await new LinkMetadataParser(url, htmlRes.text).parse();
+         ogImage = htmlMeta?.image;
+      }
 
       return {
          url,
@@ -567,7 +720,7 @@ export class LinkMetadataFetcher {
          description: descParts.join(" · "),
          host: "github.com",
          favicon: "https://github.com/favicon.ico",
-         image: ogImage ?? undefined,
+         image: ogImage,
          indent: 0,
       };
    }

@@ -106,8 +106,13 @@ export class LinkMetadataParser {
   }
 
   private async getImage(): Promise<string | undefined> {
-    // og:/twitter: meta tags are from the page author and almost always valid —
-    // return them directly without a browser probe to avoid blocking card creation.
+    // 1. JSON-LD image — trusted structured data (Printables, Amazon, schema.org sites).
+    //    Tried first because it often contains a higher-quality or more specific image
+    //    than the generic og:image (e.g. the actual 3D model thumbnail on Printables).
+    const jsonLdImage = this.findJsonLdImage();
+    if (jsonLdImage) return jsonLdImage;
+
+    // 2. og:/twitter: meta tags — also trusted, returned directly without browser probe.
     const trustedImage =
       this.htmlDoc.querySelector("meta[property='og:image:secure_url']")?.getAttribute("content") ??
       this.htmlDoc.querySelector("meta[property='og:image']")?.getAttribute("content") ??
@@ -117,10 +122,36 @@ export class LinkMetadataParser {
 
     if (trustedImage) return this.resolveUrl(trustedImage);
 
-    // DOM-scraped fallback URLs are less reliable — probe with a short timeout
-    const url = this.findImageUrl();
-    if (!url) return undefined;
-    return this.checkImageWithBrowser(url, 2000);
+    // 3. Other meta / itemprop tags — trusted.
+    const metaImage =
+      this.htmlDoc.querySelector("meta[itemprop='image']")?.getAttribute("content") ??
+      this.htmlDoc.querySelector("link[rel='image_src']")?.getAttribute("href");
+
+    if (metaImage) return this.resolveUrl(metaImage);
+
+    // 4. DOM-scraped fallback URLs are less reliable — probe with a short timeout.
+    const domUrl = this.findDomImageUrl();
+    if (!domUrl) return undefined;
+    return this.checkImageWithBrowser(domUrl, 2000);
+  }
+
+  private findJsonLdImage(): string | undefined {
+    const jsonLd = this.getJsonLdData() as Record<string, unknown> | null;
+    if (!jsonLd) return undefined;
+    const img = jsonLd.image as string | string[] | { url: string; } | undefined;
+    if (Array.isArray(img) && img.length > 0) return this.resolveUrl(img[0]!);
+    if (typeof img === "string") return this.resolveUrl(img);
+    if (img && typeof img === "object" && "url" in img) return this.resolveUrl((img as { url: string; }).url);
+    return undefined;
+  }
+
+  private findDomImageUrl(): string | undefined {
+    const srcSelectors = ["#landingImage", "#imgBlkFront", "#main-image", ".printable-image"];
+    for (const selector of srcSelectors) {
+      const url = this.htmlDoc.querySelector(selector)?.getAttribute("src");
+      if (url) return this.resolveUrl(url);
+    }
+    return undefined;
   }
 
   private checkImageWithBrowser(url: string, timeoutMs = 2000): Promise<string | undefined> {
@@ -134,37 +165,6 @@ export class LinkMetadataParser {
       img.onerror = () => { clearTimeout(timer); resolve(undefined); };
       img.src = url;
     });
-  }
-
-  private findImageUrl(): string | undefined {
-    // 1. Try JSON-LD first (best for Printables/Amazon)
-    const jsonLd = this.getJsonLdData() as Record<string, unknown> | undefined;
-    if (jsonLd) {
-      const img = jsonLd.image as string | string[] | { url: string; } | undefined;
-      if (Array.isArray(img) && img.length > 0) return this.resolveUrl(img[0]!);
-      if (typeof img === 'string') return this.resolveUrl(img);
-      if (img && typeof img === 'object' && 'url' in img) return this.resolveUrl((img as { url: string; }).url);
-    }
-
-    // 2. Meta tags with content attribute
-    const metaSelectors = [
-      "meta[itemprop='image']",
-      "link[rel='image_src']",
-    ];
-
-    for (const selector of metaSelectors) {
-      const url = this.htmlDoc.querySelector(selector)?.getAttribute("content");
-      if (url) return this.resolveUrl(url);
-    }
-
-    // 3. DOM elements with src attribute (Amazon, Printables, etc.)
-    const srcSelectors = ["#landingImage", "#imgBlkFront", "#main-image", ".printable-image"];
-    for (const selector of srcSelectors) {
-      const url = this.htmlDoc.querySelector(selector)?.getAttribute("src");
-      if (url) return this.resolveUrl(url);
-    }
-
-    return undefined;
   }
 
   private resolveUrl(url: string): string {

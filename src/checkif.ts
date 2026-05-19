@@ -44,6 +44,10 @@ export class CheckIf {
     return /imdb\.com\//.test(url);
   }
 
+  public static isPrintablesUrl(url: string): boolean {
+    return /^https?:\/\/(www\.)?printables\.com\//.test(url);
+  }
+
   public static isGitHubUrl(url: string): boolean {
     // Only match repo root URLs (owner/repo with no deeper path segments)
     // Issues, PRs, code etc. are better handled by fetchGeneric
