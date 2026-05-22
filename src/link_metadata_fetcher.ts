@@ -82,6 +82,16 @@ export class LinkMetadataFetcher {
 
    /* --- YOUTUBE --- */
    private async fetchYouTube(url: string): Promise<LinkMetadata | undefined> {
+      // Channels: oEmbed doesn't support them, scrape the page directly
+      if (/youtube\.com\/(@|c\/|channel\/)/.test(url)) {
+         const res = await this.request(url, { "Accept-Language": "en-US,en;q=0.9" });
+         if (!res || res.status !== 200) return this.fetchGeneric(url);
+         const metadata = await new LinkMetadataParser(url, res.text).parse();
+         if (!metadata) return this.fetchGeneric(url);
+         return { ...metadata, author: metadata.title ?? undefined, host: "www.youtube.com", favicon: "https://www.youtube.com/favicon.ico" };
+      }
+
+      // Videos and playlists: both supported by oEmbed
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
       const res = await this.request(oembedUrl);
       if (!res || res.status !== 200) return;
@@ -125,7 +135,7 @@ export class LinkMetadataFetcher {
 
       if (!res || res.status !== 200) return fallback;
 
-      // Extract shortDescription
+      // Extract shortDescription (video-specific)
       let description = fallback.description;
       const descMatch = res.text.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
       if (descMatch) {
@@ -133,6 +143,16 @@ export class LinkMetadataFetcher {
             const raw = JSON.parse(`"${descMatch[1]}"`).trim();
             if (raw) description = raw.length > 160 ? raw.slice(0, 160) + "..." : raw;
          } catch { /* keep fallback */ }
+      }
+
+      // Fallback to og:description for non-video pages (e.g. playlists)
+      if (!description) {
+         const ogMatch = res.text.match(/property="og:description"\s+content="([^"]*)"/i)
+            ?? res.text.match(/content="([^"]*)"\s+property="og:description"/i);
+         if (ogMatch?.[1]) {
+            const raw = ogMatch[1].trim();
+            if (raw) description = raw.length > 160 ? raw.slice(0, 160) + "..." : raw;
+         }
       }
 
       // Extract duration from lengthSeconds

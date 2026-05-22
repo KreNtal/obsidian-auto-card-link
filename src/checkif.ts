@@ -17,7 +17,7 @@ export class CheckIf {
   }
 
   public static isYouTubeUrl(url: string): boolean {
-    return /^https?:\/\/(www\.)?(youtube\.com\/(watch|shorts\/)|youtu\.be\/)/.test(url);
+    return /^https?:\/\/(www\.)?(youtube\.com\/(watch|shorts\/|playlist\?|@|c\/|channel\/)|youtu\.be\/)/.test(url);
   }
 
   public static isVimeoUrl(url: string): boolean {
