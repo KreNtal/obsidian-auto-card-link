@@ -103,7 +103,8 @@ export class LinkMetadataFetcher {
          ? await this.getBestYouTubeThumbnail(videoId)
          : data.thumbnail_url;
 
-      const { description, duration } = await this.getYouTubePageData(url, data.author_name);
+      const isPlaylist = /youtube\.com\/playlist\?/.test(url);
+      const { description, duration: videoDuration } = await this.getYouTubePageData(url, data.author_name);
 
       return {
          url,
@@ -113,7 +114,7 @@ export class LinkMetadataFetcher {
          host: "www.youtube.com",
          favicon: "https://www.youtube.com/favicon.ico",
          image,
-         duration,
+         duration: isPlaylist ? "Playlist" : videoDuration,
          indent: 0,
       };
    }
@@ -298,7 +299,7 @@ export class LinkMetadataFetcher {
          const author = metadata.title?.replace(/\s*-\s*Twitch\s*$/i, "").trim() || undefined;
          const title = metadata.description ?? metadata.title ?? "";
          const description = author ? `Watch ${author} live on Twitch` : undefined;
-         return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+         return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration: "Live" };
       }
 
       // All attempts returned the SPA shell — fall back to generic
