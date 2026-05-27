@@ -37,6 +37,7 @@ export interface ObsidianAutoCardLinkSettings {
   downloadFavicons: boolean;
   faviconFolder: string;
   cardStyle: "classic" | "modern" | "glass" | "compact";
+  youtubeThumbnailQuality: "better-preview" | "max-resolution";
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
@@ -49,6 +50,7 @@ export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   downloadFavicons: false,
   faviconFolder: "AutoCardLink/favicons",
   cardStyle: "classic",
+  youtubeThumbnailQuality: "better-preview",
 };
 
 export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
@@ -121,6 +123,22 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             if (!this.plugin.settings) return;
             this.plugin.settings.downloadImages = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("YouTube thumbnail quality")
+      .setDesc("Better preview fetches a size matched to the card dimensions, sharper and faster to load. Max resolution always fetches the highest available resolution, but it takes up more disk space and looks pixelated.")
+      .addDropdown((drop) => {
+        if (!this.plugin.settings) return drop;
+        return drop
+          .addOption("better-preview", "Better preview")
+          .addOption("max-resolution", "Max resolution")
+          .setValue(this.plugin.settings.youtubeThumbnailQuality)
+          .onChange(async (value: string) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.youtubeThumbnailQuality = value as "better-preview" | "max-resolution";
             await this.plugin.saveSettings();
           });
       });

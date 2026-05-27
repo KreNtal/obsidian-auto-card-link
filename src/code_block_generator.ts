@@ -11,12 +11,13 @@ export class CodeBlockGenerator {
   editor: Editor;
   private app?: App;
   private settings?: ObsidianAutoCardLinkSettings;
-  private fetcher = new LinkMetadataFetcher();
+  private fetcher: LinkMetadataFetcher;
 
   constructor(editor: Editor, app?: App, settings?: ObsidianAutoCardLinkSettings) {
     this.editor = editor;
     this.app = app;
     this.settings = settings;
+    this.fetcher = new LinkMetadataFetcher(settings);
   }
 
   async convertUrlToCodeBlock(url: string, fallbackText?: string): Promise<boolean> {

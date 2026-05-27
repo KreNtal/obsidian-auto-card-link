@@ -2,8 +2,14 @@ import { Notice, requestUrl } from "obsidian";
 import { LinkMetadata } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
+import { ObsidianAutoCardLinkSettings } from "./settings";
 
 export class LinkMetadataFetcher {
+   private settings?: ObsidianAutoCardLinkSettings;
+
+   constructor(settings?: ObsidianAutoCardLinkSettings) {
+      this.settings = settings;
+   }
 
    async fetch(url: string): Promise<LinkMetadata | undefined> {
       url = url.trim().replace(/^["']|["']$/g, "");
@@ -165,11 +171,31 @@ export class LinkMetadataFetcher {
    }
 
    private async getBestYouTubeThumbnail(videoId: string): Promise<string> {
-      for (const q of ["maxresdefault", "sddefault", "hqdefault"]) {
-         const thumbUrl = `https://i.ytimg.com/vi/${videoId}/${q}.jpg`;
-         const res = await this.request(thumbUrl);
-         if (res && res.status === 200) return thumbUrl;
+      // "max-resolution": fetch the highest available pixel size (better when saving to vault).
+      // "better-preview" (default): fetch a size matched to the card slot (min(200px,40%) wide).
+      //   sddefault WebP (640×480) → sddefault JPG → mqdefault WebP (320×180, clean 16:9) → mqdefault JPG.
+      //   Avoids maxresdefault (1280×720) which causes pixelation from a 6× CSS downscale.
+      const maxRes = this.settings?.youtubeThumbnailQuality === "max-resolution";
+
+      const candidates = maxRes
+         ? [
+            `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+            `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`,
+            `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+         ]
+         : [
+            `https://i.ytimg.com/vi_webp/${videoId}/sddefault.webp`,
+            `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`,
+            `https://i.ytimg.com/vi_webp/${videoId}/mqdefault.webp`,
+            `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+         ];
+
+      for (const url of candidates) {
+         const res = await this.request(url);
+         if (res && res.status === 200) return url;
       }
+
+      // hqdefault.jpg is guaranteed for every video
       return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
    }
 
