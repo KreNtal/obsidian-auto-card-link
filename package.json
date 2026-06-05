@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-auto-card-link",
-	"version": "1.3.3",
+	"version": "1.3.2",
 	"description": "Automatically fetches metadata from a url and makes it as a card-styled link",
 	"main": "main.js",
 	"type": "module",
@@ -8,7 +8,8 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"lint": "eslint .",
-		"fix": "eslint . --fix"
+		"fix": "eslint . --fix",
+		"version": "node version-bump.mjs && git add manifest.json versions.json"
 	},
 	"author": "KreNtal",
 	"repository": {
