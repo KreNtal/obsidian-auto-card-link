@@ -542,7 +542,7 @@ export class LinkMetadataFetcher {
                || metadata.title === "Reddit"
                || metadata.title === "Reddit - The heart of the internet";
             if (!isGeneric) {
-               return { ...metadata!, host: "www.reddit.com", favicon: "https://www.reddit.com/favicon.ico" };
+               return { ...metadata, host: "www.reddit.com", favicon: "https://www.reddit.com/favicon.ico" };
             }
          }
       } catch { /* fall through */ }
@@ -857,7 +857,7 @@ export class LinkMetadataFetcher {
 
       let data: Record<string, unknown>;
       try {
-         data = JSON.parse(res.text);
+         data = JSON.parse(res.text) as Record<string, unknown>;
       } catch {
          return this.fetchGeneric(url);
       }

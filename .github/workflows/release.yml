@@ -6,12 +6,15 @@ on:
       - "*"
 
 env:
-  PLUGIN_NAME: auto-card-link-enhanced
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed to create the GitHub release
+      id-token: write # needed to request the OIDC token for attestation
+      attestations: write # needed to write the attestation to the repo
 
     steps:
       - uses: actions/checkout@v4.2.2
@@ -26,12 +29,13 @@ jobs:
           npm install
           npm run build
 
-      - name: Package
-        run: |
-          mkdir ${{ env.PLUGIN_NAME }}
-          cp main.js manifest.json ${{ env.PLUGIN_NAME }}/
-          [ -f styles.css ] && cp styles.css ${{ env.PLUGIN_NAME }}/ || true
-          zip -r ${{ env.PLUGIN_NAME }}.zip ${{ env.PLUGIN_NAME }}
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            styles.css
+            manifest.json
 
       - name: Create Release
         uses: softprops/action-gh-release@v2.3.2
@@ -45,6 +49,5 @@ jobs:
             main.js
             manifest.json
             styles.css
-            ${{ env.PLUGIN_NAME }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
