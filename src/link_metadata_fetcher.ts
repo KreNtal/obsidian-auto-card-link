@@ -274,7 +274,7 @@ export class LinkMetadataFetcher {
       const retryDelays = [0, 1500, 3000];
 
       for (let attempt = 0; attempt < retryDelays.length; attempt++) {
-         if (attempt > 0) await new Promise(r => setTimeout(r, retryDelays[attempt]));
+         if (attempt > 0) await new Promise(r => window.setTimeout(r, retryDelays[attempt]));
 
          const ua = this.twitchUserAgents[attempt % this.twitchUserAgents.length]!;
          const res = await this.request(url, {
@@ -550,7 +550,7 @@ export class LinkMetadataFetcher {
                body: JSON.stringify(body),
             }),
             new Promise<never>((_, reject) =>
-               setTimeout(() => reject(new Error("Timeout")), 8000)
+               window.setTimeout(() => reject(new Error("Timeout")), 8000)
             ),
          ]);
          return res?.status === 200 ? res.text : undefined;
@@ -625,7 +625,7 @@ export class LinkMetadataFetcher {
                },
             }),
             new Promise<never>((_, reject) =>
-               setTimeout(() => reject(new Error("Timeout")), 8000)
+               window.setTimeout(() => reject(new Error("Timeout")), 8000)
             ),
          ]);
 
@@ -943,7 +943,7 @@ export class LinkMetadataFetcher {
          return await Promise.race([
             requestUrl({ url, headers }),
             new Promise<never>((_, reject) =>
-               setTimeout(() => reject(new Error("Timeout")), timeoutMs)
+               window.setTimeout(() => reject(new Error("Timeout")), timeoutMs)
             ),
          ]);
       } catch (e) {

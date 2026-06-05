@@ -180,7 +180,7 @@ export class CodeBlockProcessor {
       .setIcon("copy")
       .setTooltip(`Copy URL\n${data.url}`)
       .onClick(() => {
-        navigator.clipboard.writeText(data.url);
+        void navigator.clipboard.writeText(data.url);
         new Notice("URL copied to your clipboard");
       });
 

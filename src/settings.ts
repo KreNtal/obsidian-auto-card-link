@@ -1,4 +1,4 @@
-import { AbstractInputSuggest, App, PluginSettingTab, Setting } from "obsidian";
+import { AbstractInputSuggest, App, PluginSettingTab, Setting, TFolder } from "obsidian";
 import ObsidianAutoCardLink from "./main";
 
 class FolderSuggest extends AbstractInputSuggest<string> {
@@ -8,7 +8,11 @@ class FolderSuggest extends AbstractInputSuggest<string> {
   constructor(app: App, inputEl: HTMLInputElement) {
     super(app, inputEl);
     this.input = inputEl;
-    this.folders = ["/"].concat(this.app.vault.getAllFolders().map(f => f.path));
+    this.folders = ["/"].concat(
+      this.app.vault.getAllLoadedFiles()
+        .filter((f): f is TFolder => f instanceof TFolder)
+        .map(f => f.path)
+    );
   }
 
   getSuggestions(query: string): string[] {
@@ -66,7 +70,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     // --- General ---
-    new Setting(containerEl).setName("General").setHeading();
+    new Setting(containerEl).setName("General Settings").setHeading();
 
     new Setting(containerEl)
       .setName("Enhance default paste")
@@ -114,20 +118,6 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Images").setHeading();
 
     new Setting(containerEl)
-      .setName("Save images locally")
-      .setDesc("Download and save card thumbnail images to your vault instead of linking to remote URLs.")
-      .addToggle((val) => {
-        if (!this.plugin.settings) return;
-        return val
-          .setValue(this.plugin.settings.downloadImages)
-          .onChange(async (value) => {
-            if (!this.plugin.settings) return;
-            this.plugin.settings.downloadImages = value;
-            await this.plugin.saveSettings();
-          });
-      });
-
-    new Setting(containerEl)
       .setName("YouTube thumbnail quality")
       .setDesc("Better preview fetches a size matched to the card dimensions, sharper and faster to load. Max resolution always fetches the highest available resolution, but it takes up more disk space and looks pixelated.")
       .addDropdown((drop) => {
@@ -139,6 +129,20 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
           .onChange(async (value: string) => {
             if (!this.plugin.settings) return;
             this.plugin.settings.youtubeThumbnailQuality = value as "better-preview" | "max-resolution";
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Save images locally")
+      .setDesc("Download and save card thumbnail images to your vault instead of linking to remote URLs.")
+      .addToggle((val) => {
+        if (!this.plugin.settings) return;
+        return val
+          .setValue(this.plugin.settings.downloadImages)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.downloadImages = value;
             await this.plugin.saveSettings();
           });
       });

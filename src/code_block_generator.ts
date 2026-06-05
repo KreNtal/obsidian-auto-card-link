@@ -44,7 +44,7 @@ export class CodeBlockGenerator {
 
     // One retry on transient failure
     if (linkMetadata === null) {
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => window.setTimeout(r, 1500));
       linkMetadata = await tryFetch().catch(() => undefined);
     }
 

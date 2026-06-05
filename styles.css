@@ -57,8 +57,8 @@
         display: none;
     }
 
-    .auto-card-link-title {
-        white-space: normal !important;
+    .auto-card-link-container .auto-card-link-title {
+        white-space: normal;
         --lh: 1.5em;
         line-height: var(--lh);
         height: calc(var(--lh) * 3);
@@ -172,10 +172,10 @@
 }
 
 
-.auto-card-link-favicon {
-    width: 16px !important;
-    height: auto !important;
-    margin-right: 0.5em !important;
+.auto-card-link-host .auto-card-link-favicon {
+    width: 16px;
+    height: auto;
+    margin-right: 0.5em;
 }
 
 .auto-card-link-thumbnail-wrap {

@@ -1,7 +1,4 @@
-This is a fork of [obsidian-auto-card-link](https://github.com/nekoshita/obsidian-auto-card-link)
-by [Nekoshita Yuki](https://github.com/nekoshita)
-
-It is maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-04.
+[Auto Card Link Enhanced](https://github.com/KreNtal/obsidian-auto-card-link) maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-04.
 
 # Auto Card Link Enhanced
 
@@ -75,3 +72,8 @@ To hide the author.
 - Wanted to show beautiful links in my notes
 - Didn't want to mess up my notes with HTML tags
 - Wanted to keep the original plugin updated (KreNtal)
+
+# Credits
+
+This is a fork of [obsidian-auto-card-link](https://github.com/nekoshita/obsidian-auto-card-link)
+by [Nekoshita Yuki](https://github.com/nekoshita)

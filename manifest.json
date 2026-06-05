@@ -2,8 +2,8 @@
 	"id": "auto-card-link-enhanced",
 	"name": "Auto Card Link Enhanced",
 	"version": "1.3.1",
-	"minAppVersion": "0.15.0",
-	"description": "Automatically fetches metadata from a url and makes it as a card-styled link - maintained by KreNtal",
+	"minAppVersion": "1.4.10",
+	"description": "Automatically fetches metadata from a url and makes it as a card-styled link.",
 	"author": "KreNtal",
 	"authorUrl": "https://github.com/KreNtal",
 	"isDesktopOnly": false

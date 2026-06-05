@@ -42,7 +42,7 @@ export default class ObsidianAutoCardLink extends Plugin {
       const url = urlMatch?.[1]?.trim().replace(/^["']|["']$/g, "");
 
       if (info && url) {
-        const container = el.querySelector(".auto-card-link-container") as HTMLElement | null;
+        const container = el.querySelector<HTMLElement>(".auto-card-link-container");
         if (container) {
           container.dataset.cardlinkUrl = url;
           container.dataset.cardlinkLineStart = String(info.lineStart);
@@ -60,7 +60,6 @@ export default class ObsidianAutoCardLink extends Plugin {
       editorCallback: async (editor: Editor) => {
         await this.manualPasteAndEnhanceURL(editor);
       },
-      hotkeys: [],
     });
 
     this.addCommand({
@@ -69,7 +68,7 @@ export default class ObsidianAutoCardLink extends Plugin {
       editorCheckCallback: (checking: boolean, editor: Editor) => {
         if (!navigator.onLine) return false;
         if (checking) return true;
-        this.enhanceSelectedURL(editor);
+        void this.enhanceSelectedURL(editor);
         return true;
       },
       hotkeys: [
@@ -88,7 +87,7 @@ export default class ObsidianAutoCardLink extends Plugin {
   private getCardlinkAtMouse(): { url: string; lineStart: number; lineEnd: number; } | undefined {
     // Use :hover on the element itself, not as a descendant selector
     const el = document.querySelector(".auto-card-link-container[data-cardlink-url]:hover");
-    if (!el || !(el instanceof HTMLElement)) return;
+    if (!el || !(el.instanceOf(HTMLElement))) return;
 
     const url = el.dataset.cardlinkUrl;
     const lineStart = parseInt(el.dataset.cardlinkLineStart ?? "");
@@ -155,14 +154,14 @@ export default class ObsidianAutoCardLink extends Plugin {
   private resolveCardlinkRange(
     editor: Editor,
     cardlink: string | { url: string; lineStart: number; lineEnd: number; }
-  ): { url: string; blockEnd: number; startPos: { line: number; ch: number }; endPos: { line: number; ch: number }; } | undefined {
+  ): { url: string; blockEnd: number; startPos: { line: number; ch: number; }; endPos: { line: number; ch: number; }; } | undefined {
     const url = typeof cardlink === "string" ? cardlink : cardlink.url;
     const lines = editor.getValue().split(/\r?\n/);
 
     let blockStart = -1;
     let blockEnd = -1;
 
-    const findBlockByUrl = (searchUrl: string, startLine = 0): { start: number; end: number } | undefined => {
+    const findBlockByUrl = (searchUrl: string, startLine = 0): { start: number; end: number; } | undefined => {
       let i = startLine;
       while (i < lines.length) {
         const line = lines[i] ?? "";
@@ -270,7 +269,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     }
     this.refreshQueue = this.refreshQueue
       .then(() => this.doRefetchCardlink(editor, cardlink))
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => { this.refreshQueueDepth--; });
   }
 
@@ -384,7 +383,7 @@ export default class ObsidianAutoCardLink extends Plugin {
       const scroller = view?.containerEl.querySelector(".cm-scroller");
       if (scroller) {
         const top = this.savedScrollTop;
-        requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
           (scroller as HTMLElement).scrollTop = top;
         });
       }
@@ -446,7 +445,7 @@ export default class ObsidianAutoCardLink extends Plugin {
         item
           .setTitle("Convert selected URL to Card Link")
           .setIcon("link")
-          .onClick(() => { this.enhanceSelectedURL(editor); });
+          .onClick(() => { void this.enhanceSelectedURL(editor); });
       });
     }
   };

@@ -1,4 +1,3 @@
-import { requestUrl } from "obsidian";
 import { LinkMetadata } from "./interfaces";
 
 export class LinkMetadataParser {
@@ -64,9 +63,9 @@ export class LinkMetadataParser {
 
     if (!raw) return undefined;
 
-    const div = document.createElement("div");
-    div.innerHTML = raw;
-    const text = (div.textContent ?? "").replace(/\s+/g, " ").trim();
+    // Parse as HTML to strip inline tags and decode entities — avoids innerHTML on a live node.
+    const parsed = new DOMParser().parseFromString(raw, "text/html");
+    const text = (parsed.body.textContent ?? "").replace(/\s+/g, " ").trim();
     return text || undefined;
   }
 
@@ -99,7 +98,7 @@ export class LinkMetadataParser {
         if (content["@graph"] && Array.isArray(content["@graph"])) return content["@graph"][0];
         return content;
       }
-    } catch (e) {
+    } catch {
       return null;
     }
     return null;
@@ -157,12 +156,12 @@ export class LinkMetadataParser {
   private checkImageWithBrowser(url: string, timeoutMs = 2000): Promise<string | undefined> {
     return new Promise((resolve) => {
       const img = new Image();
-      const timer = setTimeout(() => {
+      const timer = window.setTimeout(() => {
         img.src = "";
         resolve(undefined);
       }, timeoutMs);
-      img.onload = () => { clearTimeout(timer); resolve(url); };
-      img.onerror = () => { clearTimeout(timer); resolve(undefined); };
+      img.onload = () => { window.clearTimeout(timer); resolve(url); };
+      img.onerror = () => { window.clearTimeout(timer); resolve(undefined); };
       img.src = url;
     });
   }
