@@ -419,30 +419,64 @@ export class LinkMetadataFetcher {
       if (/reddit\.com\/(?:u|user)\/\w+/.test(normalized))
          return this.fetchRedditUser(url, normalized);
 
-      return undefined;
+      return this.fetchGeneric(url);
    }
 
    private async fetchRedditPost(originalUrl: string, normalized: string): Promise<LinkMetadata | undefined> {
-      const res = await this.request(normalized.replace(/\/?$/, ".json") + "?limit=1");
-      if (!res || res.status !== 200) return;
+      // 1. Try both www and old Reddit JSON endpoints.
+      //    old.reddit.com runs on separate infrastructure and is often less rate-limited.
+      for (const host of ["www.reddit.com", "old.reddit.com"]) {
+         try {
+            const apiUrl = normalized.replace("www.reddit.com", host).replace(/\/?$/, ".json") + "?limit=1";
+            const res = await this.request(apiUrl);
+            if (res?.status === 200) {
+               const post = (JSON.parse(res.text) as RedditListingResponse[])[0]?.data?.children?.[0]?.data;
+               if (post?.title) {
+                  return {
+                     url: originalUrl,
+                     title: LinkMetadataParser.sanitizeText(post.title) ?? post.title,
+                     author: post.subreddit ? `r/${post.subreddit}` : undefined,
+                     description: LinkMetadataParser.sanitizeText(
+                        post.selftext
+                           ? post.selftext.slice(0, 200).replace(/\n/g, " ") + "…"
+                           : post.author ? `u/${post.author}` : undefined
+                     ),
+                     host: "www.reddit.com",
+                     favicon: "https://www.reddit.com/favicon.ico",
+                     image: this.getRedditPostImage(post),
+                     indent: 0,
+                  };
+               }
+            }
+         } catch { /* try next */ }
+      }
 
-      const post = (JSON.parse(res.text) as RedditListingResponse[])[0]?.data?.children?.[0]?.data;
-      if (!post) return;
+      // 2. old.reddit.com HTML — server-side rendered with real og: tags.
+      //    www.reddit.com returns a blank SPA shell for unauthenticated requests.
+      //    og:description here is always "Posted in r/SUB by u/USER • N points and N comments"
+      //    We extract the subreddit as author and drop the rest since there's no real content.
+      //    og:image uses expiring signed CDN URLs — enable "Save images locally" to avoid this.
+      try {
+         const oldUrl = normalized.replace("www.reddit.com", "old.reddit.com");
+         const htmlRes = await this.request(oldUrl);
+         if (htmlRes?.status === 200) {
+            const metadata = await new LinkMetadataParser(originalUrl, htmlRes.text).parse();
+            const isGenericTitle = !metadata?.title
+               || metadata.title === "Reddit"
+               || metadata.title === "Reddit - The heart of the internet";
+            if (!isGenericTitle && metadata) {
+               const postedIn = metadata.description?.match(/^Posted in (r\/\w+)/i);
+               return {
+                  ...metadata,
+                  author: postedIn?.[1] ?? undefined,
+                  host: "www.reddit.com",
+                  favicon: "https://www.reddit.com/favicon.ico",
+               };
+            }
+         }
+      } catch { /* fall through */ }
 
-      return {
-         url: originalUrl,
-         title: LinkMetadataParser.sanitizeText(post.title) ?? post.title,
-         author: post.subreddit ? `r/${post.subreddit}` : undefined,
-         description: LinkMetadataParser.sanitizeText(
-            post.selftext
-               ? post.selftext.slice(0, 200).replace(/\n/g, " ") + "…"
-               : post.author ? `u/${post.author}` : undefined
-         ),
-         host: "www.reddit.com",
-         favicon: "https://www.reddit.com/favicon.ico",
-         image: this.getRedditPostImage(post),
-         indent: 0,
-      };
+      return this.fetchGeneric(originalUrl);
    }
 
    private getRedditPostImage(post: RedditPostData): string | undefined {
@@ -478,43 +512,67 @@ export class LinkMetadataFetcher {
    }
 
    private async fetchRedditSubreddit(originalUrl: string, normalized: string): Promise<LinkMetadata | undefined> {
-      const res = await this.request(normalized.replace(/\/?$/, "/about.json"));
-      if (!res || res.status !== 200) return;
+      // 1. JSON about endpoint
+      try {
+         const res = await this.request(normalized.replace(/\/?$/, "/about.json") + "?raw_json=1");
+         if (res?.status === 200) {
+            const sub = (JSON.parse(res.text) as { data?: RedditSubredditData; })?.data;
+            if (sub?.display_name) {
+               const rawIcon = sub.community_icon || sub.icon_img || "";
+               return {
+                  url: originalUrl,
+                  title: `r/${sub.display_name}`,
+                  description: sub.public_description?.trim() || undefined,
+                  host: "www.reddit.com",
+                  favicon: "https://www.reddit.com/favicon.ico",
+                  image: rawIcon.split("?")[0] || undefined,
+                  indent: 0,
+               };
+            }
+         }
+      } catch { /* fall through */ }
 
-      const sub = (JSON.parse(res.text) as { data?: RedditSubredditData; })?.data;
-      if (!sub) return;
+      // 2. old.reddit.com HTML fallback
+      try {
+         const oldUrl = normalized.replace("www.reddit.com", "old.reddit.com");
+         const htmlRes = await this.request(oldUrl);
+         if (htmlRes?.status === 200) {
+            const metadata = await new LinkMetadataParser(originalUrl, htmlRes.text).parse();
+            const isGeneric = !metadata?.title
+               || metadata.title === "Reddit"
+               || metadata.title === "Reddit - The heart of the internet";
+            if (!isGeneric) {
+               return { ...metadata!, host: "www.reddit.com", favicon: "https://www.reddit.com/favicon.ico" };
+            }
+         }
+      } catch { /* fall through */ }
 
-      const rawIcon = sub.community_icon || sub.icon_img || "";
-      return {
-         url: originalUrl,
-         title: `r/${sub.display_name}`,
-         description: sub.public_description?.trim() || undefined,
-         host: "www.reddit.com",
-         favicon: "https://www.reddit.com/favicon.ico",
-         image: rawIcon.split("?")[0] || undefined,
-         indent: 0,
-      };
+      return this.fetchGeneric(originalUrl);
    }
 
    private async fetchRedditUser(originalUrl: string, normalized: string): Promise<LinkMetadata | undefined> {
       const username = normalized.match(/reddit\.com\/(?:u|user)\/(\w+)/)?.[1];
-      if (!username) return;
+      if (!username) return this.fetchGeneric(originalUrl);
 
-      const res = await this.request(`https://www.reddit.com/user/${username}/about.json`);
-      if (!res || res.status !== 200) return;
+      try {
+         const res = await this.request(`https://www.reddit.com/user/${username}/about.json`);
+         if (!res || res.status !== 200) return this.fetchGeneric(originalUrl);
 
-      const user = (JSON.parse(res.text) as { data?: RedditUserData; })?.data;
-      if (!user) return;
+         const user = (JSON.parse(res.text) as { data?: RedditUserData; })?.data;
+         if (!user) return this.fetchGeneric(originalUrl);
 
-      return {
-         url: originalUrl,
-         title: `u/${user.name}`,
-         description: user.subreddit?.public_description?.trim() || undefined,
-         host: "www.reddit.com",
-         favicon: "https://www.reddit.com/favicon.ico",
-         image: user.icon_img?.split("?")[0] || undefined,
-         indent: 0,
-      };
+         return {
+            url: originalUrl,
+            title: `u/${user.name}`,
+            description: user.subreddit?.public_description?.trim() || undefined,
+            host: "www.reddit.com",
+            favicon: "https://www.reddit.com/favicon.ico",
+            image: user.icon_img?.split("?")[0] || undefined,
+            indent: 0,
+         };
+      } catch {
+         return this.fetchGeneric(originalUrl);
+      }
    }
 
    /* --- PRINTABLES --- */
