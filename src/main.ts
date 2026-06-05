@@ -456,7 +456,7 @@ export default class ObsidianAutoCardLink extends Plugin {
   }
 
   private async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<ObsidianAutoCardLinkSettings>);
   }
 
   async saveSettings() {

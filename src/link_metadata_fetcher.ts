@@ -1,5 +1,8 @@
 import { Notice, requestUrl } from "obsidian";
-import { LinkMetadata } from "./interfaces";
+import {
+   DailymotionVideoResponse, GitHubRepoResponse, ImdbSuggestionResponse, LinkMetadata, OEmbedResponse,
+   PrintablesGraphQLResponse, RedditListingResponse, RedditPostData, RedditSubredditData, RedditUserData, WikipediaSummaryResponse
+} from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
 import { ObsidianAutoCardLinkSettings } from "./settings";
@@ -102,7 +105,7 @@ export class LinkMetadataFetcher {
       const res = await this.request(oembedUrl);
       if (!res || res.status !== 200) return;
 
-      const data = JSON.parse(res.text);
+      const data = JSON.parse(res.text) as OEmbedResponse;
       const videoId = this.getYouTubeVideoId(url);
 
       const image = videoId
@@ -110,7 +113,7 @@ export class LinkMetadataFetcher {
          : data.thumbnail_url;
 
       const isPlaylist = /youtube\.com\/playlist\?/.test(url);
-      const { description, duration: videoDuration } = await this.getYouTubePageData(url, data.author_name);
+      const { description, duration: videoDuration } = await this.getYouTubePageData(url, data.author_name ?? "");
 
       return {
          url,
@@ -147,7 +150,7 @@ export class LinkMetadataFetcher {
       const descMatch = res.text.match(/"shortDescription":"((?:[^"\\]|\\.)*)"/);
       if (descMatch) {
          try {
-            const raw = JSON.parse(`"${descMatch[1]}"`).trim();
+            const raw = (JSON.parse(`"${descMatch[1]}"`) as string).trim();
             if (raw) description = raw.length > 160 ? raw.slice(0, 160) + "..." : raw;
          } catch { /* keep fallback */ }
       }
@@ -206,7 +209,7 @@ export class LinkMetadataFetcher {
       );
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
-      const data = JSON.parse(res.text);
+      const data = JSON.parse(res.text) as OEmbedResponse;
       return {
          url,
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
@@ -233,7 +236,7 @@ export class LinkMetadataFetcher {
       );
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
-      const data = JSON.parse(res.text);
+      const data = JSON.parse(res.text) as DailymotionVideoResponse;
       const author = data["owner.screenname"];
       return {
          url,
@@ -423,7 +426,7 @@ export class LinkMetadataFetcher {
       const res = await this.request(normalized.replace(/\/?$/, ".json") + "?limit=1");
       if (!res || res.status !== 200) return;
 
-      const post = JSON.parse(res.text)[0]?.data?.children?.[0]?.data;
+      const post = (JSON.parse(res.text) as RedditListingResponse[])[0]?.data?.children?.[0]?.data;
       if (!post) return;
 
       return {
@@ -442,7 +445,7 @@ export class LinkMetadataFetcher {
       };
    }
 
-   private getRedditPostImage(post: any): string | undefined {
+   private getRedditPostImage(post: RedditPostData): string | undefined {
       // 1. Direct image post — post.url is the full-res image (i.redd.it)
       if (
          post.post_hint === "image" &&
@@ -478,7 +481,7 @@ export class LinkMetadataFetcher {
       const res = await this.request(normalized.replace(/\/?$/, "/about.json"));
       if (!res || res.status !== 200) return;
 
-      const sub = JSON.parse(res.text)?.data;
+      const sub = (JSON.parse(res.text) as { data?: RedditSubredditData; })?.data;
       if (!sub) return;
 
       const rawIcon = sub.community_icon || sub.icon_img || "";
@@ -500,7 +503,7 @@ export class LinkMetadataFetcher {
       const res = await this.request(`https://www.reddit.com/user/${username}/about.json`);
       if (!res || res.status !== 200) return;
 
-      const user = JSON.parse(res.text)?.data;
+      const user = (JSON.parse(res.text) as { data?: RedditUserData; })?.data;
       if (!user) return;
 
       return {
@@ -581,7 +584,7 @@ export class LinkMetadataFetcher {
       if (!raw) return undefined;
 
       try {
-         const data = JSON.parse(raw);
+         const data = JSON.parse(raw) as PrintablesGraphQLResponse;
          const print = data?.data?.print;
          if (!print?.name) return undefined;
 
@@ -678,7 +681,7 @@ export class LinkMetadataFetcher {
       const res = await this.request(`https://v2.sg.media-imdb.com/suggestion/x/${id}.json`);
       if (!res || res.status !== 200) return this.buildImdbFallback(url);
 
-      const item = JSON.parse(res.text)?.d?.[0];
+      const item = (JSON.parse(res.text) as ImdbSuggestionResponse)?.d?.[0];
       if (!item) return this.buildImdbFallback(url);
 
       return {
@@ -742,7 +745,7 @@ export class LinkMetadataFetcher {
 
       if (!apiRes || apiRes.status !== 200) return this.fetchGeneric(url);
 
-      const data = JSON.parse(apiRes.text);
+      const data = JSON.parse(apiRes.text) as GitHubRepoResponse;
       const stars: number = data.stargazers_count ?? 0;
       const starsLabel = stars >= 1000
          ? `${(stars / 1000).toFixed(1)}k`
@@ -833,7 +836,7 @@ export class LinkMetadataFetcher {
       );
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
-      const data = JSON.parse(res.text);
+      const data = JSON.parse(res.text) as WikipediaSummaryResponse;
       return {
          url: data.content_urls?.desktop?.page ?? url,
          title: data.title ?? title,

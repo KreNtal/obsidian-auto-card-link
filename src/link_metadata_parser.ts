@@ -92,11 +92,13 @@ export class LinkMetadataParser {
     try {
       const scripts = this.htmlDoc.querySelectorAll("script[type='application/ld+json']");
       for (const script of Array.from(scripts)) {
-        const content = JSON.parse(script.textContent || "{}");
+        const content: unknown = JSON.parse(script.textContent || "{}");
+        if (!content || typeof content !== "object") return null;
         // JSON-LD can be a single object or an array of objects (@graph)
-        if (Array.isArray(content)) return content[0];
-        if (content["@graph"] && Array.isArray(content["@graph"])) return content["@graph"][0];
-        return content;
+        if (Array.isArray(content)) return (content as unknown[])[0];
+        const obj = content as Record<string, unknown>;
+        if (obj["@graph"] && Array.isArray(obj["@graph"])) return (obj["@graph"] as unknown[])[0];
+        return obj;
       }
     } catch {
       return null;
