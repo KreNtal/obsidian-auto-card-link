@@ -70,8 +70,6 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     // --- General ---
-    new Setting(containerEl).setName("General Settings").setHeading();
-
     new Setting(containerEl)
       .setName("Enhance default paste")
       .setDesc("Fetch the link metadata when pasting a url in the editor with the default paste command.")
