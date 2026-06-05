@@ -70,13 +70,7 @@ export default class ObsidianAutoCardLink extends Plugin {
         if (checking) return true;
         void this.enhanceSelectedURL(editor);
         return true;
-      },
-      hotkeys: [
-        {
-          modifiers: ["Mod", "Shift"],
-          key: "e",
-        },
-      ],
+      }
     });
 
     this.registerEvent(this.app.workspace.on("editor-paste", this.onPaste));
