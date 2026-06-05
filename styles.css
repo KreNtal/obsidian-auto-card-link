@@ -198,14 +198,26 @@
     position: absolute;
     bottom: 7px;
     right: 8px;
-    background: rgba(0, 0, 0, 0.8);
     color: rgba(255, 255, 255, 0.9);
     font-size: 11px;
+    line-height: initial;
     font-weight: 600;
-    padding: 1px 4px;
+    padding: 2px 4px 1px 4px;
     border-radius: 4px;
     pointer-events: none;
     letter-spacing: 0.3px;
+    isolation: isolate;
+}
+
+.auto-card-link-duration::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    z-index: -1;
 }
 
 .auto-card-link-thumbnail-right .auto-card-link-duration {
@@ -297,6 +309,22 @@ body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.e
 
 .auto-card-link-style-modern .auto-card-link-title {
     font-weight: 600;
+}
+
+.auto-card-link-style-modern .auto-card-link-duration {
+    bottom: 6px;
+    right: 4px;
+    border-radius: 8px;
+    color: #fff;
+    padding: 2px 6px 1px 6px;
+    font-weight: 500;
+}
+
+.auto-card-link-style-modern .auto-card-link-duration::before {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
 }
 
 /* --- COMPACT STYLE --- */
@@ -417,4 +445,20 @@ body.theme-light.auto-card-link-style-glass .auto-card-link-card:hover {
 
 .auto-card-link-style-glass .auto-card-link-description {
     color: var(--text-muted);
+}
+
+.auto-card-link-style-glass .auto-card-link-duration {
+    bottom: 6px;
+    right: 4px;
+    border-radius: 8px;
+    color: #fff;
+    padding: 2px 6px 1px 6px;
+    font-weight: 500;
+}
+
+.auto-card-link-style-glass .auto-card-link-duration::before {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
 }
