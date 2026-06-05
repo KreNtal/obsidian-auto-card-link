@@ -77,10 +77,10 @@ export class CodeBlockProcessor {
   }
 
   private genErrorEl(errorMsg: string): HTMLElement {
-    const containerEl = document.createElement("div");
+    const containerEl = activeDocument.createElement("div");
     containerEl.addClass("auto-card-link-error-container");
 
-    const spanEl = document.createElement("span");
+    const spanEl = activeDocument.createElement("span");
     spanEl.textContent = `cardlink error: ${errorMsg}`;
     containerEl.appendChild(spanEl);
 
@@ -88,33 +88,33 @@ export class CodeBlockProcessor {
   }
 
   private genLinkEl(data: LinkMetadata): HTMLElement {
-    const containerEl = document.createElement("div");
+    const containerEl = activeDocument.createElement("div");
     containerEl.addClass("auto-card-link-container");
     containerEl.setAttr("data-auto-card-link-depth", data.indent);
 
-    const cardEl = document.createElement("a");
+    const cardEl = activeDocument.createElement("a");
     cardEl.addClass("auto-card-link-card");
     cardEl.setAttr("href", data.url);
     cardEl.setAttr("target", "_blank");
     containerEl.appendChild(cardEl);
 
-    const mainEl = document.createElement("div");
+    const mainEl = activeDocument.createElement("div");
     mainEl.addClass("auto-card-link-main");
     cardEl.appendChild(mainEl);
 
-    const titleEl = document.createElement("div");
+    const titleEl = activeDocument.createElement("div");
     titleEl.addClass("auto-card-link-title");
     titleEl.textContent = data.title;
     mainEl.appendChild(titleEl);
 
     if (data.description) {
-      const descriptionEl = document.createElement("div");
+      const descriptionEl = activeDocument.createElement("div");
       descriptionEl.addClass("auto-card-link-description");
       descriptionEl.textContent = data.description;
       mainEl.appendChild(descriptionEl);
     }
 
-    const hostEl = document.createElement("div");
+    const hostEl = activeDocument.createElement("div");
     hostEl.addClass("auto-card-link-host");
     mainEl.appendChild(hostEl);
 
@@ -122,7 +122,7 @@ export class CodeBlockProcessor {
       if (!CheckIf.isUrl(data.favicon))
         data.favicon = this.getLocalImagePath(data.favicon);
 
-      const faviconEl = document.createElement("img");
+      const faviconEl = activeDocument.createElement("img");
       faviconEl.addClass("auto-card-link-favicon");
       faviconEl.setAttr("src", data.favicon);
 
@@ -140,13 +140,13 @@ export class CodeBlockProcessor {
     }
 
     if (data.host) {
-      const hostNameEl = document.createElement("span");
+      const hostNameEl = activeDocument.createElement("span");
       hostNameEl.textContent = data.host;
       hostEl.appendChild(hostNameEl);
     }
 
     if (data.author) {
-      const authorEl = document.createElement("span");
+      const authorEl = activeDocument.createElement("span");
       authorEl.addClass("auto-card-link-author");
       authorEl.textContent = `· ${data.author}`;
       hostEl.appendChild(authorEl);
@@ -156,18 +156,18 @@ export class CodeBlockProcessor {
       if (!CheckIf.isUrl(data.image))
         data.image = this.getLocalImagePath(data.image);
 
-      const thumbnailWrapEl = document.createElement("div");
+      const thumbnailWrapEl = activeDocument.createElement("div");
       thumbnailWrapEl.addClass("auto-card-link-thumbnail-wrap");
       cardEl.appendChild(thumbnailWrapEl);
 
-      const thumbnailEl = document.createElement("img");
+      const thumbnailEl = activeDocument.createElement("img");
       thumbnailEl.addClass("auto-card-link-thumbnail");
       thumbnailEl.setAttr("src", data.image);
       thumbnailEl.setAttr("draggable", "false");
       thumbnailWrapEl.appendChild(thumbnailEl);
 
       if (data.duration) {
-        const durationEl = document.createElement("span");
+        const durationEl = activeDocument.createElement("span");
         durationEl.addClass("auto-card-link-duration");
         durationEl.textContent = data.duration;
         thumbnailWrapEl.appendChild(durationEl);

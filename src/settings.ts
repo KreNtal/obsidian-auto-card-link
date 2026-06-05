@@ -233,17 +233,17 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 }
 
 export function applyThumbnailPosition(position: "left" | "right"): void {
-  document.body.classList.toggle(
+  activeDocument.body.classList.toggle(
     "auto-card-link-thumbnail-right",
     position === "right"
   );
 }
 
 export function applyCardStyle(style: "classic" | "modern" | "glass" | "compact"): void {
-  document.body.classList.remove(
+  activeDocument.body.classList.remove(
     "auto-card-link-style-modern",
     "auto-card-link-style-glass",
     "auto-card-link-style-compact"
   );
-  if (style !== "classic") document.body.classList.add(`auto-card-link-style-${style}`);
+  if (style !== "classic") activeDocument.body.classList.add(`auto-card-link-style-${style}`);
 }

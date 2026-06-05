@@ -77,5 +77,4 @@ To hide the author.
 
 # Credits
 
-This is a fork of [obsidian-auto-card-link](https://github.com/nekoshita/obsidian-auto-card-link)
-by [Nekoshita Yuki](https://github.com/nekoshita)
+This is a fork of the original obsidian-auto-card-link by Nekoshita Yuki.

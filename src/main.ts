@@ -24,9 +24,9 @@ export default class ObsidianAutoCardLink extends Plugin {
   async onload() {
     await this.loadSettings();
     this.registerDomEvent(window, "focus", this.updateClipboardCache);
-    this.registerDomEvent(document, "contextmenu", this.updateClipboardCache);
+    this.registerDomEvent(activeDocument, "contextmenu", this.updateClipboardCache);
     // Capture scroll position before Obsidian's mousedown handler moves the cursor
-    this.registerDomEvent(document, "mousedown", (e: MouseEvent) => {
+    this.registerDomEvent(activeDocument, "mousedown", (e: MouseEvent) => {
       if (e.button !== 2) return;
       const view = this.app.workspace.getActiveViewOfType(MarkdownView);
       const scroller = view?.containerEl.querySelector(".cm-scroller");
@@ -80,7 +80,7 @@ export default class ObsidianAutoCardLink extends Plugin {
 
   private getCardlinkAtMouse(): { url: string; lineStart: number; lineEnd: number; } | undefined {
     // Use :hover on the element itself, not as a descendant selector
-    const el = document.querySelector(".auto-card-link-container[data-cardlink-url]:hover");
+    const el = activeDocument.querySelector(".auto-card-link-container[data-cardlink-url]:hover");
     if (!el || !(el.instanceOf(HTMLElement))) return;
 
     const url = el.dataset.cardlinkUrl;
