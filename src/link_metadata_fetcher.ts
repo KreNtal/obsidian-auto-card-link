@@ -466,7 +466,10 @@ export class LinkMetadataFetcher {
                || metadata.title === "Reddit"
                || metadata.title === "Reddit - The heart of the internet";
             if (!isGenericTitle && metadata) {
-               const postedIn = metadata.description?.match(/^Posted in (r\/\w+)/i);
+               // Subreddit is always in the URL — reliable for every post type.
+               // (og:description only starts with "Posted in r/..." for link/image posts;
+               //  for self/text posts it holds the post body instead.)
+               const subreddit = originalUrl.match(/reddit\.com\/r\/(\w+)/i)?.[1];
                // Prefer permanent/clean image URLs found in the page source:
                // 1. i.redd.it — native Reddit uploads, permanent, no query string needed
                // 2. preview.redd.it — Reddit-hosted previews, cleaner than external-preview
@@ -478,6 +481,11 @@ export class LinkMetadataFetcher {
                // 3. og:image fallback — may be external-preview.redd.it with overlay params
                const iReddit = htmlRes.text.match(/https:\/\/i\.redd\.it\/\w+\.\w+/)?.[0];
                const previewReddit = this.pickRedditPreview(htmlRes.text);
+               // og:image on posts without a real image is a generic Reddit logo
+               // (redditstatic.com/...). Treat those placeholders as "no image".
+               const ogImage = /redditstatic\.com/i.test(metadata.image ?? "")
+                  ? undefined
+                  : metadata.image;
                // The post body (selftext) is rendered directly in the page; prefer it over
                // the generic "Posted in r/SUB..." og:description for text posts.
                const selftext = this.extractRedditSelftext(htmlRes.text);
@@ -486,9 +494,9 @@ export class LinkMetadataFetcher {
                   : metadata.description;
                return {
                   ...metadata,
-                  author: postedIn?.[1] ?? undefined,
+                  author: subreddit ? `r/${subreddit}` : undefined,
                   description,
-                  image: iReddit ?? previewReddit ?? metadata.image,
+                  image: iReddit ?? previewReddit ?? ogImage,
                   host: "www.reddit.com",
                   favicon: "https://www.reddit.com/favicon.ico",
                };
