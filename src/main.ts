@@ -401,7 +401,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     if (cardlinkAtCursor) {
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Refresh Card Link")
+          .setTitle("Refresh card link")
           .setIcon("refresh-cw")
           .onClick(() => {
             this.refetchCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
@@ -409,7 +409,7 @@ export default class ObsidianAutoCardLink extends Plugin {
       });
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Delete Card Link")
+          .setTitle("Delete card link")
           .setIcon("trash")
           .onClick(() => {
             this.deleteCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
@@ -428,7 +428,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     if (canPaste) {
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Paste URL to a Card Link")
+          .setTitle("Paste URL to a card link")
           .setIcon("paste")
           .onClick(async () => { await this.manualPasteAndEnhanceURL(editor); });
       });
@@ -437,7 +437,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     if (canEnhance) {
       menu.addItem((item: MenuItem) => {
         item
-          .setTitle("Convert selected URL to Card Link")
+          .setTitle("Convert selected URL to card link")
           .setIcon("link")
           .onClick(() => { void this.enhanceSelectedURL(editor); });
       });

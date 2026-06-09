@@ -41,7 +41,7 @@ export interface ObsidianAutoCardLinkSettings {
   downloadFavicons: boolean;
   faviconFolder: string;
   cardStyle: "classic" | "modern" | "glass" | "compact";
-  youtubeThumbnailQuality: "better-preview" | "max-resolution";
+  thumbnailQuality: "better-preview" | "max-resolution";
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
@@ -50,11 +50,11 @@ export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   blankLineBeforeCard: false,
   thumbnailPosition: "left",
   downloadImages: false,
-  imageFolder: "AutoCardLink",
+  imageFolder: "AutoCardLink/images",
   downloadFavicons: false,
   faviconFolder: "AutoCardLink/favicons",
   cardStyle: "classic",
-  youtubeThumbnailQuality: "better-preview",
+  thumbnailQuality: "better-preview",
 };
 
 export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
@@ -116,17 +116,17 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Images").setHeading();
 
     new Setting(containerEl)
-      .setName("YouTube thumbnail quality")
-      .setDesc("Better preview fetches a size matched to the card dimensions, sharper and faster to load. Max resolution always fetches the highest available resolution, but it takes up more disk space and looks pixelated.")
+      .setName("Thumbnail quality")
+      .setDesc("Best looking fetches a size matched to the card dimensions, sharper and faster to load. Max resolution always fetches the highest available resolution, but it takes up more disk space and can look pixelated.")
       .addDropdown((drop) => {
         if (!this.plugin.settings) return drop;
         return drop
-          .addOption("better-preview", "Better preview")
+          .addOption("better-preview", "Best looking")
           .addOption("max-resolution", "Max resolution")
-          .setValue(this.plugin.settings.youtubeThumbnailQuality)
+          .setValue(this.plugin.settings.thumbnailQuality)
           .onChange(async (value: string) => {
             if (!this.plugin.settings) return;
-            this.plugin.settings.youtubeThumbnailQuality = value as "better-preview" | "max-resolution";
+            this.plugin.settings.thumbnailQuality = value as "better-preview" | "max-resolution";
             await this.plugin.saveSettings();
           });
       });
@@ -151,11 +151,11 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
       .addSearch((search) => {
         if (!this.plugin.settings) return;
         search
-          .setPlaceholder("AutoCardLink")
+          .setPlaceholder("AutoCardLink/images")
           .setValue(this.plugin.settings.imageFolder)
           .onChange(async (value) => {
             if (!this.plugin.settings) return;
-            this.plugin.settings.imageFolder = value.trim() || "AutoCardLink";
+            this.plugin.settings.imageFolder = value.trim() || "AutoCardLink/images";
             await this.plugin.saveSettings();
           });
         new FolderSuggest(this.app, search.inputEl);

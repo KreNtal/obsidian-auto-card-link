@@ -1,5 +1,3 @@
-[Auto Card Link Enhanced](https://github.com/KreNtal/obsidian-auto-card-link) maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-04.
-
 # Auto Card Link Enhanced
 
 - Automatically fetches metadata from a url and makes it as a card-styled link.
@@ -78,3 +76,4 @@ To hide the author.
 # Credits
 
 This is a fork of the original obsidian-auto-card-link by Nekoshita Yuki.
+[Auto Card Link Enhanced](https://github.com/KreNtal/obsidian-auto-card-link) maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-04.

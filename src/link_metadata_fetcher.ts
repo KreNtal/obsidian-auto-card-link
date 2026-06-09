@@ -178,7 +178,7 @@ export class LinkMetadataFetcher {
       // "better-preview" (default): fetch a size matched to the card slot (min(200px,40%) wide).
       //   sddefault WebP (640×480) → sddefault JPG → mqdefault WebP (320×180, clean 16:9) → mqdefault JPG.
       //   Avoids maxresdefault (1280×720) which causes pixelation from a 6× CSS downscale.
-      const maxRes = this.settings?.youtubeThumbnailQuality === "max-resolution";
+      const maxRes = this.settings?.thumbnailQuality === "max-resolution";
 
       const candidates = maxRes
          ? [
@@ -453,9 +453,10 @@ export class LinkMetadataFetcher {
 
       // 2. old.reddit.com HTML — server-side rendered with real og: tags.
       //    www.reddit.com returns a blank SPA shell for unauthenticated requests.
-      //    og:description here is always "Posted in r/SUB by u/USER • N points and N comments"
-      //    We extract the subreddit as author and drop the rest since there's no real content.
-      //    og:image uses expiring signed CDN URLs — enable "Save images locally" to avoid this.
+      //    og:description is always "Posted in r/SUB by u/USER • N points" — we extract
+      //    the subreddit as author from it.
+      //    For the image we prefer the first i.redd.it URL found in the page source:
+      //    those are permanent CDN URLs. og:image often points to expiring signed URLs.
       try {
          const oldUrl = normalized.replace("www.reddit.com", "old.reddit.com");
          const htmlRes = await this.request(oldUrl);
@@ -466,9 +467,28 @@ export class LinkMetadataFetcher {
                || metadata.title === "Reddit - The heart of the internet";
             if (!isGenericTitle && metadata) {
                const postedIn = metadata.description?.match(/^Posted in (r\/\w+)/i);
+               // Prefer permanent/clean image URLs found in the page source:
+               // 1. i.redd.it — native Reddit uploads, permanent, no query string needed
+               // 2. preview.redd.it — Reddit-hosted previews, cleaner than external-preview
+               //    (no watermark overlay or aspect-ratio crop baked in). These are SIGNED:
+               //    the full ?...&s=<sig> query string is required or the URL returns 403,
+               //    so we keep it and decode the &amp; HTML entities from the page source.
+               //    Old Reddit embeds the same image at many sizes (108, 216, ... 1080px) —
+               //    we pick the one with the largest width= so the card isn't a thumbnail.
+               // 3. og:image fallback — may be external-preview.redd.it with overlay params
+               const iReddit = htmlRes.text.match(/https:\/\/i\.redd\.it\/\w+\.\w+/)?.[0];
+               const previewReddit = this.pickRedditPreview(htmlRes.text);
+               // The post body (selftext) is rendered directly in the page; prefer it over
+               // the generic "Posted in r/SUB..." og:description for text posts.
+               const selftext = this.extractRedditSelftext(htmlRes.text);
+               const description = selftext
+                  ? (LinkMetadataParser.sanitizeText(selftext, 200) ?? metadata.description)
+                  : metadata.description;
                return {
                   ...metadata,
                   author: postedIn?.[1] ?? undefined,
+                  description,
+                  image: iReddit ?? previewReddit ?? metadata.image,
                   host: "www.reddit.com",
                   favicon: "https://www.reddit.com/favicon.ico",
                };
@@ -477,6 +497,45 @@ export class LinkMetadataFetcher {
       } catch { /* fall through */ }
 
       return this.fetchGeneric(originalUrl);
+   }
+
+   private extractRedditSelftext(html: string): string | undefined {
+      // Old Reddit renders the post body inside the post's .usertext-body .md element.
+      // Scope to .thing.link (the post itself) so we don't pick up a comment or the
+      // subreddit sidebar description, which are also .usertext-body .md blocks.
+      try {
+         const doc = new DOMParser().parseFromString(html, "text/html");
+         const body =
+            doc.querySelector(".thing.link .usertext-body .md") ??
+            doc.querySelector(".thing .usertext-body .md");
+         const text = body?.textContent?.replace(/\s+/g, " ").trim();
+         return text || undefined;
+      } catch {
+         return undefined;
+      }
+   }
+
+   private pickRedditPreview(html: string): string | undefined {
+      // Old Reddit embeds the same preview image at several widths (108, 216, ... 1080px).
+      // Collect every signed preview.redd.it URL with its width, then pick based on the
+      // thumbnail quality setting:
+      //   max-resolution  → the largest available width
+      //   better-preview  → the smallest width that is still >= TARGET (sharp on the small
+      //                     card but a fraction of the file size); largest if none reach it.
+      const TARGET = 640;
+      const matches = html.match(/https:\/\/preview\.redd\.it\/\w+\.\w+\?[^"'\s<>]*/g);
+      if (!matches?.length) return undefined;
+
+      const candidates = matches
+         .map(raw => raw.replace(/&amp;/g, "&"))
+         .map(url => ({ url, width: parseInt(url.match(/[?&]width=(\d+)/)?.[1] ?? "0", 10) }))
+         .sort((a, b) => a.width - b.width);
+
+      if (this.settings?.thumbnailQuality !== "better-preview") {
+         return candidates[candidates.length - 1]!.url; // max-resolution (also the default)
+      }
+
+      return (candidates.find(c => c.width >= TARGET) ?? candidates[candidates.length - 1]!).url;
    }
 
    private getRedditPostImage(post: RedditPostData): string | undefined {
