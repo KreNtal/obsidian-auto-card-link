@@ -1,6 +1,6 @@
 import { Notice, requestUrl } from "obsidian";
 import {
-   DailymotionVideoResponse, GitHubRepoResponse, ImdbSuggestionResponse, LinkMetadata, OEmbedResponse,
+   DailymotionVideoResponse, GitHubRepoResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, OEmbedResponse,
    PrintablesGraphQLResponse, RedditListingResponse, RedditPostData, RedditSubredditData, RedditUserData, WikipediaSummaryResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
@@ -17,6 +17,7 @@ export class LinkMetadataFetcher {
    async fetch(url: string): Promise<LinkMetadata | undefined> {
       url = url.trim().replace(/^["']|["']$/g, "");
       if (url.startsWith("http://")) url = "https://" + url.slice(7);
+      url = this.stripCloudflareChallenge(url);
       if (CheckIf.isYouTubeUrl(url)) return this.fetchYouTube(url);
       if (CheckIf.isVimeoUrl(url)) return this.fetchVimeo(url);
       if (CheckIf.isDailymotionUrl(url)) return this.fetchDailymotion(url);
@@ -32,6 +33,22 @@ export class LinkMetadataFetcher {
       return this.fetchGeneric(url);
    }
 
+   private stripCloudflareChallenge(url: string): string {
+      // A URL copied right after solving a Cloudflare challenge carries a one-time
+      // __cf_chl_tk token tied to that browser session. Re-fetching it replays a stale
+      // token and Cloudflare returns 403. Strip every __cf_chl* param so we request the
+      // clean URL instead (which has a chance of passing the managed challenge).
+      try {
+         const u = new URL(url);
+         for (const key of [...u.searchParams.keys()]) {
+            if (key.startsWith("__cf_chl")) u.searchParams.delete(key);
+         }
+         return u.toString();
+      } catch {
+         return url;
+      }
+   }
+
    /* --- GENERIC --- */
    private async fetchGeneric(url: string): Promise<LinkMetadata | undefined> {
       const res = await this.request(url, {
@@ -40,13 +57,60 @@ export class LinkMetadataFetcher {
 
       if (!res || res.status !== 200) {
          console.log(`Fetch failed for ${url}. Status: ${res?.status}`);
-         new Notice(`Couldn't fetch metadata for ${new URL(url).hostname}`);
-         return this.fetchTitleOnly(url);
+         return this.fetchFallback(url);
       }
 
       const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
       const parser = new LinkMetadataParser(url, decodedText);
-      return parser.parse() ?? this.fetchTitleOnly(url);
+      return (await parser.parse()) ?? this.fetchFallback(url);
+   }
+
+   private async fetchFallback(url: string): Promise<LinkMetadata> {
+      // Direct fetch failed (or yielded no usable metadata). If the user opted in,
+      // try the external microlink.io service, which renders the page with a headless
+      // browser and can get past Cloudflare-style challenges that requestUrl cannot.
+      if (this.settings?.useExternalFallback) {
+         const result = await this.fetchViaMicrolink(url);
+         if (result.metadata) return result.metadata;
+         if (result.rateLimited) {
+            new Notice("Daily limit for the external metadata service (microlink.io) reached. Showing a basic card — try again tomorrow.");
+            return this.fetchTitleOnly(url);
+         }
+      }
+      new Notice(`Couldn't fetch metadata for ${new URL(url).hostname}`);
+      return this.fetchTitleOnly(url);
+   }
+
+   private async fetchViaMicrolink(url: string): Promise<{ metadata?: LinkMetadata; rateLimited?: boolean; }> {
+      // https://microlink.io — free, no API key. Sends the URL to a third-party server,
+      // so this only runs when the user has explicitly enabled the external fallback.
+      // Free tier is ~50 requests/day; over that the API returns HTTP 429.
+      try {
+         const api = `https://api.microlink.io/?url=${encodeURIComponent(url)}`;
+         const res = await this.request(api, { "Accept": "application/json" }, 15000);
+         if (res?.status === 429) return { rateLimited: true };
+         if (!res || res.status !== 200) return {};
+
+         const json = JSON.parse(res.text) as MicrolinkResponse;
+         const d = json.data;
+         if (json.status !== "success" || !d?.title) return {};
+
+         const hostname = new URL(url).hostname;
+         return {
+            metadata: {
+               url,
+               title: LinkMetadataParser.sanitizeText(d.title) ?? d.title,
+               author: d.author ?? undefined,
+               description: LinkMetadataParser.sanitizeText(d.description),
+               host: hostname,
+               favicon: d.logo?.url ?? `https://${hostname}/favicon.ico`,
+               image: d.image?.url ?? undefined,
+               indent: 0,
+            },
+         };
+      } catch {
+         return {};
+      }
    }
 
    private async fetchTitleOnly(url: string): Promise<LinkMetadata> {

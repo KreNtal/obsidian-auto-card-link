@@ -42,6 +42,7 @@ export interface ObsidianAutoCardLinkSettings {
   faviconFolder: string;
   cardStyle: "classic" | "modern" | "glass" | "compact";
   thumbnailQuality: "better-preview" | "max-resolution";
+  useExternalFallback: boolean;
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
@@ -55,6 +56,7 @@ export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   faviconFolder: "AutoCardLink/favicons",
   cardStyle: "classic",
   thumbnailQuality: "better-preview",
+  useExternalFallback: false,
 };
 
 export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
@@ -108,6 +110,20 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             if (!this.plugin.settings) return;
             this.plugin.settings.blankLineBeforeCard = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Use external service for blocked sites")
+      .setDesc("When a site blocks direct fetching, fetch its metadata through the external microlink.io service as a last resort. This sends the link's URL to microlink.io. Off by default for privacy; only used when the normal fetch fails.")
+      .addToggle((val) => {
+        if (!this.plugin.settings) return;
+        return val
+          .setValue(this.plugin.settings.useExternalFallback)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.useExternalFallback = value;
             await this.plugin.saveSettings();
           });
       });

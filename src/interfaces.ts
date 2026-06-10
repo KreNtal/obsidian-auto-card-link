@@ -81,6 +81,19 @@ export interface GitHubRepoResponse {
   stargazers_count?: number;
 }
 
+export interface MicrolinkResponse {
+  status?: string;
+  data?: {
+    title?: string;
+    description?: string;
+    author?: string;
+    publisher?: string;
+    image?: { url?: string; };
+    logo?: { url?: string; };
+    url?: string;
+  };
+}
+
 export interface WikipediaSummaryResponse {
   title?: string;
   extract?: string;

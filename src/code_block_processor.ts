@@ -164,6 +164,14 @@ export class CodeBlockProcessor {
       thumbnailEl.addClass("auto-card-link-thumbnail");
       thumbnailEl.setAttr("src", data.image);
       thumbnailEl.setAttr("draggable", "false");
+
+      // If the image URL is dead (expired signed URL, 404, hotlink block, …),
+      // drop the whole thumbnail so the card collapses to a clean text-only layout
+      // instead of showing the browser's broken-image glyph.
+      thumbnailEl.onerror = () => {
+        thumbnailWrapEl.remove();
+      };
+
       thumbnailWrapEl.appendChild(thumbnailEl);
 
       if (data.duration) {
