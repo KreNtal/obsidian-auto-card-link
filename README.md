@@ -22,6 +22,17 @@
 - Settings to save images and favicons locally
 - Settings to change card style
 - Setting to show images on the left or right of the card
+- Setting to choose thumbnail quality (best looking vs. max resolution)
+- Setting to use an external service as a fallback for blocked sites (off by default)
+
+# Network use
+
+This plugin needs internet access to fetch link metadata. To be transparent about what it sends and where:
+
+- **By default**, it fetches metadata **directly from the site you are linking to** (the same request your browser would make to load that page). Nothing is sent to any other third party.
+- **Optionally**, if you enable **"Use external service for blocked sites"** in the settings, the plugin will — **only when a direct fetch fails** — send the link's URL to the third-party service [microlink.io](https://microlink.io) to retrieve metadata from sites that block direct access (e.g. Cloudflare-protected pages). This setting is **off by default**, and no data is ever sent to microlink.io unless you turn it on.
+
+No analytics, telemetry, or personal data are collected by this plugin.
 
 # `cardlink` syntax
 
@@ -76,4 +87,5 @@ To hide the author.
 # Credits
 
 This is a fork of the original obsidian-auto-card-link by Nekoshita Yuki.
+
 [Auto Card Link Enhanced](https://github.com/KreNtal/obsidian-auto-card-link) maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-04.

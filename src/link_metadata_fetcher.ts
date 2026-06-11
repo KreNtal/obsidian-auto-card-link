@@ -85,6 +85,7 @@ export class LinkMetadataFetcher {
       // https://microlink.io — free, no API key. Sends the URL to a third-party server,
       // so this only runs when the user has explicitly enabled the external fallback.
       // Free tier is ~50 requests/day; over that the API returns HTTP 429.
+      new Notice("Fetching metadata via external service (microlink.io)…");
       try {
          const api = `https://api.microlink.io/?url=${encodeURIComponent(url)}`;
          const res = await this.request(api, { "Accept": "application/json" }, 15000);
