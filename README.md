@@ -6,7 +6,7 @@
 - Options for thumbnail quality, saving images locally, and multiple card styles.
 
 <p align="center">
-    <img src="demo2.gif">
+    <img src="docs/demo2.gif">
 </p>
 
 ## Features
