@@ -108,32 +108,47 @@ export class LinkMetadataParser {
 
   private async getImage(): Promise<string | undefined> {
     // 1. JSON-LD image — trusted structured data (Printables, Amazon, schema.org sites).
-    //    Tried first because it often contains a higher-quality or more specific image
-    //    than the generic og:image (e.g. the actual 3D model thumbnail on Printables).
     const jsonLdImage = this.findJsonLdImage();
-    if (jsonLdImage) return jsonLdImage;
+    if (jsonLdImage && !LinkMetadataParser.isVideoUrl(jsonLdImage)) return jsonLdImage;
 
-    // 2. og:/twitter: meta tags — also trusted, returned directly without browser probe.
-    const trustedImage =
-      this.htmlDoc.querySelector("meta[property='og:image:secure_url']")?.getAttribute("content") ??
-      this.htmlDoc.querySelector("meta[property='og:image']")?.getAttribute("content") ??
-      this.htmlDoc.querySelector("meta[name='og:image']")?.getAttribute("content") ??
-      this.htmlDoc.querySelector("meta[property='twitter:image']")?.getAttribute("content") ??
-      this.htmlDoc.querySelector("meta[name='twitter:image']")?.getAttribute("content");
+    // 2. og:/twitter:/itemprop meta tags — trusted. Some sites (e.g. cults3d) point
+    //    og:image at a preview *video* (.mp4), which <img> can't render; a page can also
+    //    declare several og:image tags, so we scan ALL of them and return the first that
+    //    is not a video. No extra requests — they're already in the parsed HTML.
+    for (const selector of [
+      "meta[property='og:image:secure_url']",
+      "meta[property='og:image']",
+      "meta[name='og:image']",
+      "meta[property='twitter:image']",
+      "meta[name='twitter:image']",
+      "meta[itemprop='image']",
+    ]) {
+      for (const el of Array.from(this.htmlDoc.querySelectorAll(selector))) {
+        const content = el.getAttribute("content");
+        if (!content) continue;
+        const resolved = this.resolveUrl(content);
+        if (!LinkMetadataParser.isVideoUrl(resolved)) return resolved;
+      }
+    }
 
-    if (trustedImage) return this.resolveUrl(trustedImage);
+    const linkImage = this.htmlDoc.querySelector("link[rel='image_src']")?.getAttribute("href");
+    if (linkImage) {
+      const resolved = this.resolveUrl(linkImage);
+      if (!LinkMetadataParser.isVideoUrl(resolved)) return resolved;
+    }
 
-    // 3. Other meta / itemprop tags — trusted.
-    const metaImage =
-      this.htmlDoc.querySelector("meta[itemprop='image']")?.getAttribute("content") ??
-      this.htmlDoc.querySelector("link[rel='image_src']")?.getAttribute("href");
-
-    if (metaImage) return this.resolveUrl(metaImage);
-
-    // 4. DOM-scraped fallback URLs are less reliable — probe with a short timeout.
+    // 3. Known site-specific selectors — probe with a short timeout.
     const domUrl = this.findDomImageUrl();
-    if (!domUrl) return undefined;
-    return this.checkImageWithBrowser(domUrl, 2000);
+    if (domUrl && !LinkMetadataParser.isVideoUrl(domUrl)) {
+      return this.checkImageWithBrowser(domUrl, 2000);
+    }
+
+    return undefined;
+  }
+
+  private static isVideoUrl(url: string): boolean {
+    // Match a video file extension at the end of the path (before any query string).
+    return /\.(mp4|webm|mov|m4v|ogv|avi|mkv)(\?|#|$)/i.test(url);
   }
 
   private findJsonLdImage(): string | undefined {
