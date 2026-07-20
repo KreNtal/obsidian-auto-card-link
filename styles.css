@@ -172,21 +172,32 @@
 }
 
 
-.auto-card-link-host .auto-card-link-favicon {
+/* High specificity (element + 3 classes) so themes, which load after plugin CSS,
+   can't override the favicon size and blow it up to its natural dimensions. */
+.auto-card-link-container .auto-card-link-host img.auto-card-link-favicon {
     width: 16px;
-    height: auto;
+    height: 16px;
+    min-width: 16px;
+    max-width: 16px;
+    flex-shrink: 0;
+    object-fit: contain;
     margin-right: 0.5em;
 }
 
-.auto-card-link-thumbnail-wrap {
+.auto-card-link-container .auto-card-link-thumbnail-wrap {
     position: relative;
     display: flex;
     flex-shrink: 0;
+    overflow: hidden;
     width: min(200px, 40%);
 }
 
-.auto-card-link-thumbnail {
+/* Element + 2 classes, so a theme's generic `img` rules can't resize the thumbnail
+   to its natural dimensions and make it overflow the card. */
+.auto-card-link-container img.auto-card-link-thumbnail {
     width: 100%;
+    height: 100%;
+    max-width: 100%;
     border-radius: var(--radius-m);
     object-fit: cover;
     padding: 4px;
