@@ -451,10 +451,6 @@ export default class ObsidianAutoCardLink extends Plugin {
     return regExpExecArray[2] ?? "";
   }
 
-  onunload() {
-    console.log("unloading auto-card-link");
-  }
-
   private async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<ObsidianAutoCardLinkSettings>);
   }

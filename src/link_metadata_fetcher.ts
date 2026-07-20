@@ -56,7 +56,7 @@ export class LinkMetadataFetcher {
       });
 
       if (!res || res.status !== 200) {
-         console.log(`Fetch failed for ${url}. Status: ${res?.status}`);
+         console.debug(`Fetch failed for ${url}. Status: ${res?.status}`);
          return this.fetchFallback(url);
       }
 

@@ -52,7 +52,7 @@ export class CodeBlockGenerator {
     const start = text.indexOf(fetchingText);
 
     if (start < 0) {
-      console.log(`Unable to find text "${fetchingText}" in current editor, bailing out; link ${url}`);
+      console.debug(`Unable to find text "${fetchingText}" in current editor, bailing out; link ${url}`);
       return false;
     }
 

@@ -157,7 +157,7 @@ export class LinkMetadataParser {
     const img = jsonLd.image as string | string[] | { url: string; } | undefined;
     if (Array.isArray(img) && img.length > 0) return this.resolveUrl(img[0]!);
     if (typeof img === "string") return this.resolveUrl(img);
-    if (img && typeof img === "object" && "url" in img) return this.resolveUrl((img as { url: string; }).url);
+    if (img && typeof img === "object" && "url" in img) return this.resolveUrl(img.url);
     return undefined;
   }
 

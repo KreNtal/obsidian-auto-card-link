@@ -21,7 +21,7 @@ class FolderSuggest extends AbstractInputSuggest<string> {
   }
 
   renderSuggestion(folder: string, el: HTMLElement): void {
-    el.createEl("div", { text: folder });
+    el.createDiv({ text: folder });
   }
 
   selectSuggestion(folder: string): void {
@@ -74,7 +74,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     // --- General ---
     new Setting(containerEl)
       .setName("Enhance default paste")
-      .setDesc("Fetch the link metadata when pasting a url in the editor with the default paste command.")
+      .setDesc("Fetch the link metadata when pasting a URL in the editor with the default paste command.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
         return val

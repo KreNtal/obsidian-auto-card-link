@@ -8,6 +8,10 @@ export default tseslint.config(
 		languageOptions: {
 			globals: {
 				...globals.browser,
+				// Injected by Obsidian at runtime — point at the active window's
+				// document/window, so they also work in popout windows.
+				activeDocument: "readonly",
+				activeWindow: "readonly",
 			},
 			parserOptions: {
 				projectService: {

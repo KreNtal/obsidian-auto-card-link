@@ -10,7 +10,7 @@ function urlHash(url: string): string {
 
 export async function downloadImage(app: App, url: string, folder: string): Promise<string | undefined> {
   try {
-    const cleanUrl = url.split("?").at(0) ?? url;
+    const cleanUrl = url.split("?")[0] ?? url;
     let ext = cleanUrl.split(".").pop() ?? "png";
     if (ext.length > 5 || /[^a-zA-Z0-9]/.test(ext)) ext = "png";
 
