@@ -136,6 +136,10 @@
 
 .auto-card-link-description {
     overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
     --lh: 1.4em;
     line-height: var(--lh);
     max-height: calc(var(--lh) * 3);
@@ -192,9 +196,9 @@
     width: min(200px, 40%);
 }
 
-/* Element + 2 classes, so a theme's generic `img` rules can't resize the thumbnail
-   to its natural dimensions and make it overflow the card. */
-.auto-card-link-container img.auto-card-link-thumbnail {
+/* High specificity (element + 3 classes), matching the favicon rule above, so themes
+   (e.g. Minimal) can't override sizing or corner rounding with their own image rules. */
+.auto-card-link-container .auto-card-link-thumbnail-wrap img.auto-card-link-thumbnail {
     width: 100%;
     height: 100%;
     max-width: 100%;
@@ -307,7 +311,7 @@ body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.e
     /* transform: translateY(-1px); */
 }
 
-.auto-card-link-style-modern .auto-card-link-thumbnail {
+.auto-card-link-style-modern .auto-card-link-container .auto-card-link-thumbnail-wrap img.auto-card-link-thumbnail {
     padding: 0;
     border-radius: 0;
     height: 100%;
@@ -351,7 +355,7 @@ body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.e
     width: min(130px, 40%);
 }
 
-.auto-card-link-style-compact .auto-card-link-thumbnail {
+.auto-card-link-style-compact .auto-card-link-container .auto-card-link-thumbnail-wrap img.auto-card-link-thumbnail {
     padding: 2px;
     object-fit: cover;
 }
@@ -434,7 +438,7 @@ body.theme-light.auto-card-link-style-glass .auto-card-link-card:hover {
     left: 130%;
 }
 
-.auto-card-link-style-glass .auto-card-link-thumbnail {
+.auto-card-link-style-glass .auto-card-link-container .auto-card-link-thumbnail-wrap img.auto-card-link-thumbnail {
     padding: 0;
     border-radius: 0;
     height: 100%;
@@ -442,7 +446,7 @@ body.theme-light.auto-card-link-style-glass .auto-card-link-card:hover {
     opacity: 0.88;
 }
 
-.auto-card-link-style-glass .auto-card-link-card:hover .auto-card-link-thumbnail {
+.auto-card-link-style-glass .auto-card-link-card:hover .auto-card-link-thumbnail-wrap img.auto-card-link-thumbnail {
     opacity: 1;
 }
 
@@ -465,6 +469,12 @@ body.theme-light.auto-card-link-style-glass .auto-card-link-card:hover {
     color: #fff;
     padding: 2px 6px 1px 6px;
     font-weight: 500;
+}
+
+/* Same specificity as the per-style object-fit rules above, placed last so it wins
+   regardless of card style, and wins over themes since it matches their specificity. */
+body.auto-card-link-thumbnail-fit-contain .auto-card-link-container .auto-card-link-thumbnail-wrap img.auto-card-link-thumbnail {
+    object-fit: contain;
 }
 
 .auto-card-link-style-glass .auto-card-link-duration::before {

@@ -43,6 +43,7 @@ export interface ObsidianAutoCardLinkSettings {
   cardStyle: "classic" | "modern" | "glass" | "compact";
   thumbnailQuality: "better-preview" | "max-resolution";
   useExternalFallback: boolean;
+  thumbnailFit: "cover" | "contain";
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
@@ -57,6 +58,7 @@ export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   cardStyle: "classic",
   thumbnailQuality: "better-preview",
   useExternalFallback: false,
+  thumbnailFit: "cover",
 };
 
 export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
@@ -245,6 +247,23 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
             applyThumbnailPosition(value as "left" | "right");
           });
       });
+
+    new Setting(containerEl)
+      .setName("Thumbnail fit")
+      .setDesc("How the thumbnail image fills its frame: crop to fill, or shrink to show the whole image.")
+      .addDropdown((drop) => {
+        if (!this.plugin.settings) return drop;
+        return drop
+          .addOption("cover", "Crop to fill")
+          .addOption("contain", "Show whole image")
+          .setValue(this.plugin.settings.thumbnailFit)
+          .onChange(async (value: string) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.thumbnailFit = value as "cover" | "contain";
+            await this.plugin.saveSettings();
+            applyThumbnailFit(this.plugin.settings.thumbnailFit);
+          });
+      });
   }
 }
 
@@ -262,4 +281,11 @@ export function applyCardStyle(style: "classic" | "modern" | "glass" | "compact"
     "auto-card-link-style-compact"
   );
   if (style !== "classic") activeDocument.body.classList.add(`auto-card-link-style-${style}`);
+}
+
+export function applyThumbnailFit(fit: "cover" | "contain"): void {
+  activeDocument.body.classList.toggle(
+    "auto-card-link-thumbnail-fit-contain",
+    fit === "contain"
+  );
 }

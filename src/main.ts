@@ -5,7 +5,8 @@ import {
   ObsidianAutoCardLinkSettingTab,
   DEFAULT_SETTINGS,
   applyThumbnailPosition,
-  applyCardStyle
+  applyCardStyle,
+  applyThumbnailFit
 } from "./settings";
 
 import { EditorExtensions } from "./editor_enhancements";
@@ -53,6 +54,7 @@ export default class ObsidianAutoCardLink extends Plugin {
 
     applyThumbnailPosition(this.settings?.thumbnailPosition ?? "left");
     applyCardStyle(this.settings?.cardStyle ?? "classic");
+    applyThumbnailFit(this.settings?.thumbnailFit ?? "cover");
 
     this.addCommand({
       id: "auto-card-link-paste-and-enhance",
