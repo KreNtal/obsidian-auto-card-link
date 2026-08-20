@@ -31,7 +31,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     await this.loadSettings();
 
     this.registerObsidianProtocolHandler(REDDIT_AUTH_PROTOCOL_ACTION, (params) => {
-      void this.completeRedditLogin(params as Record<string, string>);
+      void this.completeRedditLogin(params);
     });
     this.registerDomEvent(window, "focus", this.updateClipboardCache);
     this.registerDomEvent(activeDocument, "contextmenu", this.updateClipboardCache);
