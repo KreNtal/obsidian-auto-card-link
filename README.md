@@ -37,6 +37,18 @@ This plugin needs internet access to fetch link metadata. To be transparent abou
 > [!IMPORTANT]
 > No analytics, telemetry, or personal data are collected by this plugin.
 
+## Known limitation: Reddit
+
+Reddit now requires a logged-in session to read post/subreddit/user data — both the anonymous
+`.json` endpoints and the old.reddit.com HTML pages this plugin used to rely on are blocked for
+unauthenticated requests. As a result, Reddit cards currently fall back to a minimal card
+(hostname/URL only) instead of the full title, thumbnail, and description they used to show.
+
+Proper Reddit support (via Reddit's official OAuth API, with the user logging into their own
+Reddit account — no credentials ever touch this plugin) is implemented and ready, but is waiting
+on Reddit's own app-approval process before it can be turned on. There's no workaround in the
+meantime: the plugin never shows fabricated data — a sparse card is preferred over a wrong one.
+
 # Cardlink syntax
 
 The code block `cardlink` uses YAML syntax for displaying card-styled link.

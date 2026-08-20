@@ -92,16 +92,32 @@ export class CodeBlockGenerator {
     const codeBlockTexts = ["```cardlink"];
 
     codeBlockTexts.push(`url: ${linkMetadata.url}`);
-    codeBlockTexts.push(`title: "${linkMetadata.title}"`);
-    if (linkMetadata.author) codeBlockTexts.push(`author: "${linkMetadata.author}"`);
-    if (linkMetadata.description) codeBlockTexts.push(`description: "${linkMetadata.description}"`);
+    codeBlockTexts.push(`title: ${this.yamlQuote(linkMetadata.title)}`);
+    if (linkMetadata.author) codeBlockTexts.push(`author: ${this.yamlQuote(linkMetadata.author)}`);
+    if (linkMetadata.description) codeBlockTexts.push(`description: ${this.yamlQuote(linkMetadata.description)}`);
     if (linkMetadata.host) codeBlockTexts.push(`host: ${linkMetadata.host}`);
+    // image/favicon are either a plain URL or a pre-quoted "[[wikilink]]" string
+    // (see fetchLinkMetadata below) — never re-quote them here.
     if (linkMetadata.favicon) codeBlockTexts.push(`favicon: ${linkMetadata.favicon}`);
     if (linkMetadata.image) codeBlockTexts.push(`image: ${linkMetadata.image}`);
-    if (linkMetadata.duration) codeBlockTexts.push(`duration: "${linkMetadata.duration}"`);
+    if (linkMetadata.duration) codeBlockTexts.push(`duration: ${this.yamlQuote(linkMetadata.duration)}`);
 
     codeBlockTexts.push("```\n");
     return codeBlockTexts.join("\n");
+  }
+
+  /**
+   * Renders a plain string as a safe double-quoted YAML scalar: collapses any
+   * embedded newlines/tabs to single spaces (a bare multiline value would
+   * otherwise break the block's YAML) and escapes quotes/backslashes via
+   * JSON string syntax, which is valid YAML double-quoted scalar syntax.
+   */
+  private yamlQuote(value: string): string {
+    const normalized = value
+      .replace(/\r\n|\r|\n/g, " ")
+      .replace(/[ \t]+/g, " ")
+      .trim();
+    return JSON.stringify(normalized);
   }
 
   private createBlockHash(): string {

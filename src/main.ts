@@ -14,9 +14,14 @@ import { CheckIf } from "./checkif";
 import { CodeBlockGenerator } from "./code_block_generator";
 import { CodeBlockProcessor } from "./code_block_processor";
 import { linkRegex } from "./regex";
+import { RedditAuth, REDDIT_AUTH_PROTOCOL_ACTION } from "./reddit_auth";
 
 export default class ObsidianAutoCardLink extends Plugin {
   settings?: ObsidianAutoCardLinkSettings;
+  // One instance for the plugin's lifetime: it holds the PKCE state/verifier between
+  // startLogin() (settings tab) and the obsidian:// redirect landing back here, which can
+  // happen well after the settings tab that started the flow has closed or re-rendered.
+  redditAuth = new RedditAuth();
   private cachedClipboard = "";
   private savedScrollTop = 0;
   private refreshQueue = Promise.resolve();
@@ -24,6 +29,10 @@ export default class ObsidianAutoCardLink extends Plugin {
 
   async onload() {
     await this.loadSettings();
+
+    this.registerObsidianProtocolHandler(REDDIT_AUTH_PROTOCOL_ACTION, (params) => {
+      void this.completeRedditLogin(params as Record<string, string>);
+    });
     this.registerDomEvent(window, "focus", this.updateClipboardCache);
     this.registerDomEvent(activeDocument, "contextmenu", this.updateClipboardCache);
     // Capture scroll position before Obsidian's mousedown handler moves the cursor
@@ -451,6 +460,27 @@ export default class ObsidianAutoCardLink extends Plugin {
     const regExpExecArray = urlRegex.exec(link);
     if (regExpExecArray === null || regExpExecArray.length < 2) return "";
     return regExpExecArray[2] ?? "";
+  }
+
+  private async completeRedditLogin(params: Record<string, string>) {
+    if (!this.settings) return;
+    try {
+      const tokens = await this.redditAuth.handleCallback(params);
+      this.settings.redditRefreshToken = tokens.refreshToken;
+      await this.saveSettings();
+
+      // Best-effort — just for display in settings, login already succeeded without it.
+      const username = await RedditAuth.fetchUsername(tokens.accessToken);
+      if (username) {
+        this.settings.redditUsername = username;
+        await this.saveSettings();
+      }
+
+      new Notice("Connected to Reddit");
+    } catch (error) {
+      console.error("Reddit login failed:", error);
+      new Notice(error instanceof Error ? error.message : "Reddit login failed.");
+    }
   }
 
   private async loadSettings() {

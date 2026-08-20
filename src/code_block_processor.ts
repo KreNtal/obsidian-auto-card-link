@@ -86,7 +86,18 @@ export class CodeBlockProcessor {
     const cardEl = containerEl.createEl("a", {
       cls: "auto-card-link-card",
       href: data.url,
-      attr: { target: "_blank" },
+      attr: { rel: "noopener" },
+    });
+
+    // Deliberately not using a native `target="_blank"` anchor: Chromium handles that
+    // navigation at the native "new-window" level without ever calling the JS `window.open`
+    // function, so plugins that hook external-link opening by patching `window.open` (e.g.
+    // "Open Link With") never see the click and can't redirect it. Opening the link ourselves
+    // through `window.open` keeps the card on the same interceptable path as a normal
+    // Obsidian-rendered external link.
+    cardEl.addEventListener("click", (evt: MouseEvent) => {
+      evt.preventDefault();
+      window.open(data.url, "_blank", "noopener,noreferrer");
     });
 
     // Note: mainEl must be created before the thumbnail — the card uses

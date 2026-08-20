@@ -6,9 +6,11 @@ import {
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
 import { ObsidianAutoCardLinkSettings } from "./settings";
+import { RedditAuth, REDDIT_USER_AGENT } from "./reddit_auth";
 
 export class LinkMetadataFetcher {
    private settings?: ObsidianAutoCardLinkSettings;
+   private redditAccessToken?: { token: string; expiresAt: number; };
 
    constructor(settings?: ObsidianAutoCardLinkSettings) {
       this.settings = settings;
@@ -62,7 +64,30 @@ export class LinkMetadataFetcher {
 
       const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
       const parser = new LinkMetadataParser(url, decodedText);
-      return (await parser.parse()) ?? this.fetchFallback(url);
+      const metadata = await parser.parse();
+
+      // Some sites (e.g. zhihu.com) serve non-browser requests an unrendered SPA shell whose
+      // <title> is left as the raw URL slug/id instead of the real page title — every other
+      // og:/twitter:/description tag is missing too. parser.parse() still "succeeds" since it
+      // found *a* title, so without this check we'd silently show that placeholder as if it
+      // were real content, and never give the external fallback (if enabled) a chance.
+      if (metadata && this.looksLikeUrlSlugTitle(metadata.title, url)) {
+         console.debug(`Fetch for ${url} returned only a URL-slug placeholder title.`);
+         return this.fetchFallback(url);
+      }
+
+      return metadata ?? this.fetchFallback(url);
+   }
+
+   private looksLikeUrlSlugTitle(title: string, url: string): boolean {
+      try {
+         const segments = new URL(url).pathname.split("/").filter(Boolean);
+         const lastSegment = segments[segments.length - 1];
+         if (!lastSegment) return false;
+         return title.trim().toLowerCase() === decodeURIComponent(lastSegment).trim().toLowerCase();
+      } catch {
+         return false;
+      }
    }
 
    private async fetchFallback(url: string): Promise<LinkMetadata> {
@@ -71,7 +96,16 @@ export class LinkMetadataFetcher {
       // browser and can get past Cloudflare-style challenges that requestUrl cannot.
       if (this.settings?.useExternalFallback) {
          const result = await this.fetchViaMicrolink(url);
-         if (result.metadata) return result.metadata;
+         // Microlink can hit the same anti-bot placeholder shell we do — its headless
+         // browser isn't a guaranteed bypass — so the result needs the same sanity check
+         // as the direct fetch above, not a blind accept just because the call succeeded.
+         // No retry-with-force-refresh here: it doubles the cost against Microlink's tight
+         // daily quota (as low as 25/day) for a bypass that isn't reliable anyway — a stale
+         // cached placeholder and a freshly-blocked render look identical from here.
+         if (result.metadata) {
+            if (!this.looksLikeUrlSlugTitle(result.metadata.title, url)) return result.metadata;
+            console.debug(`Microlink result for ${url} looked like a placeholder title:`, result.metadata.title);
+         }
          if (result.rateLimited) {
             new Notice("Daily limit for the external metadata service (microlink.io) reached. Showing a basic card — try again tomorrow.");
             return this.fetchTitleOnly(url);
@@ -84,17 +118,28 @@ export class LinkMetadataFetcher {
    private async fetchViaMicrolink(url: string): Promise<{ metadata?: LinkMetadata; rateLimited?: boolean; }> {
       // https://microlink.io — free, no API key. Sends the URL to a third-party server,
       // so this only runs when the user has explicitly enabled the external fallback.
-      // Free tier is ~50 requests/day; over that the API returns HTTP 429.
+      // Free tier is a small daily quota (as low as 25 requests/day, confirmed in practice —
+      // Microlink's published numbers vary by endpoint and have changed over time); over that
+      // the API returns HTTP 429. We deliberately take whatever this single call returns
+      // (cached or not) rather than spending a second request on `force=true` to bypass the
+      // cache — that bypass isn't reliable against a site actively blocking Microlink anyway,
+      // and doubling the request cost against such a tight daily quota isn't worth it for that.
       new Notice("Fetching metadata via external service (microlink.io)…");
       try {
          const api = `https://api.microlink.io/?url=${encodeURIComponent(url)}`;
          const res = await this.request(api, { "Accept": "application/json" }, 15000);
          if (res?.status === 429) return { rateLimited: true };
-         if (!res || res.status !== 200) return {};
+         if (!res || res.status !== 200) {
+            console.debug(`Microlink request failed for ${url}. Status: ${res?.status}`);
+            return {};
+         }
 
          const json = JSON.parse(res.text) as MicrolinkResponse;
          const d = json.data;
-         if (json.status !== "success" || !d?.title) return {};
+         if (json.status !== "success" || !d?.title) {
+            console.debug(`Microlink returned no usable data for ${url}:`, json);
+            return {};
+         }
 
          const hostname = new URL(url).hostname;
          return {
@@ -109,7 +154,8 @@ export class LinkMetadataFetcher {
                indent: 0,
             },
          };
-      } catch {
+      } catch (e) {
+         console.error(`Microlink request threw for ${url}:`, e);
          return {};
       }
    }
@@ -470,6 +516,58 @@ export class LinkMetadataFetcher {
    }
 
    /* --- REDDIT --- */
+
+   // Exchanges the user's stored refresh token for a fresh access token (cached until near
+   // expiry). Requires the user to have connected their Reddit account in settings — Reddit
+   // now requires a real logged-in session for this data; there is no working anonymous path.
+   // Real API calls made with this token go to oauth.reddit.com, a separate authenticated
+   // surface from the public website, so they aren't subject to the anti-scraping wall that
+   // blocks anonymous requests to www.reddit.com/old.reddit.com and their ".json" trick.
+   private async getRedditAccessToken(): Promise<string | undefined> {
+      const refreshToken = this.settings?.redditRefreshToken;
+      if (!refreshToken) return undefined;
+
+      if (this.redditAccessToken && this.redditAccessToken.expiresAt > Date.now()) {
+         return this.redditAccessToken.token;
+      }
+
+      const tokens = await RedditAuth.refresh(refreshToken);
+      if (!tokens) return undefined;
+
+      this.redditAccessToken = { token: tokens.accessToken, expiresAt: tokens.accessTokenExpiresAt };
+      return this.redditAccessToken.token;
+   }
+
+   // GETs a path (e.g. "/r/sub/about.json") from oauth.reddit.com with the user's access token.
+   // Returns undefined on any failure — including no connected account, or an expired/rejected
+   // token — so callers can fall through to the legacy anonymous scrape without needing to know
+   // why OAuth didn't work.
+   private async redditOAuthRequest(path: string): Promise<unknown> {
+      const token = await this.getRedditAccessToken();
+      if (!token) return undefined;
+
+      try {
+         const res = await requestUrl({
+            url: `https://oauth.reddit.com${path}`,
+            throw: false,
+            headers: {
+               "Authorization": `Bearer ${token}`,
+               "User-Agent": REDDIT_USER_AGENT,
+            },
+         });
+
+         if (res.status !== 200) {
+            console.debug(`Reddit OAuth API request failed for ${path}. Status: ${res.status}`);
+            return undefined;
+         }
+
+         return JSON.parse(res.text);
+      } catch (e) {
+         console.error(`Reddit OAuth API request failed for ${path}:`, e);
+         return undefined;
+      }
+   }
+
    private async fetchReddit(url: string): Promise<LinkMetadata | undefined> {
       const normalized = url
          .replace("old.reddit.com", "www.reddit.com")
@@ -487,7 +585,34 @@ export class LinkMetadataFetcher {
       return this.fetchGeneric(url);
    }
 
+   private buildRedditPostMetadata(originalUrl: string, post: RedditPostData): LinkMetadata {
+      return {
+         url: originalUrl,
+         title: LinkMetadataParser.sanitizeText(post.title) ?? post.title ?? "",
+         author: post.subreddit ? `r/${post.subreddit}` : undefined,
+         description: LinkMetadataParser.sanitizeText(
+            post.selftext
+               ? post.selftext.slice(0, 200).replace(/\n/g, " ") + "…"
+               : post.author ? `u/${post.author}` : undefined
+         ),
+         host: "www.reddit.com",
+         favicon: "https://www.reddit.com/favicon.ico",
+         image: this.getRedditPostImage(post),
+         indent: 0,
+      };
+   }
+
    private async fetchRedditPost(originalUrl: string, normalized: string): Promise<LinkMetadata | undefined> {
+      // 0. Official API, authenticated as the user's connected Reddit account. Reddit now
+      //    requires a real logged-in session for post data — this is the only reliable path
+      //    left; everything below is a legacy fallback for when no account is connected.
+      const path = normalized.replace(/^https:\/\/www\.reddit\.com/, "").replace(/\/?$/, "") + ".json?limit=1&raw_json=1";
+      const oauthData = await this.redditOAuthRequest(path);
+      if (oauthData) {
+         const post = (oauthData as RedditListingResponse[])[0]?.data?.children?.[0]?.data;
+         if (post?.title) return this.buildRedditPostMetadata(originalUrl, post);
+      }
+
       // 1. Try both www and old Reddit JSON endpoints.
       //    old.reddit.com runs on separate infrastructure and is often less rate-limited.
       for (const host of ["www.reddit.com", "old.reddit.com"]) {
@@ -496,22 +621,7 @@ export class LinkMetadataFetcher {
             const res = await this.request(apiUrl);
             if (res?.status === 200) {
                const post = (JSON.parse(res.text) as RedditListingResponse[])[0]?.data?.children?.[0]?.data;
-               if (post?.title) {
-                  return {
-                     url: originalUrl,
-                     title: LinkMetadataParser.sanitizeText(post.title) ?? post.title,
-                     author: post.subreddit ? `r/${post.subreddit}` : undefined,
-                     description: LinkMetadataParser.sanitizeText(
-                        post.selftext
-                           ? post.selftext.slice(0, 200).replace(/\n/g, " ") + "…"
-                           : post.author ? `u/${post.author}` : undefined
-                     ),
-                     host: "www.reddit.com",
-                     favicon: "https://www.reddit.com/favicon.ico",
-                     image: this.getRedditPostImage(post),
-                     indent: 0,
-                  };
-               }
+               if (post?.title) return this.buildRedditPostMetadata(originalUrl, post);
             }
          } catch { /* try next */ }
       }
@@ -527,10 +637,7 @@ export class LinkMetadataFetcher {
          const htmlRes = await this.request(oldUrl);
          if (htmlRes?.status === 200) {
             const metadata = await new LinkMetadataParser(originalUrl, htmlRes.text).parse();
-            const isGenericTitle = !metadata?.title
-               || metadata.title === "Reddit"
-               || metadata.title === "Reddit - The heart of the internet";
-            if (!isGenericTitle && metadata) {
+            if (metadata && !this.isGenericRedditPage(metadata.title, metadata.description)) {
                // Subreddit is always in the URL — reliable for every post type.
                // (og:description only starts with "Posted in r/..." for link/image posts;
                //  for self/text posts it holds the post body instead.)
@@ -569,7 +676,26 @@ export class LinkMetadataFetcher {
          }
       } catch { /* fall through */ }
 
-      return this.fetchGeneric(originalUrl);
+      // 3. Last resort: generic scrape of the canonical URL. Reddit sometimes serves the
+      //    same login-wall placeholder here too (its default homepage tags) — if so, treat
+      //    it as a genuine failure instead of silently showing those as the post, so the
+      //    external-fallback setting (if enabled) gets a chance to fetch the real thing.
+      const generic = await this.fetchGeneric(originalUrl);
+      if (generic && !this.isGenericRedditPage(generic.title, generic.description)) return generic;
+      return this.fetchFallback(originalUrl);
+   }
+
+   // Reddit serves this same login-wall shell for unauthenticated/bot requests instead of
+   // the real post/subreddit whenever it decides to rate-limit or block us. The exact wording
+   // has changed more than once, so match the placeholder's shape (the whole title is just
+   // "Reddit", "Welcome to Reddit", or "Reddit - ...") rather than a fixed string or a bare
+   // "reddit" substring — real content is never titled that way, so this stays resilient to
+   // wording changes without false-positiving on posts that merely mention Reddit. The
+   // description check is a second, independent signal in case the title shape changes too.
+   private isGenericRedditPage(title?: string, description?: string): boolean {
+      return !title
+         || /^(welcome to )?reddit(\s*-\s*.+)?$/i.test(title.trim())
+         || /^log in or sign up to /i.test(description ?? "");
    }
 
    private extractRedditSelftext(html: string): string | undefined {
@@ -643,24 +769,34 @@ export class LinkMetadataFetcher {
       return undefined;
    }
 
+   private buildRedditSubredditMetadata(originalUrl: string, sub: RedditSubredditData): LinkMetadata {
+      const rawIcon = sub.community_icon || sub.icon_img || "";
+      return {
+         url: originalUrl,
+         title: `r/${sub.display_name}`,
+         description: sub.public_description?.trim() || undefined,
+         host: "www.reddit.com",
+         favicon: "https://www.reddit.com/favicon.ico",
+         image: rawIcon.split("?")[0] || undefined,
+         indent: 0,
+      };
+   }
+
    private async fetchRedditSubreddit(originalUrl: string, normalized: string): Promise<LinkMetadata | undefined> {
+      // 0. Official API, authenticated as the user's connected Reddit account (see
+      //    fetchRedditPost for why this comes first).
+      const path = normalized.replace(/^https:\/\/www\.reddit\.com/, "").replace(/\/?$/, "") + "/about.json?raw_json=1";
+      const oauthData = await this.redditOAuthRequest(path) as { data?: RedditSubredditData; } | undefined;
+      if (oauthData?.data?.display_name) {
+         return this.buildRedditSubredditMetadata(originalUrl, oauthData.data);
+      }
+
       // 1. JSON about endpoint
       try {
          const res = await this.request(normalized.replace(/\/?$/, "/about.json") + "?raw_json=1");
          if (res?.status === 200) {
             const sub = (JSON.parse(res.text) as { data?: RedditSubredditData; })?.data;
-            if (sub?.display_name) {
-               const rawIcon = sub.community_icon || sub.icon_img || "";
-               return {
-                  url: originalUrl,
-                  title: `r/${sub.display_name}`,
-                  description: sub.public_description?.trim() || undefined,
-                  host: "www.reddit.com",
-                  favicon: "https://www.reddit.com/favicon.ico",
-                  image: rawIcon.split("?")[0] || undefined,
-                  indent: 0,
-               };
-            }
+            if (sub?.display_name) return this.buildRedditSubredditMetadata(originalUrl, sub);
          }
       } catch { /* fall through */ }
 
@@ -670,21 +806,37 @@ export class LinkMetadataFetcher {
          const htmlRes = await this.request(oldUrl);
          if (htmlRes?.status === 200) {
             const metadata = await new LinkMetadataParser(originalUrl, htmlRes.text).parse();
-            const isGeneric = !metadata?.title
-               || metadata.title === "Reddit"
-               || metadata.title === "Reddit - The heart of the internet";
-            if (!isGeneric) {
+            if (metadata && !this.isGenericRedditPage(metadata.title, metadata.description)) {
                return { ...metadata, host: "www.reddit.com", favicon: "https://www.reddit.com/favicon.ico" };
             }
          }
       } catch { /* fall through */ }
 
-      return this.fetchGeneric(originalUrl);
+      const generic = await this.fetchGeneric(originalUrl);
+      if (generic && !this.isGenericRedditPage(generic.title, generic.description)) return generic;
+      return this.fetchFallback(originalUrl);
+   }
+
+   private buildRedditUserMetadata(originalUrl: string, user: RedditUserData): LinkMetadata {
+      return {
+         url: originalUrl,
+         title: `u/${user.name}`,
+         description: user.subreddit?.public_description?.trim() || undefined,
+         host: "www.reddit.com",
+         favicon: "https://www.reddit.com/favicon.ico",
+         image: user.icon_img?.split("?")[0] || undefined,
+         indent: 0,
+      };
    }
 
    private async fetchRedditUser(originalUrl: string, normalized: string): Promise<LinkMetadata | undefined> {
       const username = normalized.match(/reddit\.com\/(?:u|user)\/(\w+)/)?.[1];
       if (!username) return this.fetchGeneric(originalUrl);
+
+      // 0. Official API, authenticated as the user's connected Reddit account (see
+      //    fetchRedditPost for why this comes first).
+      const oauthData = await this.redditOAuthRequest(`/user/${username}/about.json`) as { data?: RedditUserData; } | undefined;
+      if (oauthData?.data) return this.buildRedditUserMetadata(originalUrl, oauthData.data);
 
       try {
          const res = await this.request(`https://www.reddit.com/user/${username}/about.json`);
@@ -693,15 +845,7 @@ export class LinkMetadataFetcher {
          const user = (JSON.parse(res.text) as { data?: RedditUserData; })?.data;
          if (!user) return this.fetchGeneric(originalUrl);
 
-         return {
-            url: originalUrl,
-            title: `u/${user.name}`,
-            description: user.subreddit?.public_description?.trim() || undefined,
-            host: "www.reddit.com",
-            favicon: "https://www.reddit.com/favicon.ico",
-            image: user.icon_img?.split("?")[0] || undefined,
-            indent: 0,
-         };
+         return this.buildRedditUserMetadata(originalUrl, user);
       } catch {
          return this.fetchGeneric(originalUrl);
       }
