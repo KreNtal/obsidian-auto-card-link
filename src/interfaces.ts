@@ -28,36 +28,6 @@ export interface DailymotionVideoResponse {
   "owner.screenname"?: string;
 }
 
-export interface RedditListingResponse {
-  data?: { children?: Array<{ data?: RedditPostData; }>; };
-}
-
-export interface RedditPostData {
-  title: string;
-  subreddit?: string;
-  selftext?: string;
-  author?: string;
-  url?: string;
-  post_hint?: string;
-  is_gallery?: boolean;
-  media_metadata?: Record<string, { s?: { u?: string; }; }>;
-  gallery_data?: { items?: Array<{ media_id: string; }>; };
-  preview?: { images?: Array<{ source?: { url?: string; }; }>; };
-}
-
-export interface RedditSubredditData {
-  display_name: string;
-  public_description?: string;
-  community_icon?: string;
-  icon_img?: string;
-}
-
-export interface RedditUserData {
-  name: string;
-  subreddit?: { public_description?: string; };
-  icon_img?: string;
-}
-
 export interface PrintablesGraphQLResponse {
   data?: {
     print?: {

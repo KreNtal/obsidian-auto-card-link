@@ -1,6 +1,5 @@
-import { AbstractInputSuggest, App, Notice, PluginSettingTab, Setting, TFolder } from "obsidian";
+import { AbstractInputSuggest, App, PluginSettingTab, Setting, TFolder } from "obsidian";
 import ObsidianAutoCardLink from "./main";
-import { RedditAuth } from "./reddit_auth";
 
 class FolderSuggest extends AbstractInputSuggest<string> {
   private folders: string[];
@@ -45,8 +44,6 @@ export interface ObsidianAutoCardLinkSettings {
   thumbnailQuality: "better-preview" | "max-resolution";
   useExternalFallback: boolean;
   thumbnailFit: "cover" | "contain";
-  redditRefreshToken?: string;
-  redditUsername?: string;
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
@@ -132,54 +129,6 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
-
-    // --- Reddit ---
-    // Hidden entirely until REDDIT_CLIENT_ID is set (see reddit_auth.ts) — Reddit's app
-    // approval is still pending, so there's nothing a user could do with this yet. Remove
-    // this isConfigured() gate once the client id is in and the flow has been tested.
-    const redditAuth = this.plugin.redditAuth;
-    if (redditAuth.isConfigured()) {
-      new Setting(containerEl).setName("Reddit").setHeading();
-
-      const redditSetting = new Setting(containerEl);
-
-      if (this.plugin.settings?.redditRefreshToken) {
-        redditSetting
-          .setName("Reddit account")
-          .setDesc(
-            this.plugin.settings.redditUsername
-              ? `Connected as u/${this.plugin.settings.redditUsername}. Reddit now requires a logged-in account to fetch post/subreddit previews reliably.`
-              : "Connected. Reddit now requires a logged-in account to fetch post/subreddit previews reliably."
-          )
-          .addButton((btn) => btn
-            .setButtonText("Disconnect")
-            .onClick(async () => {
-              if (!this.plugin.settings?.redditRefreshToken) return;
-              await RedditAuth.revoke(this.plugin.settings.redditRefreshToken);
-              this.plugin.settings.redditRefreshToken = undefined;
-              this.plugin.settings.redditUsername = undefined;
-              await this.plugin.saveSettings();
-              new Notice("Disconnected from Reddit");
-              this.display();
-            }));
-      } else {
-        redditSetting
-          .setName("Reddit account")
-          .setDesc("Connect a Reddit account so post/subreddit cards can fetch real previews — Reddit now blocks this for logged-out requests.")
-          .addButton((btn) => btn
-            .setButtonText("Connect")
-            .setCta()
-            .onClick(async () => {
-              try {
-                await redditAuth.startLogin();
-                new Notice("Continue in your browser, then come back to Obsidian.");
-              } catch (error) {
-                console.error(error);
-                new Notice("Couldn't start the Reddit login.");
-              }
-            }));
-      }
-    }
 
     // --- Images ---
     new Setting(containerEl).setName("Images").setHeading();
