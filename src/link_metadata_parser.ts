@@ -13,7 +13,10 @@ export class LinkMetadataParser {
   }
 
   async parse(): Promise<LinkMetadata | undefined> {
-    const title = LinkMetadataParser.sanitizeText(this.getTitle());
+    // Titles get a longer cap than descriptions: a product page's title carries the
+    // category tail ("... : Amazon.it: Elettronica") that the 160 default cut off, and an
+    // inline markdown link shows the title in full where a card clamps it in CSS.
+    const title = LinkMetadataParser.sanitizeText(this.getTitle(), 300);
     if (!title) return;
     const description = LinkMetadataParser.sanitizeText(this.getDescription());
     const { hostname } = new URL(this.url);
@@ -25,10 +28,29 @@ export class LinkMetadataParser {
       title: title,
       description: description,
       host: hostname,
+      siteName: this.getSiteName(),
       favicon: favicon,
       image: image,
       indent: 0,
     };
+  }
+
+  /**
+   * The site's own display name, with its own capitalisation ("YouTube", "IMDb").
+   * Only used for inline markdown links, where the host isn't shown separately.
+   */
+  private getSiteName(): string | undefined {
+    const raw = this.htmlDoc
+      .querySelector("meta[property='og:site_name']")
+      ?.getAttribute("content")
+      ?.trim();
+    if (!raw) return undefined;
+
+    // Sites routinely append a tagline ("Thingiverse - The community for Open Hardware");
+    // the name itself is the first segment. Anything still long after that isn't a name.
+    const name = raw.split(/\s+[-|\u2013\u2014:\u00b7]\s+/)[0]?.trim();
+    if (!name || name.length > 40) return undefined;
+    return LinkMetadataParser.sanitizeText(name);
   }
 
   private getTitle(): string | undefined {

@@ -9,15 +9,29 @@ import { ObsidianAutoCardLinkSettings } from "./settings";
 
 export class LinkMetadataFetcher {
    private settings?: ObsidianAutoCardLinkSettings;
+   // Lets a caller opt out of the external service even when the user enabled it.
+   // Used by the markdown-link path, which only needs a title and must never spend
+   // one of microlink.io's ~25 daily requests on it.
+   private allowExternalFallback: boolean;
 
-   constructor(settings?: ObsidianAutoCardLinkSettings) {
+   constructor(
+      settings?: ObsidianAutoCardLinkSettings,
+      options?: { allowExternalFallback?: boolean; }
+   ) {
       this.settings = settings;
+      this.allowExternalFallback = options?.allowExternalFallback ?? true;
    }
 
    async fetch(url: string): Promise<LinkMetadata | undefined> {
       url = url.trim().replace(/^["']|["']$/g, "");
       if (url.startsWith("http://")) url = "https://" + url.slice(7);
       url = this.stripCloudflareChallenge(url);
+
+      const metadata = await this.fetchForUrl(url);
+      return metadata ? this.withSiteName(metadata, url) : metadata;
+   }
+
+   private async fetchForUrl(url: string): Promise<LinkMetadata | undefined> {
       if (CheckIf.isYouTubeUrl(url)) return this.fetchYouTube(url);
       if (CheckIf.isVimeoUrl(url)) return this.fetchVimeo(url);
       if (CheckIf.isDailymotionUrl(url)) return this.fetchDailymotion(url);
@@ -31,6 +45,61 @@ export class LinkMetadataFetcher {
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
 
       return this.fetchGeneric(url);
+   }
+
+   /**
+    * Display names for the sites we handle with a dedicated fetcher. Those paths answer
+    * from an API or oEmbed and never look at the page HTML, so there is no og:site_name
+    * to read; deriving a name from the hostname instead would get the capitalisation
+    * wrong ("Youtube", "Imdb", "Github").
+    */
+   private static readonly SITE_NAMES: Record<string, string> = {
+      "youtube.com": "YouTube",
+      "youtu.be": "YouTube",
+      "vimeo.com": "Vimeo",
+      "dailymotion.com": "Dailymotion",
+      "twitch.tv": "Twitch",
+      "ted.com": "TED",
+      "reddit.com": "Reddit",
+      "imdb.com": "IMDb",
+      "printables.com": "Printables",
+      "github.com": "GitHub",
+      "spotify.com": "Spotify",
+   };
+
+   /**
+    * Pure lookup, no request involved — safe to reuse anywhere a card's stored `host`
+    * needs turning back into a display name (e.g. converting a card back to a plain link).
+    */
+   static siteNameFor(host: string): string | undefined {
+      const clean = host.toLowerCase().replace(/^www[.]/, "");
+      // Any language edition: it.wikipedia.org, en.m.wikipedia.org, ...
+      if (clean === "wikipedia.org" || clean.endsWith(".wikipedia.org")) return "Wikipedia";
+
+      // Walk up the subdomains so open.spotify.com and clips.twitch.tv match too
+      const parts = clean.split(".");
+      for (let i = 0; i < parts.length - 1; i++) {
+         const name = LinkMetadataFetcher.SITE_NAMES[parts.slice(i).join(".")];
+         if (name) return name;
+      }
+      return undefined;
+   }
+
+   /**
+    * Fills in the site name for the dedicated fetchers, which can't read og:site_name.
+    * A name parsed from the page always wins; when neither source knows it, the field
+    * stays empty and callers simply don't show one.
+    */
+   private withSiteName(metadata: LinkMetadata, url: string): LinkMetadata {
+      if (metadata.siteName) return metadata;
+
+      let host = metadata.host;
+      if (!host) {
+         try { host = new URL(url).hostname; } catch { return metadata; }
+      }
+
+      const siteName = LinkMetadataFetcher.siteNameFor(host);
+      return siteName ? { ...metadata, siteName } : metadata;
    }
 
    private stripCloudflareChallenge(url: string): string {
@@ -110,7 +179,7 @@ export class LinkMetadataFetcher {
       // posts it faces the same login wall we do while the embed path above already covers
       // them. Spending one of its ~25 daily requests here only takes quota from sites where
       // it can actually help.
-      if (this.settings?.useExternalFallback && !CheckIf.isRedditUrl(url)) {
+      if (this.allowExternalFallback && this.settings?.useExternalFallback && !CheckIf.isRedditUrl(url)) {
          const result = await this.fetchViaMicrolink(url);
          // Microlink can hit the same anti-bot placeholder shell we do — its headless
          // browser isn't a guaranteed bypass — so the result needs the same sanity check
@@ -198,7 +267,7 @@ export class LinkMetadataFetcher {
          if (title) {
             return {
                url,
-               title: LinkMetadataParser.sanitizeText(title) ?? title,
+               title: LinkMetadataParser.sanitizeText(title, 300) ?? title,
                host: hostname,
                favicon: `https://${hostname}/favicon.ico`,
                indent: 0,
@@ -429,33 +498,36 @@ export class LinkMetadataFetcher {
             // "VideoTitle - ChannelName on Twitch"
             const { title, author: titleAuthor } = this.parseTwitchTitle(metadata.title);
             const author = this.extractTwitchChannel(url) ?? titleAuthor;
-            return { ...metadata, title, author, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+            const linkTitle = author && title ? `${title} - ${author}` : title;
+            return { ...metadata, title, author, host, favicon: "https://www.twitch.tv/favicon.ico", duration, linkTitle };
          }
 
          if (isClip) {
-            // Clips follow "ChannelName - ClipTitle on Twitch" (author first, opposite of VODs)
-            const withoutSuffix = metadata.title.replace(/\s+on\s+Twitch\s*$/i, "").trim();
-            const firstDash = withoutSuffix.indexOf(" - ");
-            let title: string;
-            let author: string | undefined;
-            if (firstDash >= 0) {
-               author = withoutSuffix.slice(0, firstDash).trim() || undefined;
-               title = withoutSuffix.slice(firstDash + 3).trim();
-            } else {
-               // Fallback: og:title = "ChannelName", og:description = "Watch X clip titled \"Title\""
-               author = metadata.title?.trim() || undefined;
-               const m = metadata.description?.match(/clip titled\s+"([^"]+)"/i);
-               title = m?.[1] ?? metadata.title ?? "";
+            // Same shape as a VOD: "ClipTitle - ChannelName on Twitch". (Twitch used to put
+            // the channel first here; the code kept assuming that long after it stopped being
+            // true, which swapped the title and the author of every clip.)
+            const { title: parsedTitle, author: titleAuthor } = this.parseTwitchTitle(metadata.title);
+            const author = titleAuthor ?? this.extractTwitchChannel(url);
+
+            let title = parsedTitle;
+            if (!title || title === author) {
+               // og:title carried only the channel: the clip name is in og:description, as
+               // Watch <channel>'s clip titled "<name>". The quotes reach us escaped for the
+               // card's YAML, hence the optional backslash.
+               const m = metadata.description?.match(/clip titled\s+\\?"([^"\\]+)/i);
+               title = m?.[1]?.trim() || parsedTitle;
             }
+
             const description = author ? `Watch a ${author} clip on Twitch` : undefined;
-            return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration };
+            const linkTitle = author && title ? `${title} - ${author}` : title;
+            return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration, linkTitle };
          }
 
          // Live: og:title = "ChannelName - Twitch", og:description = stream title
          const author = metadata.title?.replace(/\s*-\s*Twitch\s*$/i, "").trim() || undefined;
          const title = metadata.description ?? metadata.title ?? "";
          const description = author ? `Watch ${author} live on Twitch` : undefined;
-         return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration: "Live" };
+         return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration: "Live", linkTitle: author };
       }
 
       // All attempts returned the SPA shell — fall back to generic
@@ -969,6 +1041,11 @@ export class LinkMetadataFetcher {
       };
       const typeLabel = typeLabels[typeMatch[1]!] ?? typeMatch[1]!;
 
+      // Prefer the page itself: it carries the artist, the album, the release year and a
+      // ready-made localised label, none of which the oEmbed response has.
+      const fromPage = await this.fetchSpotifyPage(url);
+      if (fromPage) return fromPage;
+
       const res = await this.request(
          `https://open.spotify.com/oembed?url=${encodeURIComponent(cleanUrl)}`,
          {
@@ -1004,6 +1081,89 @@ export class LinkMetadataFetcher {
          image,
          indent: 0,
       };
+   }
+
+   /**
+    * Spotify only server-renders a page for clients that aren't a modern browser: with a
+    * normal Chrome user agent it answers with the empty web-player shell. Identifying the
+    * plugin plainly gets the real markup, in the user's own language.
+    */
+   private async fetchSpotifyPage(url: string): Promise<LinkMetadata | undefined> {
+      // Requested as pasted, locale prefix included: the canonical /track/<id> form answers
+      // 302 to the localised path, and the localised page is the one worth having.
+      const res = await this.request(url, {
+         "User-Agent": "Mozilla/5.0 (compatible; ObsidianAutoCardLink/1.0; +https://github.com/KreNtal/obsidian-auto-card-link)",
+      });
+      if (!res || res.status !== 200 || !res.text) return undefined;
+
+      const doc = new DOMParser().parseFromString(res.text, "text/html");
+      const meta = (property: string): string | undefined =>
+         doc.querySelector(`meta[property='${property}']`)?.getAttribute("content")?.trim() || undefined;
+
+      const pageTitle = doc.querySelector("title")?.textContent?.trim();
+      const ogTitle = meta("og:title");
+      // The shell renders as "Spotify - Web Player: Music for everyone"
+      if (!ogTitle || !pageTitle || /web player/i.test(pageTitle)) return undefined;
+
+      const { author, description } = this.splitSpotifyMeta(meta("og:description"), pageTitle, meta("og:type"));
+
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(this.spotifyName(ogTitle), 300) ?? ogTitle,
+         author: LinkMetadataParser.sanitizeText(author),
+         description: LinkMetadataParser.sanitizeText(description),
+         host: "open.spotify.com",
+         favicon: "https://open.spotify.com/favicon.ico",
+         image: meta("og:image"),
+         // Spotify writes a better inline label than we could compose, already translated:
+         // "Execution - musica e testo di X | Spotify", "Enter the void - playlist by Y | Spotify"
+         linkTitle: LinkMetadataParser.sanitizeText(pageTitle, 300),
+         indent: 0,
+      };
+   }
+
+   /** Album pages put the whole page title in og:title ("Name - Album di X | Spotify"). */
+   private spotifyName(ogTitle: string): string {
+      const suffix = ogTitle.match(/\s*\|\s*[^|]*Spotify\s*$/i);
+      if (!suffix?.[0]) return ogTitle;
+
+      const withoutSuffix = ogTitle.slice(0, ogTitle.length - suffix[0].length).trim();
+      const lastDash = withoutSuffix.lastIndexOf(" - ");
+      return lastDash > 0 ? withoutSuffix.slice(0, lastDash).trim() : withoutSuffix;
+   }
+
+   /**
+    * og:description packs the creator and the details into one localised string, with the
+    * shape depending on what the page is:
+    *   album    "Joji · Album · 2026 · 22 brani"
+    *   track    "Artist · Album · Brano · 2026"
+    *   episode  "Show · Episode"
+    *   artist   "Artista · 27.5M ascoltatori mensili."   (opens with the type, not a name)
+    *   playlist "my darkest soul"                    (the playlist's own description)
+    */
+   private splitSpotifyMeta(
+      description: string | undefined,
+      pageTitle: string,
+      ogType: string | undefined
+   ): { author?: string; description?: string; } {
+      const parts = description?.split("·").map(p => p.trim()).filter(Boolean) ?? [];
+
+      // An artist page opens with the type label, so there is no separate creator to pull out
+      if (parts.length > 1 && ogType !== "profile") {
+         return { author: parts[0], description: parts.slice(1).join(" · ") };
+      }
+
+      return { author: this.spotifyOwnerFromTitle(pageTitle), description };
+   }
+
+   /** A playlist names its owner only in the page title: "Name - playlist by Owner | Spotify". */
+   private spotifyOwnerFromTitle(pageTitle: string): string | undefined {
+      const withoutSuffix = pageTitle.replace(/\s*\|\s*[^|]*Spotify\s*$/i, "").trim();
+      const lastDash = withoutSuffix.lastIndexOf(" - ");
+      if (lastDash < 0) return undefined;
+
+      const descriptor = withoutSuffix.slice(lastDash + 3).trim();
+      return descriptor.match(/(?:by|di|de|von|par|de la)\s+(.+)$/i)?.[1]?.trim();
    }
 
    /* --- WIKIPEDIA --- */
@@ -1113,11 +1273,25 @@ export class LinkMetadataFetcher {
       return suspicious !== null && suspicious.length / text.length > 0.1;
    }
 
+   /**
+    * Asks sites for the user's own language. Hardcoding English here meant an Italian
+    * user linking amazon.it got an English title back for an Italian page. Handlers that
+    * parse English strings out of the response (Twitch) still pass an explicit override.
+    */
+   private acceptLanguage(): string {
+      const locale = navigator.language || "en-US";
+      const base = locale.split("-")[0] ?? "en";
+      const parts = [locale];
+      if (base !== locale) parts.push(`${base};q=0.9`);
+      if (base !== "en") parts.push("en;q=0.8");
+      return parts.join(",");
+   }
+
    private async request(url: string, customHeaders: Record<string, string> = {}, timeoutMs = 5000) {
       const headers = {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-         "Accept-Language": "en-US,en;q=0.9",
+         "Accept-Language": this.acceptLanguage(),
          "Cache-Control": "no-cache",
          "Pragma": "no-cache",
          ...customHeaders

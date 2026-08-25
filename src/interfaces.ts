@@ -4,6 +4,14 @@ export interface LinkMetadata {
   author?: string;
   description?: string;
   host?: string;
+  /** Human-readable name of the site ("YouTube", not "www.youtube.com"). */
+  siteName?: string;
+  /**
+   * Label to use when the link is rendered inline instead of as a card, for the few
+   * pages whose card title isn't a good link text (a Twitch channel's card shows the
+   * current stream title, which is stale the next day; the channel name is not).
+   */
+  linkTitle?: string;
   favicon?: string;
   image?: string;
   duration?: string;

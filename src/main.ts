@@ -13,26 +13,44 @@ import { EditorExtensions } from "./editor_enhancements";
 import { CheckIf } from "./checkif";
 import { CodeBlockGenerator } from "./code_block_generator";
 import { CodeBlockProcessor } from "./code_block_processor";
-import { linkRegex } from "./regex";
+import { linkRegex, linkLineRegex } from "./regex";
+
+type PasteShape = "card" | "markdown-link";
 
 export default class ObsidianAutoCardLink extends Plugin {
   settings?: ObsidianAutoCardLinkSettings;
   private cachedClipboard = "";
   private savedScrollTop = 0;
+  private scrollAnchor?: { el: HTMLElement; url?: string; offsetTop: number; };
   private refreshQueue = Promise.resolve();
   private refreshQueueDepth = 0;
 
   async onload() {
     await this.loadSettings();
 
+    void this.updateClipboardCache();
     this.registerDomEvent(window, "focus", this.updateClipboardCache);
     this.registerDomEvent(activeDocument, "contextmenu", this.updateClipboardCache);
-    // Capture scroll position before Obsidian's mousedown handler moves the cursor
+    // Capture the scroll state before Obsidian's mousedown handler moves the cursor
     this.registerDomEvent(activeDocument, "mousedown", (e: MouseEvent) => {
       if (e.button !== 2) return;
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      const scroller = view?.containerEl.querySelector(".cm-scroller");
-      if (scroller) this.savedScrollTop = (scroller as HTMLElement).scrollTop;
+      const scroller = this.getEditorScroller();
+      if (!scroller) return;
+
+      this.savedScrollTop = scroller.scrollTop;
+
+      const target = e.target as Node | null;
+      const card = target?.instanceOf(HTMLElement)
+        ? target.closest<HTMLElement>(".auto-card-link-container")
+        : null;
+
+      this.scrollAnchor = card
+        ? {
+          el: card,
+          url: card.dataset.cardlinkUrl,
+          offsetTop: card.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+        }
+        : undefined;
     }, { capture: true });
 
     this.registerMarkdownCodeBlockProcessor("cardlink", async (source, el, ctx) => {
@@ -76,9 +94,128 @@ export default class ObsidianAutoCardLink extends Plugin {
       }
     });
 
+    this.addCommand({
+      id: "auto-card-link-paste-and-enhance-markdown-link",
+      name: "Paste URL and enhance to Markdown link",
+      editorCallback: async (editor: Editor) => {
+        await this.manualPasteAndEnhanceURL(editor, "markdown-link");
+      },
+    });
+
+    this.addCommand({
+      id: "auto-card-link-enhance-selected-url-markdown-link",
+      name: "Enhance selected URL to Markdown link",
+      editorCheckCallback: (checking: boolean, editor: Editor) => {
+        if (!navigator.onLine) return false;
+        if (checking) return true;
+        void this.enhanceSelectedURL(editor, "markdown-link");
+        return true;
+      }
+    });
+
     this.registerEvent(this.app.workspace.on("editor-paste", this.onPaste));
+    this.registerEvent(this.app.workspace.on("editor-drop", this.onDrop));
     this.registerEvent(this.app.workspace.on("editor-menu", this.onEditorMenu));
     this.addSettingTab(new ObsidianAutoCardLinkSettingTab(this.app, this));
+  }
+
+  private getEditorScroller(): HTMLElement | undefined {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    return view?.containerEl.querySelector<HTMLElement>(".cm-scroller") ?? undefined;
+  }
+
+  /**
+   * Keeps the right-clicked card visually still while the menu opens.
+   *
+   * Restoring a saved scrollTop only holds if the layout above the card is unchanged, and
+   * that is precisely what changes here: the cursor lands in the fenced block, Live Preview
+   * swaps the rendered card for its source, and cards elsewhere finish measuring as their
+   * images arrive. Re-anchoring on the element instead pins it to the same viewport offset
+   * however much the document above it grew or shrank.
+   *
+   * The correction repeats for a few frames because those re-measures land asynchronously
+   * rather than all in the first one - a single requestAnimationFrame is what made the
+   * previous attempt reduce the jump without removing it.
+   */
+  private stabilizeScroll(): void {
+    const scroller = this.getEditorScroller();
+    const anchor = this.scrollAnchor;
+    if (!scroller || !anchor) return;
+
+    const savedTop = this.savedScrollTop;
+    const deadline = window.performance.now() + 300;
+
+    const step = () => {
+      // A re-render replaces the card's element, so re-acquire it by URL before falling
+      // back to the pixel offset, which is all that is left once the element is gone.
+      if (!anchor.el.isConnected && anchor.url) {
+        const replacement = activeDocument.querySelector<HTMLElement>(
+          `.auto-card-link-container[data-cardlink-url="${CSS.escape(anchor.url)}"]`
+        );
+        if (replacement) anchor.el = replacement;
+      }
+
+      if (anchor.el.isConnected) {
+        const offsetTop = anchor.el.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+        const drift = offsetTop - anchor.offsetTop;
+        if (Math.abs(drift) > 0.5) scroller.scrollTop += drift;
+      } else {
+        scroller.scrollTop = savedTop;
+      }
+
+      if (window.performance.now() < deadline) window.requestAnimationFrame(step);
+    };
+
+    window.requestAnimationFrame(step);
+  }
+
+  /**
+   * Runs a context-menu action while holding the viewport still.
+   *
+   * Obsidian's own scroll position is line-based (MarkdownSubView.getScroll), which is what
+   * makes it the right anchor for an edit: rewriting the block under the pointer — seven
+   * fenced lines collapsing into a one-line link, or the reverse — moves every pixel offset
+   * below it, but never the number of the line sitting at the top of the viewport.
+   *
+   * (stabilizeScroll anchors on the element instead, because there nothing is rewritten:
+   * the card stays put and only its measured height changes.)
+   */
+  private async withPreservedScroll(action: () => void | Promise<void>): Promise<void> {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) {
+      await action();
+      return;
+    }
+
+    const scroll = view.currentMode.getScroll();
+    const running = action();
+    // Assert once for the synchronous part — for a fetching action that is the placeholder
+    // taking the block's place, which is the first and largest jump.
+    this.holdScroll(view, scroll);
+
+    await running;
+
+    // Re-assert for the final replacement, unless the reader scrolled away meanwhile: a
+    // fetch can take seconds, and yanking them back to where they no longer are is worse
+    // than the drift this is fixing.
+    if (Math.abs(view.currentMode.getScroll() - scroll) < 2) this.holdScroll(view, scroll);
+  }
+
+  /**
+   * Re-asserts a line-based scroll position for a few frames: a card renders, measures and
+   * loads its image across several of them, so a single correction lands too early.
+   */
+  private holdScroll(view: MarkdownView, scroll: number): void {
+    const deadline = window.performance.now() + 300;
+
+    const step = () => {
+      if (Math.abs(view.currentMode.getScroll() - scroll) > 0.05) {
+        view.currentMode.applyScroll(scroll);
+      }
+      if (window.performance.now() < deadline) window.requestAnimationFrame(step);
+    };
+
+    step();
   }
 
   private getCardlinkAtMouse(): { url: string; lineStart: number; lineEnd: number; } | undefined {
@@ -146,6 +283,31 @@ export default class ObsidianAutoCardLink extends Plugin {
     }
 
     return bestDistance === 0 ? bestUrl : undefined;
+  }
+
+  /**
+   * Finds a rendered `[text](url)` markdown link on the cursor's current line, if the
+   * cursor sits inside it. Obsidian moves the cursor to the click position before firing
+   * editor-menu (getCardlinkUrlAtCursor above relies on the same behaviour), so this also
+   * covers a right-click on a link rendered in Live Preview.
+   */
+  private getMarkdownLinkAtCursor(
+    editor: Editor
+  ): { url: string; startPos: { line: number; ch: number; }; endPos: { line: number; ch: number; }; } | undefined {
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    const regex = new RegExp(linkLineRegex);
+
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(line)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      const url = match[2];
+      if (url && cursor.ch >= start && cursor.ch <= end) {
+        return { url, startPos: { line: cursor.line, ch: start }, endPos: { line: cursor.line, ch: end } };
+      }
+    }
+    return undefined;
   }
 
   private resolveCardlinkRange(
@@ -259,7 +421,7 @@ export default class ObsidianAutoCardLink extends Plugin {
   private refetchCardlink(
     editor: Editor,
     cardlink: string | { url: string; lineStart: number; lineEnd: number; }
-  ): void {
+  ): Promise<void> {
     this.refreshQueueDepth++;
     if (this.refreshQueueDepth > 1) {
       new Notice(`Refresh queued — ${this.refreshQueueDepth - 1} already in progress`);
@@ -268,6 +430,7 @@ export default class ObsidianAutoCardLink extends Plugin {
       .then(() => this.doRefetchCardlink(editor, cardlink))
       .catch(() => { })
       .finally(() => { this.refreshQueueDepth--; });
+    return this.refreshQueue;
   }
 
   private async doRefetchCardlink(
@@ -287,6 +450,34 @@ export default class ObsidianAutoCardLink extends Plugin {
 
     const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
     await codeBlockGenerator.convertUrlToCodeBlock(url, originalBlock);
+  }
+
+  /**
+   * The inverse of "Convert URL to a card link": collapses the fenced block back to
+   * `[title](url)` via a fresh fetch, the same title-only path the Markdown-link paste
+   * mode uses (never spends microlink.io quota). A live fetch rather than reusing the
+   * card's own stored title/host is deliberate: Twitch and Spotify build a richer label
+   * (channel name, a localized phrase) that only their fetch handler produces and that
+   * never gets persisted in the block, so reconstructing offline would silently downgrade
+   * those every time.
+   */
+  private async convertCardlinkToMarkdownLink(
+    editor: Editor,
+    cardlink: string | { url: string; lineStart: number; lineEnd: number; }
+  ): Promise<void> {
+    const range = this.resolveCardlinkRange(editor, cardlink);
+    if (!range) return;
+
+    // Select only the fenced lines themselves — unlike delete/refetch, a plain link needs
+    // none of the blank-line padding a card wants, so leave what follows untouched. The
+    // selection also becomes convertUrlToMarkdownLink's restore-on-failure fallback text,
+    // so a failed or offline fetch leaves the original card block exactly as it was.
+    const lines = editor.getValue().split(/\r?\n/);
+    const fenceLine = lines[range.blockEnd] ?? "";
+    editor.setSelection(range.startPos, { line: range.blockEnd, ch: fenceLine.length });
+
+    const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
+    await codeBlockGenerator.convertUrlToMarkdownLink(range.url);
   }
 
   private deleteCardlink(
@@ -310,21 +501,32 @@ export default class ObsidianAutoCardLink extends Plugin {
     editor.setCursor({ line: range.blockEnd + 1, ch: 0 });
   }
 
-  private async enhanceSelectedURL(editor: Editor): Promise<void> {
+  private async convertMarkdownLinkToCard(
+    editor: Editor,
+    link: { url: string; startPos: { line: number; ch: number; }; endPos: { line: number; ch: number; }; }
+  ): Promise<void> {
+    editor.setSelection(link.startPos, link.endPos);
+    const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
+    await codeBlockGenerator.convertUrlToCodeBlock(link.url);
+  }
+
+  private async enhanceSelectedURL(editor: Editor, as: PasteShape = "card"): Promise<void> {
     const selectedText = (EditorExtensions.getSelectedText(editor) || "").trim();
     const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
+    const convert = (url: string) => as === "markdown-link"
+      ? codeBlockGenerator.convertUrlToMarkdownLink(url)
+      : codeBlockGenerator.convertUrlToCodeBlock(url);
 
     for (const line of selectedText.split(/[\n ]/)) {
       if (CheckIf.isUrl(line)) {
-        await codeBlockGenerator.convertUrlToCodeBlock(line);
+        await convert(line);
       } else if (CheckIf.isLinkedUrl(line)) {
-        const url = this.getUrlFromLink(line);
-        await codeBlockGenerator.convertUrlToCodeBlock(url);
+        await convert(this.getUrlFromLink(line));
       }
     }
   }
 
-  private async manualPasteAndEnhanceURL(editor: Editor): Promise<void> {
+  private async manualPasteAndEnhanceURL(editor: Editor, as: PasteShape = "card"): Promise<void> {
     const clipboardText = await navigator.clipboard.readText();
     if (clipboardText == null || clipboardText == "") return;
 
@@ -338,8 +540,29 @@ export default class ObsidianAutoCardLink extends Plugin {
       return;
     }
 
+    await this.insertEnhancedUrl(editor, clipboardText, as);
+  }
+
+  /**
+   * Writes the pasted URL in the requested shape. For a markdown link over a
+   * selection there is nothing to fetch: the selected text becomes the link text,
+   * which is Auto Link Title's behaviour and avoids a pointless request.
+   */
+  private async insertEnhancedUrl(editor: Editor, url: string, as: PasteShape): Promise<void> {
+    if (as === "markdown-link" && editor.somethingSelected()) {
+      const selection = editor.getSelection().trim();
+      if (selection) {
+        editor.replaceSelection(CodeBlockGenerator.buildMarkdownLink(selection, url));
+        return;
+      }
+    }
+
     const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
-    await codeBlockGenerator.convertUrlToCodeBlock(clipboardText);
+    if (as === "markdown-link") {
+      await codeBlockGenerator.convertUrlToMarkdownLink(url);
+    } else {
+      await codeBlockGenerator.convertUrlToCodeBlock(url);
+    }
   }
 
   private updateClipboardCache = async () => {
@@ -353,6 +576,10 @@ export default class ObsidianAutoCardLink extends Plugin {
   private onPaste = async (evt: ClipboardEvent, editor: Editor): Promise<void> => {
     if (!this.settings?.enhanceDefaultPaste) return;
     if (!navigator.onLine) return;
+    // Another plugin already claimed this paste (Auto Link Title and friends check the
+    // same flag): without this both act on it, and which one wins is down to the order
+    // the plugins happened to register in.
+    if (evt.defaultPrevented) return;
     if (evt.clipboardData == null) return;
     if (evt.clipboardData.files.length > 0) return;
 
@@ -366,27 +593,39 @@ export default class ObsidianAutoCardLink extends Plugin {
     evt.stopPropagation();
     evt.preventDefault();
 
-    const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
-    await codeBlockGenerator.convertUrlToCodeBlock(clipboardText);
+    await this.insertEnhancedUrl(editor, clipboardText, this.settings.pasteAs ?? "card");
+  };
+
+  private onDrop = async (evt: DragEvent, editor: Editor): Promise<void> => {
+    if (!this.settings?.enhanceDefaultDrop) return;
+    if (!navigator.onLine) return;
+    // Another handler already claimed this drop — don't fight it for the same content
+    if (evt.defaultPrevented) return;
+    if (evt.dataTransfer == null) return;
+    if (evt.dataTransfer.files.length > 0) return;
+
+    const dropText = evt.dataTransfer.getData("text/plain");
+    if (dropText == null || dropText == "") return;
+
+    if (!CheckIf.isUrl(dropText) || CheckIf.isImage(dropText)) return;
+
+    evt.stopPropagation();
+    evt.preventDefault();
+
+    // Obsidian has already moved the cursor to the drop point by the time this fires,
+    // so the usual insert path puts the card where the URL was dropped.
+    await this.insertEnhancedUrl(editor, dropText, this.settings.dropAs ?? "card");
   };
 
   private onEditorMenu = (menu: Menu, editor: Editor) => {
     const cardlinkAtMouse = this.getCardlinkAtMouse();
 
-    // When right-clicking a rendered cardlink, Obsidian moves the cursor and scrolls
-    // to it (often back to line 1). Restore the scroll position saved on contextmenu.
-    if (cardlinkAtMouse) {
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      const scroller = view?.containerEl.querySelector(".cm-scroller");
-      if (scroller) {
-        const top = this.savedScrollTop;
-        window.requestAnimationFrame(() => {
-          (scroller as HTMLElement).scrollTop = top;
-        });
-      }
-    }
+    // Right-clicking a rendered cardlink moves the cursor into its block, which shifts
+    // the layout underneath the pointer. Pin the card where it was.
+    if (cardlinkAtMouse) this.stabilizeScroll();
 
     const cardlinkAtCursor = cardlinkAtMouse ?? this.getCardlinkUrlAtCursor(editor);
+    const markdownLinkAtCursor = cardlinkAtCursor ? undefined : this.getMarkdownLinkAtCursor(editor);
 
     const selectedText = (EditorExtensions.getSelectedText(editor) || "").trim();
     const hasSelectedUrl = selectedText.split(/[\n ]/).some(
@@ -394,10 +633,14 @@ export default class ObsidianAutoCardLink extends Plugin {
     );
 
     const online = navigator.onLine && !!this.settings?.showInMenuItem;
-    const canPaste = online && (this.cachedClipboard === "" || (CheckIf.isUrl(this.cachedClipboard) && !CheckIf.isImage(this.cachedClipboard)));
+    // Requires a definitely-URL clipboard rather than defaulting to "show it" when the
+    // cache is still empty (permission not yet granted, or no focus/right-click event has
+    // populated it yet) — an unrelated copy or an image clipboard now hides the item.
+    const canPaste = online && CheckIf.isUrl(this.cachedClipboard) && !CheckIf.isImage(this.cachedClipboard);
     const canEnhance = online && hasSelectedUrl;
+    const canConvertLink = online && !!markdownLinkAtCursor;
 
-    if (!cardlinkAtCursor && !canPaste && !canEnhance) return;
+    if (!cardlinkAtCursor && !canPaste && !canEnhance && !canConvertLink) return;
 
     menu.addSeparator();
 
@@ -407,7 +650,7 @@ export default class ObsidianAutoCardLink extends Plugin {
           .setTitle("Refresh card link")
           .setIcon("refresh-cw")
           .onClick(() => {
-            this.refetchCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
+            void this.withPreservedScroll(() => this.refetchCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor));
           });
       });
       menu.addItem((item: MenuItem) => {
@@ -415,7 +658,7 @@ export default class ObsidianAutoCardLink extends Plugin {
           .setTitle("Delete card link")
           .setIcon("trash")
           .onClick(() => {
-            this.deleteCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
+            void this.withPreservedScroll(() => { this.deleteCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor); });
           });
       });
       menu.addItem((item: MenuItem) => {
@@ -423,7 +666,15 @@ export default class ObsidianAutoCardLink extends Plugin {
           .setTitle("Add line after card link")
           .setIcon("arrow-down")
           .onClick(() => {
-            this.addLineAfterCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor);
+            void this.withPreservedScroll(() => { this.addLineAfterCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor); });
+          });
+      });
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Convert card to normal link")
+          .setIcon("unlink")
+          .onClick(() => {
+            void this.withPreservedScroll(() => this.convertCardlinkToMarkdownLink(editor, cardlinkAtMouse ?? cardlinkAtCursor));
           });
       });
     }
@@ -433,7 +684,7 @@ export default class ObsidianAutoCardLink extends Plugin {
         item
           .setTitle("Paste URL to a card link")
           .setIcon("paste")
-          .onClick(async () => { await this.manualPasteAndEnhanceURL(editor); });
+          .onClick(() => { void this.withPreservedScroll(() => this.manualPasteAndEnhanceURL(editor)); });
       });
     }
 
@@ -442,7 +693,16 @@ export default class ObsidianAutoCardLink extends Plugin {
         item
           .setTitle("Convert selected URL to card link")
           .setIcon("link")
-          .onClick(() => { void this.enhanceSelectedURL(editor); });
+          .onClick(() => { void this.withPreservedScroll(() => this.enhanceSelectedURL(editor)); });
+      });
+    }
+
+    if (canConvertLink && markdownLinkAtCursor) {
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Convert URL to card link")
+          .setIcon("link")
+          .onClick(() => { void this.withPreservedScroll(() => this.convertMarkdownLinkToCard(editor, markdownLinkAtCursor)); });
       });
     }
   };

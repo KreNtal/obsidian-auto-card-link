@@ -11,15 +11,17 @@
 
 ## Features
 
-- Paste a copied URL and enhance it into a card.
+- Paste or drop a URL and enhance it into a card.
 - Enhance a selected URL into a card.
-- Right-click a card to refresh, delete, or add a line after it.
+- Right-click a card to refresh, delete, add a line after it, or turn it back into a plain link.
+- Right-click an existing `[title](url)` link to turn it into a card.
 - Hotkey support for pasting or enhancing a URL into a card.
+- Paste a URL as an inline Markdown link (`[title - Site](url)`) with the title fetched from the page, as an alternative to a card. Cards and Markdown links have separate commands, so you can bind each to its own hotkey and use both.
 - Support for local images through internal links (`image: "[[image.png]]"`).
 
 ## Settings
 
-- Enhance the default paste action.
+- Enhance the default paste and drop actions, each with its own output shape: a card link or a Markdown link.
 - Add the commands to the right-click menu.
 - Save images and favicons locally (with configurable folders).
 - Choose the card style.
