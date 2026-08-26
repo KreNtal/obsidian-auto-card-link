@@ -1,7 +1,7 @@
 {
 	"id": "auto-card-link-enhanced",
 	"name": "Auto Card Link Enhanced",
-	"version": "1.5.0",
+	"version": "1.5.1",
 	"minAppVersion": "1.4.10",
 	"description": "Automatically fetches metadata from a url and makes it as a card-styled link.",
 	"author": "KreNtal",
