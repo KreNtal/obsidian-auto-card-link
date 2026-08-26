@@ -12,6 +12,7 @@ export default tseslint.config(
 				// document/window, so they also work in popout windows.
 				activeDocument: "readonly",
 				activeWindow: "readonly",
+				createFragment: "readonly",
 			},
 			parserOptions: {
 				projectService: {

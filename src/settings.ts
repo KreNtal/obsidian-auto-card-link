@@ -141,7 +141,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     options: Array<[string, string]>,
     outro?: string
   ): DocumentFragment {
-    const desc = activeDocument.createDocumentFragment();
+    const desc = createFragment();
     desc.appendText(intro);
 
     const list = desc.createEl("ul", { cls: "auto-card-link-option-list" });
@@ -182,7 +182,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
   /** A setting name prefixed with a warning icon. */
   private warningLabel(text: string): DocumentFragment {
-    const label = activeDocument.createDocumentFragment();
+    const label = createFragment();
     setIcon(label.createSpan({ cls: "auto-card-link-warning-icon" }), "alert-triangle");
     label.appendText(text);
     return label;
@@ -289,9 +289,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Save images locally")
-      // "URLs" is the correct plural of the acronym; the rule only knows the singular.
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      .setDesc("Download and save card thumbnail images to your vault instead of linking to remote URLs.")
+      .setDesc("Download and save card thumbnail images to your vault instead of linking to them remotely.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
         return val
@@ -309,9 +307,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
       .addSearch((search) => {
         if (!this.plugin.settings) return;
         search
-          // A folder path, not a sentence — its capitals are part of the default value.
-          // eslint-disable-next-line obsidianmd/ui/sentence-case
-          .setPlaceholder("AutoCardLink/images")
+          .setPlaceholder("Leave empty for the default folder")
           .setValue(this.plugin.settings.imageFolder)
           .onChange(async (value) => {
             if (!this.plugin.settings) return;
@@ -323,9 +319,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Save favicons locally")
-      // "URLs" is the correct plural of the acronym; the rule only knows the singular.
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      .setDesc("Download and save card favicons to your vault instead of linking to remote URLs.")
+      .setDesc("Download and save card favicons to your vault instead of linking to them remotely.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
         return val
@@ -343,9 +337,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
       .addSearch((search) => {
         if (!this.plugin.settings) return;
         search
-          // A folder path, not a sentence — its capitals are part of the default value.
-          // eslint-disable-next-line obsidianmd/ui/sentence-case
-          .setPlaceholder("AutoCardLink/favicons")
+          .setPlaceholder("Leave empty for the default folder")
           .setValue(this.plugin.settings.faviconFolder)
           .onChange(async (value) => {
             if (!this.plugin.settings) return;
