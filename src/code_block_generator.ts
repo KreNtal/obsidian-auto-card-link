@@ -28,9 +28,9 @@ export class CodeBlockGenerator {
   async convertUrlToCodeBlock(
     url: string,
     fallbackText?: string,
-    options?: { trailingNewline?: boolean; }
+    options?: { trailingNewline?: boolean; refresh?: boolean; }
   ): Promise<boolean> {
-    const located = await this.fetchThroughPlaceholder(url, fallbackText);
+    const located = await this.fetchThroughPlaceholder(url, fallbackText, { refresh: options?.refresh });
     if (!located) return false;
 
     const { metadata, text, startPos, endPos } = located;
@@ -45,8 +45,12 @@ export class CodeBlockGenerator {
    * retry / restore dance with convertUrlToCodeBlock, but stays inline: no prefix,
    * no blank line, no code fence.
    */
-  async convertUrlToMarkdownLink(url: string, fallbackText?: string): Promise<boolean> {
-    const located = await this.fetchThroughPlaceholder(url, fallbackText, { titleOnly: true });
+  async convertUrlToMarkdownLink(
+    url: string,
+    fallbackText?: string,
+    options?: { refresh?: boolean; }
+  ): Promise<boolean> {
+    const located = await this.fetchThroughPlaceholder(url, fallbackText, { titleOnly: true, refresh: options?.refresh });
     if (!located) return false;
 
     const { metadata, startPos, endPos } = located;
@@ -67,7 +71,7 @@ export class CodeBlockGenerator {
   private async fetchThroughPlaceholder(
     url: string,
     fallbackText?: string,
-    options?: { titleOnly?: boolean; }
+    options?: { titleOnly?: boolean; refresh?: boolean; }
   ): Promise<{ metadata: LinkMetadata; text: string; startPos: { line: number; ch: number; }; endPos: { line: number; ch: number; }; } | undefined> {
     const selectedText = fallbackText ?? this.editor.getSelection();
     const pasteId = this.createBlockHash();
@@ -260,9 +264,9 @@ export class CodeBlockGenerator {
 
   private async fetchLinkMetadata(
     url: string,
-    options?: { titleOnly?: boolean; }
+    options?: { titleOnly?: boolean; refresh?: boolean; }
   ): Promise<LinkMetadata | undefined> {
-    const metadata = await this.fetcher.fetch(url);
+    const metadata = await this.fetcher.fetch(url, { refresh: options?.refresh });
     // A markdown link only shows the title, so skip downloading images/favicons.
     if (!metadata || options?.titleOnly || !this.app || !this.settings) return metadata;
 

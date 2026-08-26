@@ -457,6 +457,19 @@ export default class ObsidianAutoCardLink extends Plugin {
     return this.refreshQueue;
   }
 
+  /**
+   * True when a refresh would be refused, having said so. Checked before the note is touched
+   * at all: the fetch chain does not fail in this case, it succeeds with a card rebuilt from
+   * the URL alone, which would quietly replace a fuller one with less.
+   */
+  private reportRefreshDelay(url: string): boolean {
+    const seconds = LinkMetadataFetcher.redditFeedDelay(url);
+    if (seconds <= 0) return false;
+
+    new Notice(`Reddit allows one request a minute.\nTry again in ${seconds}s.`);
+    return true;
+  }
+
   private async doRefetchCardlink(
     editor: Editor,
     cardlink: string | { url: string; lineStart: number; lineEnd: number; }
@@ -464,6 +477,8 @@ export default class ObsidianAutoCardLink extends Plugin {
     const range = this.resolveCardlinkRange(editor, cardlink);
     if (!range) return;
     const { url, startPos, endPos } = range;
+
+    if (this.reportRefreshDelay(url)) return;
 
     // Save the original block so we can restore it exactly if the fetch fails
     const originalBlock = editor.getRange(startPos, endPos);
@@ -473,7 +488,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     editor.setSelection(startPos, { line: startPos.line, ch: url.length });
 
     const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
-    await codeBlockGenerator.convertUrlToCodeBlock(url, originalBlock);
+    await codeBlockGenerator.convertUrlToCodeBlock(url, originalBlock, { refresh: true });
   }
 
   /**
@@ -579,12 +594,13 @@ export default class ObsidianAutoCardLink extends Plugin {
   private async refreshMarkdownLink(editor: Editor, range: EditorRange): Promise<void> {
     const url = EditorExtensions.extractUrls(editor.getRange(range.from, range.to))[0]?.url;
     if (!url) return;
+    if (this.reportRefreshDelay(url)) return;
 
     // The selection doubles as the restore-on-failure text, so a failed fetch puts the
     // original link back untouched.
     editor.setSelection(range.from, range.to);
     const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
-    await codeBlockGenerator.convertUrlToMarkdownLink(url);
+    await codeBlockGenerator.convertUrlToMarkdownLink(url, undefined, { refresh: true });
   }
 
   private async enhanceSelectedURL(editor: Editor, as: PasteShape = "card"): Promise<void> {

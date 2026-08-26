@@ -10,26 +10,36 @@ import { ObsidianAutoCardLinkSettings } from "./settings";
 export class LinkMetadataFetcher {
    private settings?: ObsidianAutoCardLinkSettings;
 
+   /**
+    * Reddit's feed is the one endpoint here with a budget tight enough to feel: one request
+    * per clock minute, per IP. Both are static so they outlive the short-lived instance made
+    * for each conversion, and hold for the session only - nothing is written to disk.
+    */
+   private static readonly redditFeedCache = new Map<string, LinkMetadata>();
+   private static redditFeedBlockedUntil = 0;
+   private static readonly REDDIT_POST_URL = /reddit\.com\/r\/\w+\/comments\//i;
+   private static readonly REDDIT_SUBREDDIT_URL = /reddit\.com\/r\/\w+/i;
+
    constructor(settings?: ObsidianAutoCardLinkSettings) {
       this.settings = settings;
    }
 
-   async fetch(url: string): Promise<LinkMetadata | undefined> {
+   async fetch(url: string, options?: { refresh?: boolean; }): Promise<LinkMetadata | undefined> {
       url = url.trim().replace(/^["']|["']$/g, "");
       if (url.startsWith("http://")) url = "https://" + url.slice(7);
       url = this.stripCloudflareChallenge(url);
 
-      const metadata = await this.fetchForUrl(url);
+      const metadata = await this.fetchForUrl(url, options?.refresh ?? false);
       return metadata ? this.withSiteName(metadata, url) : metadata;
    }
 
-   private async fetchForUrl(url: string): Promise<LinkMetadata | undefined> {
+   private async fetchForUrl(url: string, refresh: boolean): Promise<LinkMetadata | undefined> {
       if (CheckIf.isYouTubeUrl(url)) return this.fetchYouTube(url);
       if (CheckIf.isVimeoUrl(url)) return this.fetchVimeo(url);
       if (CheckIf.isDailymotionUrl(url)) return this.fetchDailymotion(url);
       if (CheckIf.isTwitchUrl(url)) return this.fetchTwitch(url);
       if (CheckIf.isTedUrl(url)) return this.fetchTed(url);
-      if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url);
+      if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url, refresh);
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
       if (CheckIf.isPrintablesUrl(url)) return this.fetchPrintables(url);
       if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url);
@@ -624,16 +634,25 @@ export class LinkMetadataFetcher {
    //   - embed.reddit.com/<path> → the widget's server-rendered page, scraped for the post's
    //                              image and body text (no contract; markup may change)
    // If the scrape half breaks, the card still has a title and subreddit from oEmbed.
-   private async fetchReddit(url: string): Promise<LinkMetadata | undefined> {
+   private async fetchReddit(url: string, refresh = false): Promise<LinkMetadata | undefined> {
+      const isPost = LinkMetadataFetcher.REDDIT_POST_URL.test(url);
+
       // Both endpoints only handle individual posts — oEmbed answers 400 for a subreddit or
       // profile URL — so don't spend a request finding that out.
-      if (/reddit\.com\/r\/\w+\/comments\//i.test(url)) {
+      if (isPost) {
          const oembed = await this.fetchRedditOembed(url);
          if (oembed) return oembed;
       }
 
-      // No embed data (not a post, or Reddit served its login-wall shell). Fall back to the
-      // generic scrape, which handles the external-service fallback itself.
+      // The Atom feed is the one public surface the lockdown left untouched, and it is meant
+      // to be read by programs rather than merely tolerating it. For a subreddit it carries
+      // the title and description the card used to show; for a post it is a last resort that
+      // at least recovers the real title when the embed endpoints give nothing.
+      const feed = await this.fetchRedditFeed(url, isPost, refresh);
+      if (feed) return feed;
+
+      // Nothing left to try. Fall back to the generic scrape, which handles the
+      // external-service fallback itself.
       const metadata = await this.fetchGeneric(url, m => this.isGenericRedditPage(m.title, m.description));
 
       // That chain ends in fetchTitleOnly, which reads the page <title> without any such
@@ -645,6 +664,111 @@ export class LinkMetadataFetcher {
       }
 
       return metadata;
+   }
+
+   /**
+    * Reads a subreddit's or post's Atom feed, the only endpoint Reddit still answers for a
+    * page it otherwise hides behind a login wall.
+    *
+    * The feed's own <title> and <subtitle> sit before the first <entry>, so the text is cut
+    * there rather than parsed as XML: an entry carries its own <title>, and picking the
+    * wrong one would label a subreddit with whatever was posted to it most recently.
+    */
+   private async fetchRedditFeed(url: string, isPost: boolean, refresh: boolean): Promise<LinkMetadata | undefined> {
+      const name = this.redditNameFromUrl(url);
+      // A profile's feed answers fine, it just carries nothing worth a request: no subtitle,
+      // an icon that is Reddit's own logo rather than the avatar, and a title reading
+      // "overview for someone" - poorer than the u/name the URL already gives for free.
+      if (!name?.startsWith("r/")) return undefined;
+
+      const cached = LinkMetadataFetcher.redditFeedCache.get(url);
+      if (cached && !refresh) return cached;
+
+      // Reddit allows one feed request per clock minute per IP, and says how long is left.
+      // Spending the wait to collect a 429 helps nobody, so skip once the minute is used up.
+      if (LinkMetadataFetcher.redditFeedDelay(url) > 0) return undefined;
+
+      const feedUrl = `${url.replace(/[?#].*$|\/+$/, "")}/.rss`;
+      const res = await this.request(feedUrl, { "Accept": "application/atom+xml, application/xml" });
+      this.rememberRedditFeedBudget(res?.headers);
+
+      // 429 included: being throttled is not worth a notice, the chain below still has a name
+      if (!res || res.status !== 200 || !res.text) return undefined;
+
+      const head = res.text.split("<entry")[0] ?? "";
+      const title = this.decodeXmlText(head.match(/<title[^>]*>([^<]+)<\/title>/)?.[1]);
+      const subtitle = this.decodeXmlText(head.match(/<subtitle[^>]*>([^<]+)<\/subtitle>/)?.[1]);
+      if (!title) return undefined;
+
+      // Reddit suffixes both with the subreddit, in its own two formats
+      const cleanTitle = isPost
+        ? title.replace(new RegExp(`\\s*:\\s*${name.slice(2)}$`, "i"), "").trim()
+        : `${title} • ${name}`;
+
+      const metadata: LinkMetadata = {
+         url,
+         title: LinkMetadataParser.sanitizeText(cleanTitle, 300) ?? cleanTitle,
+         // A post's feed carries the subreddit's description, not the post's, which would
+         // describe the wrong thing entirely
+         description: isPost ? undefined : LinkMetadataParser.sanitizeText(subtitle),
+         host: "www.reddit.com",
+         favicon: "https://www.reddit.com/favicon.ico",
+         indent: 0,
+      };
+
+      // Only successes are cached: remembering a throttled attempt would keep a link
+      // degraded for the rest of the session over a limit that clears within the minute.
+      LinkMetadataFetcher.redditFeedCache.set(url, metadata);
+      return metadata;
+   }
+
+   /**
+    * Seconds until this URL's metadata can be fetched again, or 0 when it can be now.
+    *
+    * Subreddits only: a post reads from oEmbed and the embed page, whose budgets (unlimited
+    * and 200 per three minutes) are nowhere near tight enough to matter.
+    *
+    * A refresh consults this before touching the note. Left to run, the chain would reach
+    * fetchTitleOnly and come back with a perfectly valid card holding nothing but the name
+    * from the URL - a success as far as the caller can tell, which would overwrite a fuller
+    * card with less. Nothing is lost by waiting instead, since the limit clears within the
+    * minute.
+    */
+   static redditFeedDelay(url: string): number {
+      // A subreddit page and nothing else. A post reads from oEmbed and the embed page first,
+      // whose budgets are far looser, and a profile never reaches the feed at all - reporting
+      // either as throttled would refuse a refresh over a limit it does not answer to.
+      const servedByFeed = LinkMetadataFetcher.REDDIT_SUBREDDIT_URL.test(url)
+         && !LinkMetadataFetcher.REDDIT_POST_URL.test(url);
+      if (!servedByFeed) return 0;
+
+      return Math.max(0, Math.ceil((LinkMetadataFetcher.redditFeedBlockedUntil - Date.now()) / 1000));
+   }
+
+   /**
+    * Reddit reports its feed budget on every response: `x-ratelimit-remaining` hits 0 after a
+    * single request, and `x-ratelimit-reset` counts the seconds to the next clock minute.
+    * Recording it lets the next call skip a request it already knows will be refused.
+    */
+   private rememberRedditFeedBudget(headers: Record<string, string> | undefined): void {
+      if (!headers) return;
+
+      const remaining = Number(headers["x-ratelimit-remaining"]);
+      const reset = Number(headers["x-ratelimit-reset"]);
+      if (!Number.isFinite(remaining) || remaining > 0) return;
+      if (!Number.isFinite(reset) || reset <= 0) return;
+
+      LinkMetadataFetcher.redditFeedBlockedUntil = Date.now() + reset * 1000;
+   }
+
+   private decodeXmlText(value: string | undefined): string | undefined {
+      return value
+        ?.replace(/&lt;/g, "<")
+        ?.replace(/&gt;/g, ">")
+        ?.replace(/&quot;/g, '"')
+        ?.replace(/&#39;|&apos;/g, "'")
+        ?.replace(/&amp;/g, "&")
+        ?.trim();
    }
 
    private redditNameFromUrl(url: string): string | undefined {
