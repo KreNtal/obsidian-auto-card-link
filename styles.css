@@ -471,6 +471,16 @@ body.theme-light.auto-card-link-style-glass .auto-card-link-card:hover {
     font-weight: 500;
 }
 
+/* Settings tab: option list inside a setting description */
+.auto-card-link-option-list {
+    margin: 0.4em 0;
+    padding-left: 1.4em;
+}
+
+.auto-card-link-option-list li {
+    margin: 0.1em 0;
+}
+
 /* Settings tab: separates the paste/drop group from the options below it */
 .auto-card-link-settings-divider {
     border: none;

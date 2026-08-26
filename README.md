@@ -11,17 +11,16 @@
 
 ## Features
 
-- Paste or drop a URL and enhance it into a card.
-- Enhance a selected URL into a card.
-- Right-click a card to refresh, delete, add a line after it, or turn it back into a plain link.
-- Right-click an existing `[title](url)` link to turn it into a card.
-- Hotkey support for pasting or enhancing a URL into a card.
-- Paste a URL as an inline Markdown link (`[title - Site](url)`) with the title fetched from the page, as an alternative to a card. Cards and Markdown links have separate commands, so you can bind each to its own hotkey and use both.
+- Paste or drop a URL and turn it into a card, or into an inline Markdown link (`[title - Site](url)`) carrying the title fetched from the page.
+- Convert URLs already written in a note, one or several at once, from the right-click menu or a hotkey.
+- Right-click a card to refresh, delete, add a line after it, or turn it back into a Markdown link.
+- Right-click a Markdown link to refresh its title or turn it into a card.
+- Cards and Markdown links have separate commands, so each can have its own hotkey and both can be used side by side.
 - Support for local images through internal links (`image: "[[image.png]]"`).
 
 ## Settings
 
-- Enhance the default paste and drop actions, each with its own output shape: a card link or a Markdown link.
+- Choose what pasting or dropping a URL produces, independently for each: a plain URL, a Markdown link, or a card link.
 - Add the commands to the right-click menu.
 - Save images and favicons locally (with configurable folders).
 - Choose the card style.

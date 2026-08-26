@@ -2,6 +2,15 @@ import { Editor, EditorPosition } from "obsidian";
 
 import { linkLineRegex, lineRegex } from "./regex";
 
+/** A URL found in a block of text, with the span it occupies. */
+export interface UrlMatch {
+  /** Offset of the span within the searched text */
+  index: number;
+  /** Length of the span: the whole `[text](url)` for a link, the URL itself when bare */
+  length: number;
+  url: string;
+}
+
 interface WordBoundaries {
   start: { line: number; ch: number };
   end: { line: number; ch: number };
@@ -14,6 +23,35 @@ export class EditorExtensions {
       editor.setSelection(wordBoundaries.start, wordBoundaries.end);
     }
     return editor.getSelection();
+  }
+
+  /**
+   * Every URL in a block of text, in document order: the target of each `[text](url)`
+   * link, plus the bare URLs outside them.
+   *
+   * Splitting the text on whitespace instead (what this used to do) tore apart any link
+   * whose text contained a space - which is most of them, and all of the ones this plugin
+   * generates - so those were silently skipped.
+   */
+  public static extractUrls(text: string, options?: { bareOnly?: boolean; }): UrlMatch[] {
+    const found: UrlMatch[] = [];
+    const linkRanges: Array<[number, number]> = [];
+
+    for (const match of text.matchAll(linkLineRegex)) {
+      const index = match.index ?? 0;
+      linkRanges.push([index, index + match[0].length]);
+      // The whole `[text](url)` is the span to replace, not just its target
+      if (match[2] && !options?.bareOnly) found.push({ index, length: match[0].length, url: match[2] });
+    }
+
+    for (const match of text.matchAll(lineRegex)) {
+      const index = match.index ?? 0;
+      // Skip the URL sitting inside a markdown link's parentheses: it is the same link
+      const insideLink = linkRanges.some(([from, to]) => index >= from && index < to);
+      if (!insideLink) found.push({ index, length: match[0].length, url: match[0] });
+    }
+
+    return found.sort((a, b) => a.index - b.index);
   }
 
   private static isCursorWithinBoundaries(

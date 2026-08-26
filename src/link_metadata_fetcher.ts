@@ -9,17 +9,9 @@ import { ObsidianAutoCardLinkSettings } from "./settings";
 
 export class LinkMetadataFetcher {
    private settings?: ObsidianAutoCardLinkSettings;
-   // Lets a caller opt out of the external service even when the user enabled it.
-   // Used by the markdown-link path, which only needs a title and must never spend
-   // one of microlink.io's ~25 daily requests on it.
-   private allowExternalFallback: boolean;
 
-   constructor(
-      settings?: ObsidianAutoCardLinkSettings,
-      options?: { allowExternalFallback?: boolean; }
-   ) {
+   constructor(settings?: ObsidianAutoCardLinkSettings) {
       this.settings = settings;
-      this.allowExternalFallback = options?.allowExternalFallback ?? true;
    }
 
    async fetch(url: string): Promise<LinkMetadata | undefined> {
@@ -66,6 +58,22 @@ export class LinkMetadataFetcher {
       "github.com": "GitHub",
       "spotify.com": "Spotify",
    };
+
+   /**
+    * Whether fetching would yield a better inline label than a card's own stored fields.
+    *
+    * True only for the handlers that set `linkTitle`: a Twitch card holds the stream title
+    * while its link wants the channel name, and Spotify writes its own localized phrasing.
+    * Neither is persisted in the block, so those two are the only cards worth re-fetching
+    * when turning one back into a link - everywhere else the stored title and host rebuild
+    * the very same string, instantly and for free.
+    *
+    * Keep this in step with the handlers below: another one starting to set `linkTitle`
+    * without being listed here would quietly lose that label on conversion.
+    */
+   static buildsRicherInlineLabel(url: string): boolean {
+      return CheckIf.isTwitchUrl(url) || CheckIf.isSpotifyUrl(url);
+   }
 
    /**
     * Pure lookup, no request involved — safe to reuse anywhere a card's stored `host`
@@ -179,7 +187,7 @@ export class LinkMetadataFetcher {
       // posts it faces the same login wall we do while the embed path above already covers
       // them. Spending one of its ~25 daily requests here only takes quota from sites where
       // it can actually help.
-      if (this.allowExternalFallback && this.settings?.useExternalFallback && !CheckIf.isRedditUrl(url)) {
+      if (this.settings?.useExternalFallback && !CheckIf.isRedditUrl(url)) {
          const result = await this.fetchViaMicrolink(url);
          // Microlink can hit the same anti-bot placeholder shell we do — its headless
          // browser isn't a guaranteed bypass — so the result needs the same sanity check

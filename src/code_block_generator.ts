@@ -12,7 +12,6 @@ export class CodeBlockGenerator {
   private app?: App;
   private settings?: ObsidianAutoCardLinkSettings;
   private fetcher: LinkMetadataFetcher;
-  private titleOnlyFetcherInstance?: LinkMetadataFetcher;
 
   /** What we put between title and site name, whatever separator the site itself uses. */
   private static readonly SEPARATOR = "-";
@@ -26,22 +25,18 @@ export class CodeBlockGenerator {
     this.fetcher = new LinkMetadataFetcher(settings);
   }
 
-  /**
-   * A fetcher that never reaches microlink.io: its free tier is ~25 requests a day,
-   * and a title-only markdown link doesn't justify spending one.
-   */
-  private titleOnlyFetcher(): LinkMetadataFetcher {
-    this.titleOnlyFetcherInstance ??= new LinkMetadataFetcher(this.settings, { allowExternalFallback: false });
-    return this.titleOnlyFetcherInstance;
-  }
-
-  async convertUrlToCodeBlock(url: string, fallbackText?: string): Promise<boolean> {
+  async convertUrlToCodeBlock(
+    url: string,
+    fallbackText?: string,
+    options?: { trailingNewline?: boolean; }
+  ): Promise<boolean> {
     const located = await this.fetchThroughPlaceholder(url, fallbackText);
     if (!located) return false;
 
     const { metadata, text, startPos, endPos } = located;
     const prefix = this.buildPrefix(text, startPos);
-    this.editor.replaceRange(prefix + this.genCodeBlock(metadata), startPos, endPos);
+    const block = this.genCodeBlock(metadata, options?.trailingNewline ?? true);
+    this.editor.replaceRange(prefix + block, startPos, endPos);
     return true;
   }
 
@@ -216,7 +211,12 @@ export class CodeBlockGenerator {
     return "";
   }
 
-  genCodeBlock(linkMetadata: LinkMetadata): string {
+  /**
+   * `trailingNewline` closes the block with a line break, leaving a blank line after it when
+   * the block replaced something that already ended a line. Converting several URLs in one
+   * go turns that off for all but the last, so the cards end up stacked rather than spaced.
+   */
+  genCodeBlock(linkMetadata: LinkMetadata, trailingNewline = true): string {
     const codeBlockTexts = ["```cardlink"];
 
     codeBlockTexts.push(`url: ${linkMetadata.url}`);
@@ -230,7 +230,7 @@ export class CodeBlockGenerator {
     if (linkMetadata.image) codeBlockTexts.push(`image: ${linkMetadata.image}`);
     if (linkMetadata.duration) codeBlockTexts.push(`duration: ${this.yamlQuote(linkMetadata.duration)}`);
 
-    codeBlockTexts.push("```\n");
+    codeBlockTexts.push(trailingNewline ? "```\n" : "```");
     return codeBlockTexts.join("\n");
   }
 
@@ -262,8 +262,7 @@ export class CodeBlockGenerator {
     url: string,
     options?: { titleOnly?: boolean; }
   ): Promise<LinkMetadata | undefined> {
-    const fetcher = options?.titleOnly ? this.titleOnlyFetcher() : this.fetcher;
-    const metadata = await fetcher.fetch(url);
+    const metadata = await this.fetcher.fetch(url);
     // A markdown link only shows the title, so skip downloading images/favicons.
     if (!metadata || options?.titleOnly || !this.app || !this.settings) return metadata;
 

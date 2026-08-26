@@ -29,6 +29,8 @@ export default tseslint.config(
 	globalIgnores([
 		"node_modules",
 		"dist",
+		// Compiled output (gitignored): linting it only produces parser errors
+		"build",
 		"esbuild.config.mjs",
 		"eslint.config.js",
 		"version-bump.mjs",

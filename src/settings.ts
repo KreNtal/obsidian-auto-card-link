@@ -31,11 +31,12 @@ class FolderSuggest extends AbstractInputSuggest<string> {
   }
 }
 
+/** "none" leaves the event alone; the label calls it "Plain URL". */
+export type OutputShape = "none" | "markdown-link" | "card";
+
 export interface ObsidianAutoCardLinkSettings {
-  enhanceDefaultPaste: boolean;
-  pasteAs: "card" | "markdown-link";
-  enhanceDefaultDrop: boolean;
-  dropAs: "card" | "markdown-link";
+  pasteAs: OutputShape;
+  dropAs: OutputShape;
   showInMenuItem: boolean;
   blankLineBeforeCard: boolean;
   thumbnailPosition: "left" | "right";
@@ -50,10 +51,8 @@ export interface ObsidianAutoCardLinkSettings {
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
-  enhanceDefaultPaste: false,
-  pasteAs: "card",
-  enhanceDefaultDrop: false,
-  dropAs: "card",
+  pasteAs: "none",
+  dropAs: "none",
   showInMenuItem: true,
   blankLineBeforeCard: false,
   thumbnailPosition: "left",
@@ -110,22 +109,50 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
   private addOutputShapeSetting(
     containerEl: HTMLElement,
     name: string,
-    desc: string,
-    current: "card" | "markdown-link",
-    assign: (value: "card" | "markdown-link") => void
+    desc: string | DocumentFragment,
+    current: OutputShape,
+    assign: (value: OutputShape) => void
   ): void {
     new Setting(containerEl)
       .setName(name)
       .setDesc(desc)
       .addDropdown((drop) => drop
-        .addOption("card", "Card link")
+        .addOption("none", "Plain URL")
         .addOption("markdown-link", "Markdown link")
+        .addOption("card", "Card link")
         .setValue(current)
         .onChange(async (value: string) => {
-          assign(value as "card" | "markdown-link");
+          assign(value as OutputShape);
           await this.plugin.saveSettings();
           this.display();
         }));
+  }
+
+  /**
+   * Description built as a fragment so each option can sit on its own bullet, mapping the
+   * dropdown's entries to what they insert.
+   *
+   * Note that the sentence-case rule only inspects string literals handed to setDesc, so
+   * the text below is not linted - keep it in sentence case by hand, with "Markdown"
+   * capitalised as the proper noun it is.
+   */
+  private optionListDesc(
+    intro: string,
+    options: Array<[string, string]>,
+    outro?: string
+  ): DocumentFragment {
+    const desc = activeDocument.createDocumentFragment();
+    desc.appendText(intro);
+
+    const list = desc.createEl("ul", { cls: "auto-card-link-option-list" });
+    for (const [label, effect] of options) {
+      const item = list.createEl("li");
+      item.createEl("strong", { text: label });
+      item.appendText(` — ${effect}`);
+    }
+
+    if (outro) desc.appendText(outro);
+    return desc;
   }
 
   /**
@@ -136,7 +163,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
    */
   private addCollisionWarning(containerEl: HTMLElement): void {
     const settings = this.plugin.settings;
-    if (!settings?.enhanceDefaultPaste && !settings?.enhanceDefaultDrop) return;
+    if (settings?.pasteAs === "none" && settings?.dropAs === "none") return;
 
     const names = this.enabledCompetingPluginNames();
     if (names.length === 0) return;
@@ -167,57 +194,29 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     this.addCollisionWarning(containerEl);
 
-    new Setting(containerEl)
-      .setName("Enhance default paste")
-      .setDesc("Fetch the link metadata when pasting a URL in the editor with the default paste command.")
-      .addToggle((val) => {
-        if (!this.plugin.settings) return;
-        return val
-          .setValue(this.plugin.settings.enhanceDefaultPaste)
-          .onChange(async (value) => {
-            if (!this.plugin.settings) return;
-            this.plugin.settings.enhanceDefaultPaste = value;
-            await this.plugin.saveSettings();
-            this.display();
-          });
-      });
+    this.addOutputShapeSetting(
+      containerEl,
+      "Paste as",
+      this.optionListDesc(
+        "What pasting a URL with the default paste command produces.",
+        [
+          ["Plain URL", "pasted unchanged, as Obsidian would"],
+          ["Markdown link", "an inline link with the fetched page title and the site name"],
+          ["Card link", "the full card block"],
+        ],
+        "The paste-and-enhance commands stay available whatever this is set to, so each option can also have its own hotkey."
+      ),
+      this.plugin.settings?.pasteAs ?? "none",
+      (value) => { if (this.plugin.settings) this.plugin.settings.pasteAs = value; }
+    );
 
-    // Shown only while the paste above is enhanced: on its own this option does nothing,
-    // and leaving it visible reads as a setting that has quietly stopped working.
-    if (this.plugin.settings?.enhanceDefaultPaste) {
-      this.addOutputShapeSetting(
-        containerEl,
-        "Paste as",
-        "What an enhanced paste inserts. Card link builds the full card block; Markdown link inserts an inline link labelled with the fetched page title and the site name. This only affects the default paste — the paste-and-enhance commands stay available for both shapes, so you can bind each to its own hotkey.",
-        this.plugin.settings.pasteAs,
-        (value) => { if (this.plugin.settings) this.plugin.settings.pasteAs = value; }
-      );
-    }
-
-    new Setting(containerEl)
-      .setName("Enhance default drop")
-      .setDesc("Fetch the link metadata when dropping a URL into the editor, for instance dragged from a browser's address bar.")
-      .addToggle((val) => {
-        if (!this.plugin.settings) return;
-        return val
-          .setValue(this.plugin.settings.enhanceDefaultDrop)
-          .onChange(async (value) => {
-            if (!this.plugin.settings) return;
-            this.plugin.settings.enhanceDefaultDrop = value;
-            await this.plugin.saveSettings();
-            this.display();
-          });
-      });
-
-    if (this.plugin.settings?.enhanceDefaultDrop) {
-      this.addOutputShapeSetting(
-        containerEl,
-        "Drop as",
-        "What an enhanced drop inserts. Kept separate from the paste option so a dropped URL can always become a card even when pasting produces a Markdown link.",
-        this.plugin.settings.dropAs,
-        (value) => { if (this.plugin.settings) this.plugin.settings.dropAs = value; }
-      );
-    }
+    this.addOutputShapeSetting(
+      containerEl,
+      "Drop as",
+      "What dropping a URL into the editor produces, for instance one dragged from a browser's address bar. Kept separate from the paste option, so a drop can still build a card while pasting stays plain.",
+      this.plugin.settings?.dropAs ?? "none",
+      (value) => { if (this.plugin.settings) this.plugin.settings.dropAs = value; }
+    );
 
     containerEl.createEl("hr", { cls: "auto-card-link-settings-divider" });
 
@@ -268,7 +267,13 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Thumbnail quality")
-      .setDesc("Best looking fetches a size matched to the card dimensions, sharper and faster to load. Max resolution always fetches the highest available resolution, but it takes up more disk space and can look pixelated.")
+      .setDesc(this.optionListDesc(
+        "Which size the card thumbnail is fetched at.",
+        [
+          ["Best looking", "matched to the card's dimensions: sharper, and faster to load"],
+          ["Max resolution", "always the highest available, which takes more disk space and can look pixelated on a small card"],
+        ]
+      ))
       .addDropdown((drop) => {
         if (!this.plugin.settings) return drop;
         return drop
@@ -284,6 +289,8 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Save images locally")
+      // "URLs" is the correct plural of the acronym; the rule only knows the singular.
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
       .setDesc("Download and save card thumbnail images to your vault instead of linking to remote URLs.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
@@ -302,6 +309,8 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
       .addSearch((search) => {
         if (!this.plugin.settings) return;
         search
+          // A folder path, not a sentence — its capitals are part of the default value.
+          // eslint-disable-next-line obsidianmd/ui/sentence-case
           .setPlaceholder("AutoCardLink/images")
           .setValue(this.plugin.settings.imageFolder)
           .onChange(async (value) => {
@@ -314,6 +323,8 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Save favicons locally")
+      // "URLs" is the correct plural of the acronym; the rule only knows the singular.
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
       .setDesc("Download and save card favicons to your vault instead of linking to remote URLs.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
@@ -332,6 +343,8 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
       .addSearch((search) => {
         if (!this.plugin.settings) return;
         search
+          // A folder path, not a sentence — its capitals are part of the default value.
+          // eslint-disable-next-line obsidianmd/ui/sentence-case
           .setPlaceholder("AutoCardLink/favicons")
           .setValue(this.plugin.settings.faviconFolder)
           .onChange(async (value) => {
