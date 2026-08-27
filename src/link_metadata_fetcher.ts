@@ -674,7 +674,9 @@ export class LinkMetadataFetcher {
     * there rather than parsed as XML: an entry carries its own <title>, and picking the
     * wrong one would label a subreddit with whatever was posted to it most recently.
     */
-   private async fetchRedditFeed(url: string, isPost: boolean, refresh: boolean): Promise<LinkMetadata | undefined> {
+   private async fetchRedditFeed(
+      url: string, isPost: boolean, refresh: boolean, notifyIfThrottled = false
+   ): Promise<LinkMetadata | undefined> {
       const name = this.redditNameFromUrl(url);
       // A profile's feed answers fine, it just carries nothing worth a request: no subtitle,
       // an icon that is Reddit's own logo rather than the avatar, and a title reading
@@ -684,9 +686,21 @@ export class LinkMetadataFetcher {
       const cached = LinkMetadataFetcher.redditFeedCache.get(url);
       if (cached && !refresh) return cached;
 
-      // Reddit allows one feed request per clock minute per IP, and says how long is left.
-      // Spending the wait to collect a 429 helps nobody, so skip once the minute is used up.
-      if (LinkMetadataFetcher.redditFeedDelay(url) > 0) return undefined;
+      // Reddit allows one feed request per clock minute per IP, shared across every call site
+      // (subreddit cards and this post supplement alike). Spending the wait to collect a 429
+      // helps nobody, so skip once the minute is used up — checked against the raw budget, not
+      // redditFeedDelay(url), which deliberately reports 0 for posts (see its own doc comment).
+      const wait = LinkMetadataFetcher.feedBudgetSecondsLeft();
+      if (wait > 0) {
+         // Only the post-description supplement asks for this: a subreddit card already warns
+         // before touching the note (reportRefreshDelay in main.ts), so noticing again here
+         // would double up. A post's card is complete without this field, so unlike that
+         // pre-check, this fires *after* the fact and never blocks anything.
+         if (notifyIfThrottled) {
+            new Notice(`Reddit allows one request a minute.\nTry again in ${wait}s to try to retrieve a description.`);
+         }
+         return undefined;
+      }
 
       const feedUrl = `${url.replace(/[?#].*$|\/+$/, "")}/.rss`;
       const res = await this.request(feedUrl, { "Accept": "application/atom+xml, application/xml" });
@@ -708,9 +722,10 @@ export class LinkMetadataFetcher {
       const metadata: LinkMetadata = {
          url,
          title: LinkMetadataParser.sanitizeText(cleanTitle, 300) ?? cleanTitle,
-         // A post's feed carries the subreddit's description, not the post's, which would
-         // describe the wrong thing entirely
-         description: isPost ? undefined : LinkMetadataParser.sanitizeText(subtitle),
+         // A post's <subtitle> is the subreddit's own description, not the post's - using it
+         // here would describe the wrong thing. The post's actual self-text instead sits
+         // inside its entry's <content>, extracted separately below.
+         description: isPost ? this.extractRedditFeedEntryBody(res.text) : LinkMetadataParser.sanitizeText(subtitle),
          host: "www.reddit.com",
          favicon: "https://www.reddit.com/favicon.ico",
          indent: 0,
@@ -735,13 +750,20 @@ export class LinkMetadataFetcher {
     * minute.
     */
    static redditFeedDelay(url: string): number {
-      // A subreddit page and nothing else. A post reads from oEmbed and the embed page first,
-      // whose budgets are far looser, and a profile never reaches the feed at all - reporting
-      // either as throttled would refuse a refresh over a limit it does not answer to.
+      // A subreddit page and nothing else. A post reads from oEmbed and the embed page first
+      // and only *optionally* tops up its description from the feed - refusing its refresh, or
+      // a profile's (which never reaches the feed at all), over a limit that at most costs a
+      // bonus field would be a net loss. feedBudgetSecondsLeft() below is the raw budget this
+      // deliberately excludes them from.
       const servedByFeed = LinkMetadataFetcher.REDDIT_SUBREDDIT_URL.test(url)
          && !LinkMetadataFetcher.REDDIT_POST_URL.test(url);
       if (!servedByFeed) return 0;
 
+      return LinkMetadataFetcher.feedBudgetSecondsLeft();
+   }
+
+   /** Seconds left on the shared per-minute feed budget, regardless of URL type. */
+   private static feedBudgetSecondsLeft(): number {
       return Math.max(0, Math.ceil((LinkMetadataFetcher.redditFeedBlockedUntil - Date.now()) / 1000));
    }
 
@@ -759,6 +781,30 @@ export class LinkMetadataFetcher {
       if (!Number.isFinite(reset) || reset <= 0) return;
 
       LinkMetadataFetcher.redditFeedBlockedUntil = Date.now() + reset * 1000;
+   }
+
+   /**
+    * Pulls a text post's self-text out of the Atom feed's first `<entry>`, the only place it
+    * appears (subreddit-level `<subtitle>` describes the subreddit, not the post). Reddit
+    * escapes the entry's `<content>` as XML *around* HTML it renders unchanged from its own
+    * old widget markup - a table with the thumbnail/link, the self-text in a `<div class="md">`,
+    * and a "submitted by ..." footer. One decodeXmlText() unwraps the XML layer into that real
+    * HTML string; DOMParser then decodes any HTML entities left inside it (e.g. `&#39;`) via
+    * textContent, same as extractRedditEmbedBody does for the embed page.
+    */
+   private extractRedditFeedEntryBody(feedText: string): string | undefined {
+      try {
+         const entryBlock = feedText.split("<entry")[1]?.split("</entry>")[0];
+         const contentXml = entryBlock?.match(/<content[^>]*>([\s\S]*?)<\/content>/)?.[1];
+         const html = this.decodeXmlText(contentXml);
+         if (!html) return undefined;
+
+         const doc = new DOMParser().parseFromString(html, "text/html");
+         const text = doc.querySelector(".md")?.textContent?.replace(/\s+/g, " ").trim();
+         return text ? LinkMetadataParser.sanitizeText(text, 200) : undefined;
+      } catch {
+         return undefined;
+      }
    }
 
    private decodeXmlText(value: string | undefined): string | undefined {
@@ -798,13 +844,20 @@ export class LinkMetadataFetcher {
          // oEmbed itself carries neither image nor body text, but the embed widget it
          // describes is a server-rendered page that has both — fetch that for the rest.
          const embed = await this.fetchRedditEmbedContent(originalUrl);
+         // The embed page only fills description for self posts (its rtjson element doesn't
+         // exist for image/link posts). The Atom feed's first entry carries the same self-text
+         // for those too, so try it as a bonus — but it shares the subreddit's one-per-minute
+         // budget, so only when the embed page came up empty, and it never blocks the card
+         // itself: title/author/image go through regardless, this only skips the extra field
+         // when the minute is already spent (with a Notice, so there's something to retry for).
+         const description = embed?.description ?? (await this.fetchRedditFeed(originalUrl, true, false, true))?.description;
          return {
             url: originalUrl,
             title: LinkMetadataParser.sanitizeText(json.title) ?? json.title,
             author: subreddit
                ? `r/${subreddit}`
                : json.author_name ? `u/${json.author_name}` : undefined,
-            description: embed?.description,
+            description,
             host: "www.reddit.com",
             favicon: "https://www.reddit.com/favicon.ico",
             image: embed?.image,
