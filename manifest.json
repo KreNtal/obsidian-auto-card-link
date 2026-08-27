@@ -3,7 +3,7 @@
 	"name": "Auto Card Link Enhanced",
 	"version": "1.5.3",
 	"minAppVersion": "1.4.10",
-	"description": "Automatically fetches metadata from a url and makes it as a card-styled link.",
+	"description": "Automatically convert URLs into beautiful card-styled links or Markdown links.",
 	"author": "KreNtal",
 	"authorUrl": "https://github.com/KreNtal",
 	"isDesktopOnly": false
