@@ -61,7 +61,9 @@ export default class ObsidianAutoCardLink extends Plugin {
     }, { capture: true });
 
     this.registerMarkdownCodeBlockProcessor("cardlink", async (source, el, ctx) => {
-      const processor = new CodeBlockProcessor(this.app);
+      const processor = new CodeBlockProcessor(this.app, (copied) => {
+        this.cachedClipboard = copied;
+      });
       await processor.run(source, el);
 
       const info = ctx.getSectionInfo(el);
@@ -118,6 +120,18 @@ export default class ObsidianAutoCardLink extends Plugin {
         void this.enhanceSelectedURL(editor, "markdown-link");
         return true;
       }
+    });
+
+    // Deliberately not named after Obsidian's own "Paste as plain text": that one strips
+    // rich-text formatting and never reaches this plugin, so a near-identical name would
+    // suggest the two are interchangeable. This one is the way to skip enhancement when
+    // "Paste as" is set to a shape - the third hotkey the other two implied.
+    this.addCommand({
+      id: "auto-card-link-paste-plain-url",
+      name: "Paste URL without enhancing",
+      editorCallback: async (editor: Editor) => {
+        await this.pastePlainUrl(editor);
+      },
     });
 
     this.registerEvent(this.app.workspace.on("editor-paste", this.onPaste));
@@ -646,6 +660,52 @@ export default class ObsidianAutoCardLink extends Plugin {
     }
   }
 
+  /**
+   * Pastes the clipboard exactly as it is. With "Paste as" set to a shape there is otherwise
+   * no way to get the raw URL in without going back to the settings, so this is the opt-out
+   * the other two paste commands imply.
+   */
+  private async pastePlainUrl(editor: Editor): Promise<void> {
+    const clipboardText = await navigator.clipboard.readText();
+    if (clipboardText == null || clipboardText == "") return;
+
+    editor.replaceSelection(clipboardText);
+  }
+
+  /**
+   * Replaces each `[text](url)` with its bare URL. Discards the link text, which is the one
+   * part not recoverable from what is left - undo is the way back, same as for a refresh.
+   *
+   * Walks forward like enhanceSelectedURL, measuring how much the document shrank after each
+   * replacement rather than assuming, so the offsets of the links still to come stay right.
+   */
+  private stripMarkdownLinks(editor: Editor): void {
+    if (!editor.somethingSelected()) {
+      const linkAtCursor = this.getMarkdownLinkAtCursor(editor);
+      if (!linkAtCursor) return;
+      editor.setSelection(linkAtCursor.from, linkAtCursor.to);
+    }
+
+    const selectedText = editor.getSelection();
+    const selectionStart = editor.posToOffset(editor.getCursor("from"));
+    const matches = EditorExtensions.extractUrls(selectedText, { markdownOnly: true });
+    if (matches.length === 0) return;
+
+    let shift = 0;
+    for (const match of matches) {
+      const lengthBefore = editor.getValue().length;
+      const from = editor.offsetToPos(selectionStart + match.index + shift);
+      const to = editor.offsetToPos(selectionStart + match.index + match.length + shift);
+      editor.replaceRange(match.url, from, to);
+      shift += editor.getValue().length - lengthBefore;
+    }
+
+    // Leave the cursor after the last URL written rather than on a selection that no longer
+    // matches what is there.
+    const end = editor.offsetToPos(selectionStart + selectedText.length + shift);
+    editor.setSelection(end, end);
+  }
+
   private async manualPasteAndEnhanceURL(editor: Editor, as: PasteShape = "card"): Promise<void> {
     const clipboardText = await navigator.clipboard.readText();
     if (clipboardText == null || clipboardText == "") return;
@@ -778,6 +838,10 @@ export default class ObsidianAutoCardLink extends Plugin {
     const bareUrlCount = selection
       ? EditorExtensions.extractUrls(selection, { bareOnly: true }).length
       : Number(!!bareUrlAtCursor);
+    // The mirror image: only a link that already is one can be stripped back to its target.
+    const markdownLinkCount = selection
+      ? EditorExtensions.extractUrls(selection, { markdownOnly: true }).length
+      : Number(!!linkAtCursor);
 
     const online = navigator.onLine && !!this.settings?.showInMenuItem;
     // Requires a definitely-URL clipboard rather than defaulting to "show it" when the
@@ -792,13 +856,21 @@ export default class ObsidianAutoCardLink extends Plugin {
       && CheckIf.isUrl(this.cachedClipboard) && !CheckIf.isImage(this.cachedClipboard);
     const canConvertToCard = online && urlCount > 0;
     const canConvertToMarkdown = online && bareUrlCount > 0;
+    // The plain-URL pair (paste-without-enhancing, strip-to-plain-URL) has its own toggle on
+    // top of showInMenuItem, since it's the pair most likely to be clutter for someone who
+    // never uses it - their hotkeys stay available regardless.
+    const showPlainUrlItems = !!this.settings?.showPlainUrlMenuItems;
+    const canPastePlain = canPaste && showPlainUrlItems;
+    // Purely local - no fetch, so unlike the others it stays available offline. Still gated
+    // on showInMenuItem, which is the user's switch for this plugin's menu entries as a whole.
+    const canStrip = !!this.settings?.showInMenuItem && showPlainUrlItems && markdownLinkCount > 0;
 
-    if (!cardlinkAtCursor && !canPaste && !canConvertToCard) return;
+    if (!cardlinkAtCursor && !canPaste && !canConvertToCard && !canStrip) return;
 
     // Highlight the link the entries will act on, so it is clear which one was picked when
     // several sit on the same line. Undone when the menu closes without a choice: showing a
     // menu shouldn't be able to change the selection on its own.
-    if (canConvertToCard && target) {
+    if ((canConvertToCard || canStrip) && target) {
       const cursor = editor.getCursor();
       editor.setSelection(target.from, target.to);
       menu.onHide(() => {
@@ -848,6 +920,16 @@ export default class ObsidianAutoCardLink extends Plugin {
 
     // Fixed order, never reordered to follow the "Paste as" setting: a menu that rearranges
     // itself costs more in muscle memory than an entry sitting in the less-used position.
+    // Within each group the entries run in one direction - plain, then Markdown link, then
+    // card - so the same shape sits in the same position in both groups.
+    if (canPastePlain) {
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle("Paste URL without enhancing")
+          .setIcon("link-2")
+          .onClick(() => { void this.withPreservedScroll(() => this.pastePlainUrl(editor)); });
+      });
+    }
     if (canPaste) {
       menu.addItem((item: MenuItem) => {
         item
@@ -872,6 +954,15 @@ export default class ObsidianAutoCardLink extends Plugin {
             entryChosen = true;
             void this.withPreservedScroll(() => this.refreshMarkdownLink(editor, linkAtCursor));
           });
+      });
+    }
+
+    if (canStrip) {
+      menu.addItem((item: MenuItem) => {
+        item
+          .setTitle(`Convert ${markdownLinkCount > 1 ? "URLs" : "URL"} to plain URL`)
+          .setIcon("unlink")
+          .onClick(() => { entryChosen = true; void this.withPreservedScroll(() => { this.stripMarkdownLinks(editor); }); });
       });
     }
 

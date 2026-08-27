@@ -6,9 +6,15 @@ import { CheckIf } from "./checkif";
 
 export class CodeBlockProcessor {
   app: App;
+  /**
+   * Told about a URL the copy button just put on the clipboard. Copying from inside the app
+   * never moves focus, so nothing else would prompt a re-read before the next right-click.
+   */
+  private onUrlCopied?: (url: string) => void;
 
-  constructor(app: App) {
+  constructor(app: App, onUrlCopied?: (url: string) => void) {
     this.app = app;
+    this.onUrlCopied = onUrlCopied;
   }
 
   async run(source: string, el: HTMLElement) {
@@ -170,6 +176,7 @@ export class CodeBlockProcessor {
       .setTooltip(`Copy URL\n${data.url}`)
       .onClick(() => {
         void navigator.clipboard.writeText(data.url);
+        this.onUrlCopied?.(data.url);
         new Notice("URL copied to your clipboard");
       });
   }

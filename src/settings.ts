@@ -38,6 +38,7 @@ export interface ObsidianAutoCardLinkSettings {
   pasteAs: OutputShape;
   dropAs: OutputShape;
   showInMenuItem: boolean;
+  showPlainUrlMenuItems: boolean;
   blankLineBeforeCard: boolean;
   thumbnailPosition: "left" | "right";
   downloadImages: boolean;
@@ -54,6 +55,7 @@ export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   pasteAs: "none",
   dropAs: "none",
   showInMenuItem: true,
+  showPlainUrlMenuItems: true,
   blankLineBeforeCard: false,
   thumbnailPosition: "left",
   downloadImages: false,
@@ -233,6 +235,22 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
+
+    new Setting(containerEl)
+      .setName("Show plain URL menu items")
+      .setDesc("Whether the plain URL paste and convert entries appear in the right click menu. The paste one also has its own hotkey, always available regardless of this; the convert one is menu-only.")
+      .addToggle((val) => {
+        if (!this.plugin.settings) return;
+        return val
+          .setValue(this.plugin.settings.showPlainUrlMenuItems)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.showPlainUrlMenuItems = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    containerEl.createEl("hr", { cls: "auto-card-link-settings-divider" });
 
     new Setting(containerEl)
       .setName("Add blank line before card")

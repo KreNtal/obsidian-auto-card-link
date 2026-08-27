@@ -33,7 +33,10 @@ export class EditorExtensions {
    * whose text contained a space - which is most of them, and all of the ones this plugin
    * generates - so those were silently skipped.
    */
-  public static extractUrls(text: string, options?: { bareOnly?: boolean; }): UrlMatch[] {
+  public static extractUrls(
+    text: string,
+    options?: { bareOnly?: boolean; markdownOnly?: boolean; }
+  ): UrlMatch[] {
     const found: UrlMatch[] = [];
     const linkRanges: Array<[number, number]> = [];
 
@@ -44,11 +47,15 @@ export class EditorExtensions {
       if (match[2] && !options?.bareOnly) found.push({ index, length: match[0].length, url: match[2] });
     }
 
-    for (const match of text.matchAll(lineRegex)) {
-      const index = match.index ?? 0;
-      // Skip the URL sitting inside a markdown link's parentheses: it is the same link
-      const insideLink = linkRanges.some(([from, to]) => index >= from && index < to);
-      if (!insideLink) found.push({ index, length: match[0].length, url: match[0] });
+    // markdownOnly is the mirror of bareOnly, for the one direction that only applies to
+    // links that already are one: stripping `[text](url)` back down to its target.
+    if (!options?.markdownOnly) {
+      for (const match of text.matchAll(lineRegex)) {
+        const index = match.index ?? 0;
+        // Skip the URL sitting inside a markdown link's parentheses: it is the same link
+        const insideLink = linkRanges.some(([from, to]) => index >= from && index < to);
+        if (!insideLink) found.push({ index, length: match[0].length, url: match[0] });
+      }
     }
 
     return found.sort((a, b) => a.index - b.index);
