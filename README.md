@@ -1,6 +1,6 @@
 # Auto Card Link Enhanced
 
-Automatically generate beautiful <u>card-styled links</u> from URLs by fetching their metadata, thumbnails and favicons, and turning them into a YAML `cardlink` code block or into a compact inline Markdown link.
+Automatically generate beautiful <u>card-styled links</u> from URLs by fetching their metadata, thumbnails and favicons, and turning them into a YAML `cardlink` code block or into a compact inline Markdown link carrying the fetched title.
 
 It includes tailored handling for YouTube, Twitch, Reddit, GitHub, Wikipedia, Spotify and more, plus options for thumbnail quality, local image saving and multiple card styles.
 
