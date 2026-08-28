@@ -127,9 +127,11 @@
         color: var(--link-external-color-hover)
     }
 
-    /* Prevent clash with edit block button */
+    /* Prevent clash with edit block button. Obsidian wraps it in .embed-actions now,
+       rather than making it a direct sibling - matched as a descendant so this keeps
+       working if that nesting changes again. */
     .is-live-preview .auto-card-link-container:hover &,
-    .is-live-preview .block-language-cardlink:has(+ .edit-block-button:hover) & {
+    .is-live-preview .block-language-cardlink:has(+ .embed-actions .edit-block-button:hover) & {
         margin-right: var(--auto-card-link-button-width);
     }
 }
@@ -250,7 +252,7 @@
     /* Show copy button only on hover on desktop.
        Also keep it visible when the adjacent edit-block-button is hovered,
        since that moves the cursor outside the container. */
-    .obsidian-app:not(.is-mobile) .block-language-cardlink:not(:has(+ .edit-block-button:hover)) .auto-card-link-container:not(:hover) & {
+    .obsidian-app:not(.is-mobile) .block-language-cardlink:not(:has(+ .embed-actions .edit-block-button:hover)) .auto-card-link-container:not(:hover) & {
         display: none;
     }
 }
@@ -268,25 +270,31 @@
     color: var(--icon-color-active);
 }
 
-/* Edit block button in cardlink — thumbnail left: no background, color-only hover */
-.is-live-preview .block-language-cardlink+.edit-block-button {
+/* Edit block button in cardlink. Obsidian wraps it in .embed-actions, a positioned
+   flex container that can hold more than one action button - .embed-actions is what
+   carries top/right, .edit-block-button inside it is what carries the visible chrome. */
+.is-live-preview .block-language-cardlink+.embed-actions {
     top: 10px !important;
+}
+
+/* Thumbnail left: no background, color-only hover */
+.is-live-preview .block-language-cardlink+.embed-actions .edit-block-button {
     background-color: transparent !important;
     box-shadow: none !important;
 }
 
-.is-live-preview .block-language-cardlink+.edit-block-button:hover {
+.is-live-preview .block-language-cardlink+.embed-actions .edit-block-button:hover {
     background-color: var(--background-modifier-hover) !important;
     color: var(--icon-color-active) !important;
 }
 
-/* Edit block button — thumbnail right: background with proper hover */
-body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.edit-block-button {
+/* Thumbnail right: background with proper hover */
+body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.embed-actions .edit-block-button {
     background-color: var(--background-secondary) !important;
     box-shadow: var(--shadow-s) !important;
 }
 
-body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.edit-block-button:hover {
+body.auto-card-link-thumbnail-right .is-live-preview .block-language-cardlink+.embed-actions .edit-block-button:hover {
     background-color: var(--interactive-hover) !important;
     color: var(--icon-color-active) !important;
 }
