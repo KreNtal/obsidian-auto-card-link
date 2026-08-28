@@ -429,7 +429,7 @@ export class LinkMetadataFetcher {
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
          author: data.author_name ?? undefined,
          description: data.description
-            ? LinkMetadataParser.sanitizeText(data.description.slice(0, 200))
+            ? LinkMetadataParser.sanitizeText(data.description)
             : undefined,
          host: "vimeo.com",
          favicon: "https://vimeo.com/favicon.ico",
@@ -457,7 +457,7 @@ export class LinkMetadataFetcher {
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
          author: author ?? undefined,
          description: data.description
-            ? LinkMetadataParser.sanitizeText(data.description.slice(0, 200))
+            ? LinkMetadataParser.sanitizeText(data.description)
             : undefined,
          host: "www.dailymotion.com",
          favicon: "https://www.dailymotion.com/favicon.ico",
@@ -640,7 +640,7 @@ export class LinkMetadataFetcher {
       // Both endpoints only handle individual posts — oEmbed answers 400 for a subreddit or
       // profile URL — so don't spend a request finding that out.
       if (isPost) {
-         const oembed = await this.fetchRedditOembed(url);
+         const oembed = await this.fetchRedditOembed(url, refresh);
          if (oembed) return oembed;
       }
 
@@ -703,7 +703,23 @@ export class LinkMetadataFetcher {
       }
 
       const feedUrl = `${url.replace(/[?#].*$|\/+$/, "")}/.rss`;
-      const res = await this.request(feedUrl, { "Accept": "application/atom+xml, application/xml" });
+      // Like the embed page (see fetchRedditEmbedContent), .rss honours Accept-Language and
+      // machine-translates the post - oEmbed is the one exception, confirmed never to. There is
+      // no header value that reliably matches oEmbed's untranslated title: pinning English
+      // fixes an English post but mistranslates a non-English one, and omitting the header
+      // doesn't mean "original text" either - Reddit then falls back to guessing from the
+      // requester's IP geolocation, which mismatches just as often (confirmed: a European IP
+      // got an English post's title untouched from oEmbed but its description translated to
+      // the requester's own language here). No header is the pragmatic choice anyway: a
+      // Swiss user reading Swiss-German subreddits wants this in German by default, same as
+      // everywhere else in this fetcher (Amazon, YouTube, ...) - occasional title/description
+      // language mismatch is the accepted cost, not something to chase further. For a
+      // subreddit, title and description both come from here together regardless, so they're
+      // always in the same language as each other no matter what.
+      const res = await this.request(feedUrl, {
+         "Accept": "application/atom+xml, application/xml",
+         ...(isPost ? { "Accept-Language": undefined } : {}),
+      });
       this.rememberRedditFeedBudget(res?.headers);
 
       // 429 included: being throttled is not worth a notice, the chain below still has a name
@@ -801,7 +817,7 @@ export class LinkMetadataFetcher {
 
          const doc = new DOMParser().parseFromString(html, "text/html");
          const text = doc.querySelector(".md")?.textContent?.replace(/\s+/g, " ").trim();
-         return text ? LinkMetadataParser.sanitizeText(text, 200) : undefined;
+         return text ? LinkMetadataParser.sanitizeText(text) : undefined;
       } catch {
          return undefined;
       }
@@ -827,7 +843,7 @@ export class LinkMetadataFetcher {
       return undefined;
    }
 
-   private async fetchRedditOembed(originalUrl: string): Promise<LinkMetadata | undefined> {
+   private async fetchRedditOembed(originalUrl: string, refresh = false): Promise<LinkMetadata | undefined> {
       try {
          const api = `https://www.reddit.com/oembed?url=${encodeURIComponent(originalUrl)}`;
          const res = await this.request(api);
@@ -850,7 +866,7 @@ export class LinkMetadataFetcher {
          // budget, so only when the embed page came up empty, and it never blocks the card
          // itself: title/author/image go through regardless, this only skips the extra field
          // when the minute is already spent (with a Notice, so there's something to retry for).
-         const description = embed?.description ?? (await this.fetchRedditFeed(originalUrl, true, false, true))?.description;
+         const description = embed?.description ?? (await this.fetchRedditFeed(originalUrl, true, refresh, true))?.description;
          return {
             url: originalUrl,
             title: LinkMetadataParser.sanitizeText(json.title) ?? json.title,
@@ -885,7 +901,13 @@ export class LinkMetadataFetcher {
             .replace(/\?.*$/, "");
          if (!embedUrl.startsWith("https://embed.reddit.com")) return undefined;
 
-         const res = await this.request(embedUrl);
+         // Confirmed by fetching this same page with several headers: unlike oEmbed (which
+         // supplies the title next to this description and never translates), embed.reddit.com
+         // *does* machine-translate a self-post's body per Accept-Language. No header value
+         // reliably matches oEmbed's language, English included - see the long comment in
+         // fetchRedditFeed for why omitting it (Reddit's own IP-geolocation guess) is still
+         // the pragmatic default rather than something to chase further.
+         const res = await this.request(embedUrl, { "Accept-Language": undefined });
          if (res?.status !== 200) {
             console.debug(`Reddit embed page request failed for ${embedUrl}. Status: ${res?.status}`);
             return undefined;
@@ -912,7 +934,7 @@ export class LinkMetadataFetcher {
          const doc = new DOMParser().parseFromString(html, "text/html");
          const body = doc.querySelector('[id$="-post-rtjson-content"]');
          const text = body?.textContent?.replace(/\s+/g, " ").trim();
-         return text ? LinkMetadataParser.sanitizeText(text, 200) : undefined;
+         return text ? LinkMetadataParser.sanitizeText(text) : undefined;
       } catch {
          return undefined;
       }
@@ -1039,7 +1061,7 @@ export class LinkMetadataFetcher {
             title: LinkMetadataParser.sanitizeText(print.name) ?? print.name,
             author: print.user?.publicUsername ?? undefined,
             description: rawDesc
-               ? LinkMetadataParser.sanitizeText(rawDesc.slice(0, 200))
+               ? LinkMetadataParser.sanitizeText(rawDesc)
                : undefined,
             host: "www.printables.com",
             favicon: "https://www.printables.com/favicon.ico",
@@ -1472,8 +1494,15 @@ export class LinkMetadataFetcher {
       return parts.join(",");
    }
 
-   private async request(url: string, customHeaders: Record<string, string> = {}, timeoutMs = 5000) {
-      const headers = {
+   /**
+    * A custom header set to `undefined` (rather than omitted) drops that header from the
+    * request entirely, instead of falling back to its default below - the way a caller opts
+    * out of, say, the default Accept-Language rather than merely not overriding it.
+    */
+   private async request(
+      url: string, customHeaders: Record<string, string | undefined> = {}, timeoutMs = 5000
+   ) {
+      const merged: Record<string, string | undefined> = {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
          "Accept-Language": this.acceptLanguage(),
@@ -1481,6 +1510,9 @@ export class LinkMetadataFetcher {
          "Pragma": "no-cache",
          ...customHeaders
       };
+      const headers = Object.fromEntries(
+         Object.entries(merged).filter((entry): entry is [string, string] => entry[1] !== undefined)
+      );
 
       try {
          return await Promise.race([

@@ -221,7 +221,15 @@ export class LinkMetadataParser {
     return `${base}${url}`;
   }
 
-  static sanitizeText(text: string | undefined, maxLength = 160): string | undefined {
+  /**
+   * The default cap is generous on purpose: the card's own 3-line clamp (see styles.css) is
+   * the real visual limit regardless of how much text this hands back, so a higher number
+   * here never looks worse - it only decides how much slack a long description gets before
+   * our own "..." kicks in instead of the CSS ellipsis. 300 is enough for most fetched
+   * descriptions (Wikipedia extracts, Reddit self-text, ...) to actually fill those 3 lines
+   * rather than being cut mid-sentence well before them.
+   */
+  static sanitizeText(text: string | undefined, maxLength = 300): string | undefined {
     if (!text) return undefined;
     let result = text
       .replace(/&amp;/g, "&")
