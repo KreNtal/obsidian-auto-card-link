@@ -24,13 +24,44 @@ export class LinkMetadataFetcher {
       this.settings = settings;
    }
 
-   async fetch(url: string, options?: { refresh?: boolean; }): Promise<LinkMetadata | undefined> {
+   async fetch(url: string, options?: { refresh?: boolean; previous?: LinkMetadata; }): Promise<LinkMetadata | undefined> {
       url = url.trim().replace(/^["']|["']$/g, "");
       if (url.startsWith("http://")) url = "https://" + url.slice(7);
       url = this.stripCloudflareChallenge(url);
 
       const metadata = await this.fetchForUrl(url, options?.refresh ?? false);
-      return metadata ? this.withSiteName(metadata, url) : metadata;
+      if (!metadata) return metadata;
+      return this.withSiteName(this.keepSupplements(metadata, options?.previous), url);
+   }
+
+   /**
+    * A refresh must never cost the card a field it already had.
+    *
+    * `title`, `host` and `author` are rebuilt every time from the URL or from an endpoint with
+    * no meaningful budget. `description` and `image` don't work that way: they come from
+    * best-effort sources with hard limits - Reddit's one-request-per-minute feed, microlink's
+    * daily quota - and from pages that simply fail to load, ending at fetchTitleOnly. When one
+    * of those comes up empty the fetch does not fail, it just returns without the field, and
+    * rewriting the block from that result would delete it. A card is a note in the vault
+    * rather than a live mirror, so the older value is worth more than an empty slot.
+    *
+    * Only an *absent* field is filled in, so a source that genuinely changed its description
+    * still wins the refresh. A source answering with a poorer value rather than none is
+    * therefore not covered - e.g. GitHub's page scrape standing in for its rate-limited API
+    * carries an og:description, so it overwrites the richer "desc · language · ★ stars" line.
+    *
+    * `previous` is only ever supplied by the refresh path (parsed from the very block being
+    * replaced), so a first conversion is unaffected.
+    */
+   private keepSupplements(metadata: LinkMetadata, previous?: LinkMetadata): LinkMetadata {
+      if (!previous) return metadata;
+      return {
+         ...metadata,
+         description: metadata.description ?? previous.description,
+         // Possibly a "[[wikilink]]" to an already-downloaded copy, which is exactly what the
+         // block should keep saying - fetchLinkMetadata only re-downloads a plain URL.
+         image: metadata.image ?? previous.image,
+      };
    }
 
    private async fetchForUrl(url: string, refresh: boolean): Promise<LinkMetadata | undefined> {
@@ -730,10 +761,26 @@ export class LinkMetadataFetcher {
       const subtitle = this.decodeXmlText(head.match(/<subtitle[^>]*>([^<]+)<\/subtitle>/)?.[1]);
       if (!title) return undefined;
 
-      // Reddit suffixes both with the subreddit, in its own two formats
-      const cleanTitle = isPost
-        ? title.replace(new RegExp(`\\s*:\\s*${name.slice(2)}$`, "i"), "").trim()
-        : `${title} • ${name}`;
+      // A post's feed title is suffixed with the subreddit, which the author field already
+      // carries - strip it. A subreddit's reads the other way round: the handle leads, being
+      // the canonical name, and the feed's own <title> follows. That second half is kept even
+      // when it only respells the handle ("r/OfficeChairs - Office Chairs"), deliberately -
+      // deduplicating it was tried and judged not worth the special case.
+      const sub = name.slice(2);
+      let cleanTitle: string;
+      if (isPost) {
+         cleanTitle = title.replace(new RegExp(`\\s*:\\s*${sub}$`, "i"), "").trim();
+      } else {
+         // Mods write a subreddit's <title> freely, and plenty of them open it with the handle
+         // over again ("/r/buildapc - Planning on building a computer..."), which would leave
+         // the card saying it twice. Only *this* sub's handle is stripped, and `\b` keeps
+         // r/foo from eating the start of "/r/foobar - ..." - a title naming a different sub
+         // keeps it. `sub` comes from a `(\w+)` URL capture, so it needs no regex escaping.
+         const feedTitle = title
+            .replace(new RegExp(`^/?r/${sub}\\b\\s*[-–—:|•·]*\\s*`, "i"), "")
+            .trim();
+         cleanTitle = feedTitle ? `${name} - ${feedTitle}` : name;
+      }
 
       const metadata: LinkMetadata = {
          url,
@@ -866,6 +913,8 @@ export class LinkMetadataFetcher {
          // budget, so only when the embed page came up empty, and it never blocks the card
          // itself: title/author/image go through regardless, this only skips the extra field
          // when the minute is already spent (with a Notice, so there's something to retry for).
+         // A refresh that lands in that minute keeps the description already on the card rather
+         // than dropping it - see keepSupplements().
          const description = embed?.description ?? (await this.fetchRedditFeed(originalUrl, true, refresh, true))?.description;
          return {
             url: originalUrl,

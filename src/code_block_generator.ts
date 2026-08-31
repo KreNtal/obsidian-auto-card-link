@@ -16,7 +16,7 @@ export class CodeBlockGenerator {
   /** What we put between title and site name, whatever separator the site itself uses. */
   private static readonly SEPARATOR = "-";
   /** Separators sites are seen to use, for detecting a site name already in the title. */
-  private static readonly SEPARATORS = "-|·:–—";
+  private static readonly SEPARATORS = "-|·•:–—";
 
   constructor(editor: Editor, app?: App, settings?: ObsidianAutoCardLinkSettings) {
     this.editor = editor;
@@ -28,9 +28,9 @@ export class CodeBlockGenerator {
   async convertUrlToCodeBlock(
     url: string,
     fallbackText?: string,
-    options?: { trailingNewline?: boolean; refresh?: boolean; }
+    options?: { trailingNewline?: boolean; refresh?: boolean; previous?: LinkMetadata; }
   ): Promise<boolean> {
-    const located = await this.fetchThroughPlaceholder(url, fallbackText, { refresh: options?.refresh });
+    const located = await this.fetchThroughPlaceholder(url, fallbackText, { refresh: options?.refresh, previous: options?.previous });
     if (!located) return false;
 
     const { metadata, text, startPos, endPos } = located;
@@ -71,7 +71,7 @@ export class CodeBlockGenerator {
   private async fetchThroughPlaceholder(
     url: string,
     fallbackText?: string,
-    options?: { titleOnly?: boolean; refresh?: boolean; }
+    options?: { titleOnly?: boolean; refresh?: boolean; previous?: LinkMetadata; }
   ): Promise<{ metadata: LinkMetadata; text: string; startPos: { line: number; ch: number; }; endPos: { line: number; ch: number; }; } | undefined> {
     const selectedText = fallbackText ?? this.editor.getSelection();
     const pasteId = this.createBlockHash();
@@ -158,12 +158,17 @@ export class CodeBlockGenerator {
     const name = siteName.toLowerCase();
     if (lower === name) return trimmed;
 
+    // A handle can name its site by convention, with the site's own word nowhere in the
+    // string: "r/OfficeChairs" and "u/spez" are unmistakably Reddit, so " - Reddit" after
+    // one reads as a stutter the checks below can't catch (they look for the literal name).
+    if (name === "reddit" && /(^|\s)[ru]\/[\w-]+/.test(trimmed)) return trimmed;
+
     // Many titles already carry the site name, each site with its own separator. When the
     // title is segmented, the site named itself in the last segment - either bare
     // ("owner/repo · GitHub") or inside a phrase ("Episode - Show | Podcast on Spotify").
     // Requiring a separator is what keeps a title that merely ends with the word
     // ("How to use Spotify") from losing its suffix.
-    const segments = trimmed.split(/\s*[-|\u2013\u2014\u00b7:]\s*/);
+    const segments = trimmed.split(/\s*[-|\u2013\u2014\u00b7\u2022:]\s*/);
     if (segments.length > 1 && (segments[segments.length - 1] ?? "").toLowerCase().endsWith(name)) {
       return trimmed;
     }
@@ -264,9 +269,9 @@ export class CodeBlockGenerator {
 
   private async fetchLinkMetadata(
     url: string,
-    options?: { titleOnly?: boolean; refresh?: boolean; }
+    options?: { titleOnly?: boolean; refresh?: boolean; previous?: LinkMetadata; }
   ): Promise<LinkMetadata | undefined> {
-    const metadata = await this.fetcher.fetch(url, { refresh: options?.refresh });
+    const metadata = await this.fetcher.fetch(url, { refresh: options?.refresh, previous: options?.previous });
     // A markdown link only shows the title, so skip downloading images/favicons.
     if (!metadata || options?.titleOnly || !this.app || !this.settings) return metadata;
 

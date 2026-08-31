@@ -326,6 +326,34 @@ export default class ObsidianAutoCardLink extends Plugin {
     return undefined;
   }
 
+  /**
+   * The markdown link a selection sits inside, whether it covers the link whole or only part
+   * of it.
+   *
+   * A selection otherwise rules out the cursor-based entries: those act on the one link under
+   * the pointer while the selection entries act on every link inside it, and offering both at
+   * once would be ambiguous. "Refresh Markdown link" has no selection-wide counterpart, so it
+   * stays available for as long as the selection cannot mean more than one link - which is
+   * precisely when it fits within a single one. Selecting just the link text, the whole
+   * `[text](url)`, or the highlight this menu leaves behind after an action all qualify; a
+   * selection spilling past the link, spanning several, or crossing lines does not.
+   */
+  private getMarkdownLinkAroundSelection(editor: Editor): EditorRange | undefined {
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    if (from.line !== to.line) return undefined;
+
+    const line = editor.getLine(from.line);
+    for (const match of line.matchAll(new RegExp(linkLineRegex))) {
+      const start = match.index ?? 0;
+      const end = start + match[0].length;
+      if (match[2] && from.ch >= start && to.ch <= end) {
+        return { from: { line: from.line, ch: start }, to: { line: from.line, ch: end } };
+      }
+    }
+    return undefined;
+  }
+
   /** A bare URL under the cursor, ignoring the one inside a markdown link's parentheses. */
   private getBareUrlAtCursor(editor: Editor): EditorRange | undefined {
     const cursor = editor.getCursor();
@@ -494,15 +522,18 @@ export default class ObsidianAutoCardLink extends Plugin {
 
     if (this.reportRefreshDelay(url)) return;
 
-    // Save the original block so we can restore it exactly if the fetch fails
+    // Save the original block so we can restore it exactly if the fetch fails, and hand its
+    // parsed fields to the generator so a re-fetch that comes back short (e.g. Reddit's
+    // once-a-minute feed budget already spent) keeps what the card had rather than dropping it.
     const originalBlock = editor.getRange(startPos, endPos);
+    const previous = CodeBlockProcessor.tryParseBlock(originalBlock);
 
     editor.replaceRange(url, startPos, endPos);
     editor.setCursor(startPos);
     editor.setSelection(startPos, { line: startPos.line, ch: url.length });
 
     const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
-    await codeBlockGenerator.convertUrlToCodeBlock(url, originalBlock, { refresh: true });
+    await codeBlockGenerator.convertUrlToCodeBlock(url, originalBlock, { refresh: true, previous });
   }
 
   /**
@@ -606,9 +637,16 @@ export default class ObsidianAutoCardLink extends Plugin {
    * already one is a refresh, not a conversion, and reads as a different action.
    */
   private async refreshMarkdownLink(editor: Editor, range: EditorRange): Promise<void> {
+    // The menu highlights the link it is about to act on and undoes that only when it closes
+    // without a choice, so bailing out here would leave the link selected - and a selection is
+    // exactly what makes the next right-click drop this entry (see linkAtCursor in
+    // registerContextMenu). The paths below that do run collapse it themselves by replacing
+    // the text; these two never touch the note, so they have to clear it by hand.
+    const bailOut = () => editor.setSelection(range.to, range.to);
+
     const url = EditorExtensions.extractUrls(editor.getRange(range.from, range.to))[0]?.url;
-    if (!url) return;
-    if (this.reportRefreshDelay(url)) return;
+    if (!url) { bailOut(); return; }
+    if (this.reportRefreshDelay(url)) { bailOut(); return; }
 
     // The selection doubles as the restore-on-failure text, so a failed fetch puts the
     // original link back untouched.
@@ -828,6 +866,10 @@ export default class ObsidianAutoCardLink extends Plugin {
     const linkAtCursor = onCardlink || selection ? undefined : this.getMarkdownLinkAtCursor(editor);
     // The link the pointer is on, which the entries below act on and which gets highlighted
     const target = bareUrlAtCursor ?? linkAtCursor;
+    // Refreshing is the one entry a selection doesn't have to rule out - see the method's
+    // comment. Kept separate from `target` so it changes neither the highlight nor the counts.
+    const linkToRefresh = linkAtCursor
+      ?? (selection ? this.getMarkdownLinkAroundSelection(editor) : undefined);
 
     // Counted, not just detected: the entries say "URL" or "URLs" to match what they will act
     // on, since a selection can hold several and converting them all at once is easy to miss.
@@ -865,7 +907,11 @@ export default class ObsidianAutoCardLink extends Plugin {
     // on showInMenuItem, which is the user's switch for this plugin's menu entries as a whole.
     const canStrip = !!this.settings?.showInMenuItem && showPlainUrlItems && markdownLinkCount > 0;
 
-    if (!cardlinkAtCursor && !canPaste && !canConvertToCard && !canStrip) return;
+    // Counted here too: a selection sitting *inside* a link carries no whole URL of its own, so
+    // urlCount is 0 and none of the flags above would keep the menu open for it.
+    const canRefreshLink = online && !!linkToRefresh;
+
+    if (!cardlinkAtCursor && !canPaste && !canConvertToCard && !canStrip && !canRefreshLink) return;
 
     // Highlight the link the entries will act on, so it is clear which one was picked when
     // several sit on the same line. Undone when the menu closes without a choice: showing a
@@ -945,14 +991,14 @@ export default class ObsidianAutoCardLink extends Plugin {
       });
     }
 
-    if (online && linkAtCursor) {
+    if (online && linkToRefresh) {
       menu.addItem((item: MenuItem) => {
         item
           .setTitle("Refresh Markdown link")
           .setIcon("refresh-cw")
           .onClick(() => {
             entryChosen = true;
-            void this.withPreservedScroll(() => this.refreshMarkdownLink(editor, linkAtCursor));
+            void this.withPreservedScroll(() => this.refreshMarkdownLink(editor, linkToRefresh));
           });
       });
     }

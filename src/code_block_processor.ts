@@ -35,6 +35,36 @@ export class CodeBlockProcessor {
     }
   }
 
+  /**
+   * Best-effort parse of a whole ```cardlink block (fences included) back into its
+   * metadata. Used by the refresh flow to know what the card showed before, so a
+   * re-fetch that comes back short (e.g. Reddit's once-a-minute feed budget already
+   * spent) can keep the old field instead of dropping it. Returns undefined rather
+   * than throwing — a card we can't read just means nothing to preserve.
+   */
+  static tryParseBlock(block: string): LinkMetadata | undefined {
+    const body = block
+      .replace(/^[\s\S]*?```cardlink[^\n]*\n/, "")
+      .replace(/\n```[\s\S]*$/, "");
+    try {
+      const yaml = parseYaml(body) as Partial<LinkMetadata> | null;
+      if (!yaml || !yaml.url || !yaml.title) return undefined;
+      return {
+        url: yaml.url,
+        title: yaml.title,
+        author: yaml.author,
+        description: yaml.description,
+        host: yaml.host,
+        favicon: yaml.favicon,
+        image: yaml.image,
+        duration: yaml.duration,
+        indent: 0,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
   private parseLinkMetadataFromYaml(source: string): LinkMetadata {
     let yaml: Partial<LinkMetadata>;
 
