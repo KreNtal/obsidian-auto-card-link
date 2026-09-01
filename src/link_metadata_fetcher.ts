@@ -1,7 +1,7 @@
 import { Notice, requestUrl } from "obsidian";
 import {
    DailymotionVideoResponse, GitHubRepoResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, OEmbedResponse,
-   PrintablesGraphQLResponse, WikipediaSummaryResponse
+   PrintablesGraphQLResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
@@ -71,6 +71,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isTwitchUrl(url)) return this.fetchTwitch(url);
       if (CheckIf.isTedUrl(url)) return this.fetchTed(url);
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url, refresh);
+      if (CheckIf.isXUrl(url)) return this.fetchX(url);
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
       if (CheckIf.isPrintablesUrl(url)) return this.fetchPrintables(url);
       if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url);
@@ -98,6 +99,8 @@ export class LinkMetadataFetcher {
       "printables.com": "Printables",
       "github.com": "GitHub",
       "spotify.com": "Spotify",
+      "x.com": "X",
+      "twitter.com": "X",
    };
 
    /**
@@ -1024,6 +1027,189 @@ export class LinkMetadataFetcher {
       }
 
       return (candidates.find(c => c.width >= TARGET) ?? candidates[candidates.length - 1]!).url;
+   }
+
+   /* --- X / TWITTER --- */
+
+   // X serves a non-JS client almost nothing: most pages are a shell whose <title> is
+   // "JavaScript is not available." A single tweet is the exception - the embed syndication
+   // endpoint (cdn.syndication.twimg.com, what platform.twitter.com's widget.js calls, no
+   // auth) returns it as clean JSON, quoted tweet included. Profiles, searches, hashtags and
+   // lists carry real <meta> tags only when fetched with a crawler's user agent, the same
+   // trick fetchPrintablesBotPage relies on. If both miss, a card is built from the URL.
+   private async fetchX(url: string): Promise<LinkMetadata | undefined> {
+      const normalized = url.replace(
+         /^https?:\/\/(www\.|mobile\.|m\.)?(twitter|x)\.com/,
+         "https://x.com"
+      );
+
+      // A list carries no metadata for anyone - a crawler UA still gets only X's generic
+      // shell - so don't spend two requests discovering that.
+      if (/\/i\/lists\//.test(normalized)) return this.buildXFallback(normalized);
+
+      const tweetId = normalized.match(/\/status(?:es)?\/(\d+)/)?.[1];
+      if (tweetId) {
+         const fromApi = await this.fetchXTweet(normalized, tweetId);
+         if (fromApi) return fromApi;
+      }
+
+      const fromPage = await this.fetchXPage(normalized);
+      if (fromPage) return fromPage;
+
+      return this.buildXFallback(normalized);
+   }
+
+   private async fetchXTweet(url: string, id: string): Promise<LinkMetadata | undefined> {
+      // The token is derived from the id the way widget.js does it. The endpoint currently
+      // accepts any value, but computing it keeps this working if that ever tightens.
+      const token = ((Number(id) / 1e15) * Math.PI).toString(36).replace(/(0+|\.)/g, "");
+      const lang = this.acceptLanguage().slice(0, 2) || "en";
+      const api = `https://cdn.syndication.twimg.com/tweet-result?id=${id}&token=${token}&lang=${lang}`;
+
+      const res = await this.request(api, { "Referer": "https://platform.twitter.com/" }, 9000);
+      // A deleted, protected or suspended tweet answers with an HTML error page, not JSON.
+      if (!res || res.status !== 200 || !res.text.trimStart().startsWith("{")) return undefined;
+
+      let data: XSyndicationResponse;
+      try {
+         data = JSON.parse(res.text) as XSyndicationResponse;
+      } catch {
+         return undefined;
+      }
+      if (!data.text || !data.user?.screen_name) return undefined;
+
+      const handle = `@${data.user.screen_name}`;
+      const name = data.user.name?.trim() || handle;
+
+      const [from, to] = data.display_text_range ?? [0, data.text.length];
+      let body = (data.text.slice(from, to).trim() || data.text.trim())
+         .replace(/\s*https?:\/\/t\.co\/\w+\s*$/, "")
+         .trim();
+
+      const q = data.quoted_tweet;
+      if (q?.text && q.user?.screen_name) {
+         const quoted = q.text.replace(/\s*https?:\/\/t\.co\/\w+\s*$/, "").trim();
+         const clipped = quoted.length > 120 ? quoted.slice(0, 120).trimEnd() + "…" : quoted;
+         body += `${body ? " " : ""}— quoting @${q.user.screen_name}: “${clipped}”`;
+      }
+
+      const image = data.photos?.find(p => p.url)?.url
+         ?? data.mediaDetails?.find(m => m.media_url_https)?.media_url_https
+         ?? this.pickXCardImage(data.card)
+         ?? data.user.profile_image_url_https?.replace(/_normal\.(\w+)$/, "_400x400.$1");
+
+      return {
+         url,
+         title: `${name} (${handle})`,
+         description: LinkMetadataParser.sanitizeText(body),
+         host: "x.com",
+         siteName: "X",
+         favicon: "https://x.com/favicon.ico",
+         image,
+         indent: 0,
+      };
+   }
+
+   // A tweet that is just a link has no photos/mediaDetails - its image lives in the preview
+   // `card` instead, one entry per size. Prefer a card-slot-sized rendition over the huge
+   // original; the keys differ by card type (summary vs summary_large_image vs player).
+   private pickXCardImage(card: XSyndicationResponse["card"]): string | undefined {
+      const bv = card?.binding_values;
+      if (!bv) return undefined;
+      for (const key of [
+         "summary_photo_image_large",
+         "photo_image_full_size_large",
+         "thumbnail_image_large",
+         "player_image_large",
+         "summary_photo_image",
+         "thumbnail_image",
+      ]) {
+         const candidate = bv[key]?.image_value?.url;
+         if (candidate) return candidate;
+      }
+      return undefined;
+   }
+
+   private async fetchXPage(url: string): Promise<LinkMetadata | undefined> {
+      // A crawler UA gets the server-rendered <meta> tags instead of the JS shell.
+      const res = await this.request(url, {
+         "User-Agent": "Mozilla/5.0 (compatible; Twitterbot/1.0)",
+      }, 9000);
+      if (!res || res.status !== 200) return undefined;
+
+      const decoded = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+      const metadata = await new LinkMetadataParser(url, decoded).parse();
+
+      const title = metadata?.title
+         ?.replace(/\s*[/|]\s*X$/i, "")     // "… / X" from the <title> tag
+         .replace(/\s+\S{1,3}\s+X$/i, "")   // localised "… on / su / em X" from og:title
+         .replace(/\s+on X$/i, "")          // English, if the rule above didn't catch it
+         .trim();
+      // The shell a crawler UA didn't shake off. Its <title> is either the literal
+      // "JavaScript is not available." or one of X's brand taglines, which start with the
+      // bare brand and a separator ("X: l'app per tutto", "X. It's what's happening") - the
+      // localised wording varies but that shape does not. A real page's title always leads
+      // with the account or subject, and a profile/tweet always carries "(@handle)".
+      const isBrandShell = /^(x|twitter)\b/i.test(title ?? "") && !title!.includes("(@");
+      if (!metadata || !title || isBrandShell || /javascript is not available/i.test(title)) {
+         return undefined;
+      }
+
+      // Some profiles put their bio in og:description, others only the bio's t.co link.
+      let description = metadata.description?.trim();
+      if (description && /^https?:\/\/t\.co\/\w+$/.test(description)) description = undefined;
+
+      // X's placeholder OG image (abs.twimg.com/.../ssr/default/.../og/image.png) is a blank
+      // logo card - drop it so the thumbnail slot stays empty rather than showing a non-image.
+      const image = metadata.image && !/\/ssr\/default\/.*\/og\//.test(metadata.image)
+         ? metadata.image
+         : undefined;
+
+      return {
+         ...metadata,
+         title,
+         description: LinkMetadataParser.sanitizeText(description),
+         image,
+         host: "x.com",
+         siteName: "X",
+         favicon: "https://x.com/favicon.ico",
+         indent: 0,
+      };
+   }
+
+   private buildXFallback(url: string): LinkMetadata {
+      const base = {
+         url,
+         host: "x.com",
+         siteName: "X",
+         favicon: "https://x.com/favicon.ico",
+         indent: 0,
+      };
+
+      let parsed: URL;
+      try {
+         parsed = new URL(url);
+      } catch {
+         return { ...base, title: "X" };
+      }
+      const path = parsed.pathname;
+      const query = parsed.searchParams.get("q");
+
+      const hashtag = query?.match(/^#?(\w+)$/)?.[1] ?? path.match(/\/hashtag\/(\w+)/)?.[1];
+      if (hashtag) return { ...base, title: `#${hashtag}` };
+      if (path === "/search" && query) return { ...base, title: `Search: ${query}` };
+      if (/^\/i\/lists\//.test(path)) return { ...base, title: "X list" };
+      if (/^\/i\/communities\//.test(path)) return { ...base, title: "X community" };
+
+      const poster = path.match(/^\/([A-Za-z0-9_]{1,15})\/status(?:es)?\/\d+/)?.[1];
+      if (poster && poster.toLowerCase() !== "i") return { ...base, title: `Post by @${poster}` };
+
+      const profile = path.match(/^\/([A-Za-z0-9_]{1,15})(?:\/(?:with_replies|media|likes))?\/?$/)?.[1];
+      if (profile && !/^(home|explore|notifications|messages|i|search|settings|compose)$/i.test(profile)) {
+         return { ...base, title: `@${profile}` };
+      }
+
+      return { ...base, title: "X" };
    }
 
    /* --- PRINTABLES --- */

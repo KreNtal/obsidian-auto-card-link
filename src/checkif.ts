@@ -40,6 +40,10 @@ export class CheckIf {
     return /reddit\.com\/(r|u|user)\//.test(url);
   }
 
+  public static isXUrl(url: string): boolean {
+    return /^https?:\/\/(www\.|mobile\.|m\.)?(twitter|x)\.com\//.test(url);
+  }
+
   public static isImdbUrl(url: string): boolean {
     return /imdb\.com\//.test(url);
   }

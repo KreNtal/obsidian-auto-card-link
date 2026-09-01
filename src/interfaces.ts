@@ -72,6 +72,35 @@ export interface MicrolinkResponse {
   };
 }
 
+export interface XSyndicationResponse {
+  text?: string;
+  /** [start, end] of the body without the trailing t.co media link X appends. */
+  display_text_range?: [number, number];
+  created_at?: string;
+  lang?: string;
+  favorite_count?: number;
+  possibly_sensitive?: boolean;
+  user?: {
+    name?: string;
+    screen_name?: string;
+    profile_image_url_https?: string;
+  };
+  photos?: Array<{ url?: string; width?: number; height?: number; }>;
+  mediaDetails?: Array<{ media_url_https?: string; type?: string; }>;
+  /** Present when the tweet is a link with no native media - a preview card of the target. */
+  card?: {
+    name?: string;
+    binding_values?: Record<string, {
+      image_value?: { url?: string; width?: number; height?: number; };
+      string_value?: string;
+    }>;
+  };
+  quoted_tweet?: {
+    text?: string;
+    user?: { name?: string; screen_name?: string; };
+  };
+}
+
 export interface WikipediaSummaryResponse {
   title?: string;
   extract?: string;
