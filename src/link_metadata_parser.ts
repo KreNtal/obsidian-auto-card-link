@@ -207,10 +207,17 @@ export class LinkMetadataParser {
 
   private resolveUrl(url: string): string {
     if (!url) return "";
-    if (url.startsWith("http://")) url = url.replace("http://", "https://");
+    // A `content` read off a <meta> tag is normally entity-decoded by the DOM already, but a
+    // doubly-encoded source (seen on TED's og:image) leaves a literal `&amp;` mid-URL, which
+    // then breaks the query string. Decoding here is idempotent on a clean URL.
+    url = url.replace(/&amp;/g, "&").trim();
+    if (url.startsWith("http://")) url = "https://" + url.slice(7);
     if (url.startsWith("https://")) {
-      // Fix double slashes in path (after the protocol)
-      return url.replace(/([^:])\/\/+/g, "$1/");
+      // Collapse accidental double slashes, but only in the path - a `//` inside the query
+      // string (a nested URL in a `?next=`/`?url=` parameter) is meaningful and left alone.
+      const [head, ...rest] = url.split("?");
+      const fixed = head!.replace(/([^:])\/\/+/g, "$1/");
+      return rest.length ? `${fixed}?${rest.join("?")}` : fixed;
     }
     if (url.startsWith("//")) return `https:${url}`;
     if (url.startsWith("/")) {
