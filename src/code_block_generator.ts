@@ -158,11 +158,6 @@ export class CodeBlockGenerator {
     const name = siteName.toLowerCase();
     if (lower === name) return trimmed;
 
-    // A handle can name its site by convention, with the site's own word nowhere in the
-    // string: "r/OfficeChairs" and "u/spez" are unmistakably Reddit, so " - Reddit" after
-    // one reads as a stutter the checks below can't catch (they look for the literal name).
-    if (name === "reddit" && /(^|\s)[ru]\/[\w-]+/.test(trimmed)) return trimmed;
-
     // Many titles already carry the site name, each site with its own separator. When the
     // title is segmented, the site named itself in the last segment - either bare
     // ("owner/repo · GitHub") or inside a phrase ("Episode - Show | Podcast on Spotify").
