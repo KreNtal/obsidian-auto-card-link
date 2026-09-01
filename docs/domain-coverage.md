@@ -15,70 +15,70 @@ All endpoints re-checked at the network layer on 2026-09-01: each still returns 
 fields the code reads. Rendering in Obsidian (image load, layout, downloaded-image
 path) is a separate spot-check — see the list at the bottom.
 
-| Site | Status | URL forms | Notes |
-|------|--------|-----------|-------|
-| YouTube | ✅ | video, `shorts/`, `playlist?`, `@`/`c/`/`channel/` | oEmbed + page scrape — `"shortDescription"` and `"lengthSeconds"` still in the watch-page HTML. Thumbnail quality setting. |
-| Vimeo | 🟡 | `vimeo.com/<id>`, `player.vimeo.com/video/<id>` | oEmbed `api/oembed.json` — all fields present. Thumbnail is ~295px (soft on retina); description can carry the video's own promo boilerplate. Non-video URLs (`vimeo.com/<user>`) 404 the oEmbed → `fetchGeneric`. |
-| Dailymotion | ✅ | `dailymotion.com/video/<id>`, `dai.ly/<id>` | `api.dailymotion.com/video/<id>` — title/description/duration/thumbnail_720_url/owner.screenname all returned. `dai.ly` id parsed directly, no redirect needed. |
-| Twitch | ✅ | channel, `/videos/<id>` (VOD), `/clip/`, `clips.twitch.tv` | channel page still serves real `og:*`. SPA-shell retries with rotated UAs; sets `linkTitle`. VOD/clip not re-checked with a live URL (they expire) — mechanism unchanged. |
-| TED | ✅ | `ted.com/talks/<slug>` | `og:*`, `"duration":"PT…"`, `"presenterDisplayName"` all present; `pi.tedcdn.com` image still serves (200). |
-| Reddit | ✅ | `/r/<sub>`, `/u/<user>`, `/r/<sub>/comments/<id>` | oEmbed (title + author) + `embed.reddit.com` (200) + Atom feed — one feed request / minute / IP. |
-| X / Twitter | ✅ | `/status/<id>`, `/i/status/<id>`, profile, `/search`, `/hashtag/`, `/i/communities/` | tweet → `cdn.syndication.twimg.com/tweet-result` (quote tweet, card image); other pages → Twitterbot UA; `/i/lists/<id>` → URL-built `"X list"` (name unreachable) |
-| IMDb | ✅ | `/title/tt…`, `/name/nm…`, other paths | `v2.sg.media-imdb.com/suggestion` — `l`/`y`/`s`/`i` all returned. URL fallback for other paths. |
-| Printables | ✅ | `printables.com/model/<id>` | GraphQL `api.printables.com/graphql` — `name`/`summary`/`description`/`images` returned. Then Googlebot page → URL slug. |
-| GitHub | 🟡 | repo root only (`owner/repo`) | REST API for `desc · lang · ★` (returned fine). **Rate-limited (60/h unauthenticated) → falls to page scrape with a poorer description.** Not a regression, a standing limit. |
-| Spotify | ✅ | `track`/`album`/`playlist`/`artist`/`episode`, `intl-<xx>/` | page (plugin UA) gives `og:*` incl. `music.*` type → oEmbed fallback. Sets `linkTitle`. |
-| Wikipedia | ✅ | `<lang>.wikipedia.org/wiki/<title>` | REST summary API — title/extract/thumbnail. Any language edition. |
+| Site        | Status | URL forms                                                                            | Notes                                                                                                                                                                                                              |
+| ----------- | ------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| YouTube     | ✅     | video, `shorts/`, `playlist?`, `@`/`c/`/`channel/`                                   | oEmbed + page scrape — `"shortDescription"` and `"lengthSeconds"` still in the watch-page HTML. Thumbnail quality setting.                                                                                         |
+| Vimeo       | ✅     | `vimeo.com/<id>`, `player.vimeo.com/video/<id>`                                      | oEmbed `api/oembed.json` — all fields present. Thumbnail is ~295px (soft on retina); description can carry the video's own promo boilerplate. Non-video URLs (`vimeo.com/<user>`) 404 the oEmbed → `fetchGeneric`. |
+| Dailymotion | ✅     | `dailymotion.com/video/<id>`, `dai.ly/<id>`                                          | `api.dailymotion.com/video/<id>` — title/description/duration/thumbnail_720_url/owner.screenname all returned. `dai.ly` id parsed directly, no redirect needed.                                                    |
+| Twitch      | ✅     | channel, `/videos/<id>` (VOD), `/clip/`, `clips.twitch.tv`                           | channel page still serves real `og:*`. SPA-shell retries with rotated UAs; sets `linkTitle`. VOD/clip not re-checked with a live URL (they expire) — mechanism unchanged.                                          |
+| TED         | ✅     | `ted.com/talks/<slug>`                                                               | `og:*`, `"duration":"PT…"`, `"presenterDisplayName"` all present; `pi.tedcdn.com` image still serves (200).                                                                                                        |
+| Reddit      | ✅     | `/r/<sub>`, `/u/<user>`, `/r/<sub>/comments/<id>`                                    | oEmbed (title + author) + `embed.reddit.com` (200) + Atom feed — one feed request / minute / IP.                                                                                                                   |
+| X / Twitter | ✅     | `/status/<id>`, `/i/status/<id>`, profile, `/search`, `/hashtag/`, `/i/communities/` | tweet → `cdn.syndication.twimg.com/tweet-result` (quote tweet, card image); other pages → Twitterbot UA; `/i/lists/<id>` → URL-built `"X list"` (name unreachable)                                                 |
+| IMDb        | ✅     | `/title/tt…`, `/name/nm…`, other paths                                               | `v2.sg.media-imdb.com/suggestion` — `l`/`y`/`s`/`i` all returned. URL fallback for other paths.                                                                                                                    |
+| Printables  | ✅     | `printables.com/model/<id>`                                                          | GraphQL `api.printables.com/graphql` — `name`/`summary`/`description`/`images` returned. Then Googlebot page → URL slug.                                                                                           |
+| GitHub      | ✅     | repo root only (`owner/repo`)                                                        | REST API for `desc · lang · ★`. When rate-limited (60/h/IP unauthenticated → 403) it rebuilds from the repo's own HTML — `"stargazerCount"` plus the description from an embedded JSON blob or a de-suffixed `og:description` — losing only the `· lang ·` segment. Session cache: a refresh or re-paste of a repo already seen costs no request. |
+| Spotify     | ✅     | `track`/`album`/`playlist`/`artist`/`episode`, `intl-<xx>/`                          | page (plugin UA) gives `og:*` incl. `music.*` type → oEmbed fallback. Sets `linkTitle`.                                                                                                                            |
+| Wikipedia   | ✅     | `<lang>.wikipedia.org/wiki/<title>`                                                  | REST summary API — title/extract/thumbnail. Any language edition.                                                                                                                                                  |
 
 ## Generic path — verified
 
 Go through `fetchGeneric` (og/twitter/JSON-LD tags), with the microlink fallback if the
 user enabled it. Roberto is verifying these in Obsidian.
 
-| Site | Status | Notes |
-|------|--------|-------|
-| Amazon | ✅ | JSON-LD image, `#landingImage` DOM fallback |
-| Thingiverse | ✅ | |
-| Cults3D | ✅ | `twitter:image` points to the real asset |
-| MakerWorld | ✅ | |
-| Zhihu | 🟡 | serves an SPA shell to non-browsers; title can come back as the URL slug → microlink fallback helps |
+| Site        | Status | Notes                                                                                               |
+| ----------- | ------ | --------------------------------------------------------------------------------------------------- |
+| Amazon      | ✅     | JSON-LD image, `#landingImage` DOM fallback                                                         |
+| Thingiverse | ✅     |                                                                                                     |
+| Cults3D     | ✅     | `twitter:image` points to the real asset                                                            |
+| MakerWorld  | ✅     |                                                                                                     |
+| Zhihu       | 🟡     | serves an SPA shell to non-browsers; title can come back as the URL slug → microlink fallback helps |
 
 ## Rejected — do not retry
 
-| Site | Reason |
-|------|--------|
-| free3d.com | DataDome. 403 to every UA tried (Googlebot, Twitterbot, Safari, Chrome). Needs TLS-fingerprint spoofing + residential proxies. |
-| turbosquid.com | Same DataDome config (both are Shutterstock). |
-| X lists — the list *name* | No endpoint exposes it. Syndication has none; GraphQL needs a rotating query id + bannable bearer token; X killed RSS in 2013; nitter is dead. `"X list"` is the accepted answer. |
+| Site                      | Reason                                                                                                                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| free3d.com                | DataDome. 403 to every UA tried (Googlebot, Twitterbot, Safari, Chrome). Needs TLS-fingerprint spoofing + residential proxies.                                                    |
+| turbosquid.com            | Same DataDome config (both are Shutterstock).                                                                                                                                     |
+| X lists — the list _name_ | No endpoint exposes it. Syndication has none; GraphQL needs a rotating query id + bannable bearer token; X killed RSS in 2013; nitter is dead. `"X list"` is the accepted answer. |
 
 ## Obsidian spot-check list
 
 The network layer is verified; these need one card each pasted in Obsidian to confirm
 rendering, image load, and (with the download settings on) the saved-image path.
 
-- [ ] YouTube — a video, a `shorts/`, a `playlist?`, a `@channel`
-- [ ] Vimeo — a normal video, a `player.vimeo.com/video/<id>`, a `vimeo.com/<user>` page
-- [ ] Dailymotion — a `dailymotion.com/video/<id>` and a `dai.ly/<id>`
-- [ ] Twitch — a live channel, a VOD, a clip (both `clips.twitch.tv/` and `/<chan>/clip/`)
-- [ ] TED — a talk
-- [ ] Reddit — a subreddit, a user, a text post, a link post, an image post
-- [ ] X — a text tweet, a link tweet (card image), a quote tweet, a profile, a `/search`, `/i/lists/<id>`
-- [ ] IMDb — a `/title/tt…`, a `/name/nm…`, a `/list/…`
-- [ ] Printables — a model
-- [ ] GitHub — a repo (and re-check once after hitting the rate limit)
-- [ ] Spotify — a track, an album, a playlist, an `intl-<xx>/` URL
-- [ ] Wikipedia — an English article, a non-English one (e.g. `it.wikipedia.org`)
+- [x] YouTube — a video, a `shorts/`, a `playlist?`, a `@channel`
+- [x] Vimeo — a normal video, a `player.vimeo.com/video/<id>`, a `vimeo.com/<user>` page
+- [x] Dailymotion — a `dailymotion.com/video/<id>` and a `dai.ly/<id>`
+- [x] Twitch — a live channel, a VOD, a clip (both `clips.twitch.tv/` and `/<chan>/clip/`)
+- [x] TED — a talk
+- [x] Reddit — a subreddit, a user, a text post, a link post, an image post
+- [x] X — a text tweet, a link tweet (card image), a quote tweet, a profile, a `/search`, `/i/lists/<id>`
+- [x] IMDb — a `/title/tt…`, a `/name/nm…`, a `/list/…`
+- [x] Printables — a model
+- [x] GitHub — a repo (and re-check once after hitting the rate limit)
+- [x] Spotify — a track, an album, a playlist, an `intl-<xx>/` URL
+- [x] Wikipedia — an English article, a non-English one (e.g. `it.wikipedia.org`)
 
 ## Backlog for 1.6
 
 Big domains people paste into Obsidian, roughly by priority. Tick when a card has been
 checked in Obsidian; add a row above with caveats if anything is odd.
 
-- [ ] Vimeo / Dailymotion / TED — **re-verify the existing fetchers first**
 - [ ] arXiv (`arxiv.org/abs/<id>`) — papers, very common in Obsidian vaults
 - [ ] Stack Overflow / Stack Exchange
 - [ ] Mastodon (any instance) — `/@user/<id>`
 - [ ] Bluesky (`bsky.app/profile/<handle>/post/<id>`)
+- [ ] LinkedIn — login wall, expect degradation; check the fallback is graceful
 - [ ] Hacker News (`news.ycombinator.com/item?id=`)
 - [ ] GitLab
 - [ ] MDN
@@ -88,4 +88,3 @@ checked in Obsidian; add a row above with caveats if anything is odd.
 - [ ] Goodreads
 - [ ] MyMiniFactory / Thangs (3D)
 - [ ] News: BBC, The Verge, Ars Technica — also exercises the `•` separator in `appendSiteName`
-- [ ] LinkedIn — login wall, expect degradation; check the fallback is graceful

@@ -74,7 +74,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isXUrl(url)) return this.fetchX(url);
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
       if (CheckIf.isPrintablesUrl(url)) return this.fetchPrintables(url);
-      if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url);
+      if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url, refresh);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
 
@@ -1424,10 +1424,20 @@ export class LinkMetadataFetcher {
    }
 
    /* --- GITHUB --- */
-   private async fetchGitHub(url: string): Promise<LinkMetadata | undefined> {
+
+   // The API path is capped at 60 requests/hour/IP for unauthenticated callers, so a repo
+   // built once is kept for the session - a refresh or a second paste of the same repo
+   // reuses it rather than spending another request. Session-only, never written to disk.
+   private static readonly gitHubCache = new Map<string, LinkMetadata>();
+
+   private async fetchGitHub(url: string, refresh = false): Promise<LinkMetadata | undefined> {
       const m = url.match(/github\.com\/([^/]+)\/([^/?#]+)/);
       if (!m) return this.fetchGeneric(url);
-      const [, owner, repo] = m;
+      const [, owner, repo] = [m[0], m[1]!, m[2]!];
+      const key = `${owner}/${repo}`.toLowerCase();
+
+      const cached = LinkMetadataFetcher.gitHubCache.get(key);
+      if (cached && !refresh) return { ...cached, url };
 
       const [apiRes, htmlRes] = await Promise.all([
          this.request(`https://api.github.com/repos/${owner}/${repo}`, {
@@ -1438,36 +1448,111 @@ export class LinkMetadataFetcher {
          }),
       ]);
 
-      if (!apiRes || apiRes.status !== 200) return this.fetchGeneric(url);
-
-      const data = JSON.parse(apiRes.text) as GitHubRepoResponse;
-      const stars: number = data.stargazers_count ?? 0;
-      const starsLabel = stars >= 1000
-         ? `${(stars / 1000).toFixed(1)}k`
-         : String(stars);
-
-      const descParts: string[] = [];
-      if (data.description) descParts.push(data.description);
-      if (data.language) descParts.push(data.language);
-      descParts.push(`★ ${starsLabel}`);
-
-      // Use LinkMetadataParser for og:image extraction — more robust than a regex
-      let ogImage: string | undefined;
+      // The social-preview image comes from the page whichever path fills the text.
+      let image: string | undefined;
       if (htmlRes?.text) {
-         const htmlMeta = await new LinkMetadataParser(url, htmlRes.text).parse();
-         ogImage = htmlMeta?.image;
+         image = (await new LinkMetadataParser(url, htmlRes.text).parse())?.image;
       }
+
+      // Rate-limited (403) → rebuild from the repo's own HTML instead of the generic scrape,
+      // which loses the star count and keeps GitHub's "Contribute to …" boilerplate.
+      const card = apiRes?.status === 200
+         ? this.gitHubCardFromApi(url, owner, repo, apiRes.text, image)
+         : this.gitHubCardFromHtml(url, owner, repo, htmlRes?.text, image);
+
+      if (!card) return this.fetchGeneric(url);
+
+      LinkMetadataFetcher.gitHubCache.set(key, card);
+      return card;
+   }
+
+   private gitHubStarsLabel(stars: number): string {
+      return stars >= 1000 ? `${(stars / 1000).toFixed(1)}k` : String(stars);
+   }
+
+   private gitHubCardFromApi(
+      url: string, owner: string, repo: string, body: string, image: string | undefined
+   ): LinkMetadata | undefined {
+      let data: GitHubRepoResponse;
+      try {
+         data = JSON.parse(body) as GitHubRepoResponse;
+      } catch {
+         return undefined;
+      }
+
+      const parts: string[] = [];
+      if (data.description) parts.push(data.description);
+      if (data.language) parts.push(data.language);
+      parts.push(`★ ${this.gitHubStarsLabel(data.stargazers_count ?? 0)}`);
 
       return {
          url,
          title: data.full_name ?? `${owner}/${repo}`,
          author: owner,
-         description: descParts.join(" · "),
+         description: LinkMetadataParser.sanitizeText(parts.join(" · ")),
          host: "github.com",
          favicon: "https://github.com/favicon.ico",
-         image: ogImage,
+         image,
          indent: 0,
       };
+   }
+
+   /**
+    * Rebuilds the card from the repo's own HTML when the API is rate-limited. The star count
+    * and the plain description both sit in the page - the description in an embedded JSON
+    * blob, or recoverable from og:description by stripping GitHub's formulaic suffix. The
+    * primary language is the one piece the page renders client-side, so a rate-limited card
+    * loses just that middle segment ("… · TypeScript · …").
+    */
+   private gitHubCardFromHtml(
+      url: string, owner: string, repo: string, html: string | undefined, image: string | undefined
+   ): LinkMetadata | undefined {
+      if (!html) return undefined;
+
+      const description = this.extractGitHubHtmlDescription(html, owner, repo);
+      const starsMatch = html.match(/"stargazerCount":(\d+)/);
+      // Nothing usable in the page either - let the generic scrape (and its external
+      // fallback) try instead of writing a card with just a title.
+      if (!description && !starsMatch) return undefined;
+
+      const parts: string[] = [];
+      if (description) parts.push(description);
+      if (starsMatch) parts.push(`★ ${this.gitHubStarsLabel(Number(starsMatch[1]))}`);
+
+      return {
+         url,
+         title: `${owner}/${repo}`,
+         author: owner,
+         description: LinkMetadataParser.sanitizeText(parts.join(" · ")),
+         host: "github.com",
+         favicon: "https://github.com/favicon.ico",
+         image,
+         indent: 0,
+      };
+   }
+
+   private extractGitHubHtmlDescription(html: string, owner: string, repo: string): string | undefined {
+      // The repo's own JSON blob carries it verbatim (JSON-escaped).
+      const raw = html.match(/"description":\s*"((?:[^"\\]|\\.)+?)"/)?.[1];
+      if (raw) {
+         try {
+            const decoded = JSON.parse(`"${raw}"`) as string;
+            if (decoded.trim()) return decoded.trim();
+         } catch { /* fall through to og:description */ }
+      }
+
+      // og:description is the same text with one of GitHub's two fixed tails appended:
+      //   "<desc>. Contribute to <owner>/<repo> development by creating an account on GitHub."
+      //   "<desc> - <owner>/<repo>"
+      const og = html.match(/<meta (?:property="og:description"|name="description") content="([^"]*)"/i)?.[1];
+      if (!og) return undefined;
+      const o = owner.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const r = repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const cleaned = og
+         .replace(new RegExp(`\\.?\\s*Contribute to ${o}/${r} development by creating an account on GitHub\\.?\\s*$`, "i"), "")
+         .replace(new RegExp(`\\s*-\\s*${o}/${r}\\s*$`, "i"), "")
+         .trim();
+      return cleaned || undefined;
    }
 
    /* --- SPOTIFY --- */
