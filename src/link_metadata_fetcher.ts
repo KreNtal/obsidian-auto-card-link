@@ -77,6 +77,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url, refresh);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
+      if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
 
       return this.fetchGeneric(url);
    }
@@ -101,6 +102,7 @@ export class LinkMetadataFetcher {
       "spotify.com": "Spotify",
       "x.com": "X",
       "twitter.com": "X",
+      "arxiv.org": "arXiv",
    };
 
    /**
@@ -1712,6 +1714,50 @@ export class LinkMetadataFetcher {
          host: `${lang}.wikipedia.org`,
          favicon: `https://${lang}.wikipedia.org/favicon.ico`,
          image: data.thumbnail?.source ?? data.originalimage?.source ?? undefined,
+         indent: 0,
+      };
+   }
+
+   /* --- ARXIV --- */
+   private async fetchArxiv(url: string): Promise<LinkMetadata | undefined> {
+      // arxiv.org/(abs|pdf|format|html)/<id>, where <id> is "1706.03762", "1706.03762v3", or
+      // an old-style "hep-th/9901001". A trailing ".pdf" and any query/hash aren't part of it.
+      const id = url
+         .match(/arxiv\.org\/(?:abs|pdf|format|html)\/([^\s?#]+)/i)?.[1]
+         ?.replace(/\.pdf$/i, "");
+      if (!id) return this.fetchGeneric(url);
+
+      // The Atom API returns one <entry> with the full abstract, the author list and the date
+      // - the abs page only has a truncated og:description and "Last, First" author names.
+      const res = await this.request(
+         `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(id)}`
+      );
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      const entry = res.text.split("<entry>")[1]?.split("</entry>")[0];
+      if (!entry) return this.fetchGeneric(url);
+
+      const clean = (raw: string | undefined) => this.decodeXmlText(raw)?.replace(/\s+/g, " ").trim();
+      const title = clean(entry.match(/<title>([\s\S]*?)<\/title>/)?.[1]);
+      const summary = clean(entry.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]);
+      if (!title) return this.fetchGeneric(url);
+
+      const authors = [...entry.matchAll(/<name>([\s\S]*?)<\/name>/g)]
+         .map(m => clean(m[1]))
+         .filter((n): n is string => !!n);
+      const author = authors.length === 0
+         ? undefined
+         : authors.length <= 2
+            ? authors.join(" and ")
+            : `${authors[0]} et al.`;
+
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(title, 300) ?? title,
+         author,
+         description: LinkMetadataParser.sanitizeText(summary),
+         host: "arxiv.org",
+         favicon: "https://arxiv.org/favicon.ico",
          indent: 0,
       };
    }

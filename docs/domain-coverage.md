@@ -29,6 +29,7 @@ path) is a separate spot-check — see the list at the bottom.
 | GitHub      | ✅     | repo root only (`owner/repo`)                                                        | REST API for `desc · lang · ★`. When rate-limited (60/h/IP unauthenticated → 403) it rebuilds from the repo's own HTML — `"stargazerCount"` plus the description from an embedded JSON blob or a de-suffixed `og:description` — losing only the `· lang ·` segment. Session cache: a refresh or re-paste of a repo already seen costs no request. |
 | Spotify     | ✅     | `track`/`album`/`playlist`/`artist`/`episode`, `intl-<xx>/`                          | page (plugin UA) gives `og:*` incl. `music.*` type → oEmbed fallback. Sets `linkTitle`.                                                                                                                            |
 | Wikipedia   | ✅     | `<lang>.wikipedia.org/wiki/<title>`                                                  | REST summary API — title/extract/thumbnail. Any language edition.                                                                                                                                                  |
+| arXiv       | ✅     | `/abs/<id>`, `/pdf/<id>`, `/format/`, `/html/` — `<id>` new (`1706.03762v3`) or old (`hep-th/9901001`), trailing `.pdf` stripped | Atom API `export.arxiv.org/api/query?id_list=` — title, full abstract, author list (`First et al.` for 3+), from the one `<entry>`. No image (arXiv's og:image is just their logo). Bad id → no `<entry>` → `fetchGeneric`. `/list/`, `/a/<author>` aren't matched → generic. |
 
 ## Generic path — verified
 
@@ -74,17 +75,17 @@ rendering, image load, and (with the download settings on) the saved-image path.
 Big domains people paste into Obsidian, roughly by priority. Tick when a card has been
 checked in Obsidian; add a row above with caveats if anything is odd.
 
-- [ ] arXiv (`arxiv.org/abs/<id>`) — papers, very common in Obsidian vaults
+- [x] arXiv — dedicated fetcher via the Atom API; needs an Obsidian render check (`/abs/`, `/pdf/`, an old `hep-th/…` id, a bad id)
 - [ ] Stack Overflow / Stack Exchange
+- [ ] LinkedIn — login wall, expect degradation; check the fallback is graceful
 - [ ] Mastodon (any instance) — `/@user/<id>`
 - [ ] Bluesky (`bsky.app/profile/<handle>/post/<id>`)
-- [ ] LinkedIn — login wall, expect degradation; check the fallback is graceful
 - [ ] Hacker News (`news.ycombinator.com/item?id=`)
+- [ ] News: BBC, The Verge, Ars Technica — also exercises the `•` separator in `appendSiteName`
 - [ ] GitLab
 - [ ] MDN
 - [ ] npm / PyPI
 - [ ] Medium / Substack
-- [ ] Notion (public pages)
 - [ ] Goodreads
 - [ ] MyMiniFactory / Thangs (3D)
-- [ ] News: BBC, The Verge, Ars Technica — also exercises the `•` separator in `appendSiteName`
+- [ ] Notion (public pages)

@@ -65,4 +65,8 @@ export class CheckIf {
   public static isWikipediaUrl(url: string): boolean {
     return /^https?:\/\/[a-z]{2,}\.wikipedia\.org\/wiki\//.test(url);
   }
+
+  public static isArxivUrl(url: string): boolean {
+    return /^https?:\/\/(www\.)?arxiv\.org\/(abs|pdf|format|html)\//i.test(url);
+  }
 }
