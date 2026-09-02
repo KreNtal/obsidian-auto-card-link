@@ -67,6 +67,27 @@ export class CheckIf {
   }
 
   public static isArxivUrl(url: string): boolean {
-    return /^https?:\/\/(www\.)?arxiv\.org\/(abs|pdf|format|html)\//i.test(url);
+    // A paper, or the site root — the homepage carries no og:* tags at all, so it needs the
+    // dedicated path just to get a thumbnail.
+    return /^https?:\/\/(www\.)?arxiv\.org\/(abs|pdf|format|html)\//i.test(url)
+      || /^https?:\/\/(www\.)?arxiv\.org\/?([?#]|$)/i.test(url);
+  }
+
+  private static readonly SE_HOST = "(www\\.)?([a-z-]+\\.)?(stackoverflow|serverfault|superuser|askubuntu|stackapps|stackexchange)\\.com|mathoverflow\\.net";
+
+  public static isStackExchangeUrl(url: string): boolean {
+    // A question or answer on any Stack Exchange network site. Other paths (tags, users)
+    // carry nothing an API call improves on, so they stay on the generic path.
+    const qa = new RegExp(`^https?://(${CheckIf.SE_HOST})/(questions/\\d+|q/\\d+|a/\\d+)`, "i");
+    return qa.test(url) || CheckIf.isStackExchangeSiteUrl(url);
+  }
+
+  /**
+   * The front page of a network site. It 403s every non-browser request, so the generic path
+   * can only reach it through microlink; the `/2.3/sites` endpoint describes all 365 of them
+   * in one call and answers regardless.
+   */
+  public static isStackExchangeSiteUrl(url: string): boolean {
+    return new RegExp(`^https?://(${CheckIf.SE_HOST})/?([?#]|$)`, "i").test(url);
   }
 }

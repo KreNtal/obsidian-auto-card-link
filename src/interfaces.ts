@@ -101,6 +101,18 @@ export interface XSyndicationResponse {
   };
 }
 
+/** One entry of `api.stackexchange.com/2.3/sites`, the network's own site directory. */
+export interface StackExchangeSite {
+  api_site_parameter?: string;
+  name?: string;
+  /** SE's own one-liner, e.g. "professional and enthusiast programmers". */
+  audience?: string;
+  site_url?: string;
+  favicon_url?: string;
+  icon_url?: string;
+  high_resolution_icon_url?: string;
+}
+
 export interface WikipediaSummaryResponse {
   title?: string;
   extract?: string;

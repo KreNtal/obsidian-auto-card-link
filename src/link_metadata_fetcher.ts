@@ -1,7 +1,7 @@
 import { Notice, requestUrl } from "obsidian";
 import {
    DailymotionVideoResponse, GitHubRepoResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, OEmbedResponse,
-   PrintablesGraphQLResponse, WikipediaSummaryResponse, XSyndicationResponse
+   PrintablesGraphQLResponse, StackExchangeSite, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
@@ -31,7 +31,31 @@ export class LinkMetadataFetcher {
 
       const metadata = await this.fetchForUrl(url, options?.refresh ?? false);
       if (!metadata) return metadata;
-      return this.withSiteName(this.keepSupplements(metadata, options?.previous), url);
+      return this.normalizeHost(
+         this.withSiteName(this.keepSupplements(metadata, options?.previous), url)
+      );
+   }
+
+   /**
+    * Drops a leading `www.` from the host the card displays.
+    *
+    * Three places set that field and none of them agreed. The generic path copies the URL's
+    * own hostname, so the card ended up mirroring how the link happened to be written rather
+    * than which site it is; the dedicated fetchers each hardcode a literal, split roughly in
+    * half between the two forms; the newest of them strip the prefix outright. Settling it
+    * here rather than in the twelve literals is what stops the two paths drifting apart again
+    * the next time a fetcher is added.
+    *
+    * Only the leading `www.` goes - `open.spotify.com`, `en.wikipedia.org` and
+    * `clips.twitch.tv` say something the card should keep. Nothing reads `host` for
+    * behaviour (siteNameFor normalises it away already, the Google favicon fallback takes
+    * either form), so this is display only. It is also written into the block, so existing
+    * cards keep whatever they were given until they are refreshed.
+    */
+   private normalizeHost(metadata: LinkMetadata): LinkMetadata {
+      if (!metadata.host) return metadata;
+      const host = metadata.host.replace(/^www\./i, "");
+      return host === metadata.host ? metadata : { ...metadata, host };
    }
 
    /**
@@ -78,6 +102,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
       if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
+      if (CheckIf.isStackExchangeUrl(url)) return this.fetchStackExchange(url);
 
       return this.fetchGeneric(url);
    }
@@ -103,6 +128,12 @@ export class LinkMetadataFetcher {
       "x.com": "X",
       "twitter.com": "X",
       "arxiv.org": "arXiv",
+      "stackoverflow.com": "Stack Overflow",
+      "serverfault.com": "Server Fault",
+      "superuser.com": "Super User",
+      "askubuntu.com": "Ask Ubuntu",
+      "mathoverflow.net": "MathOverflow",
+      "stackexchange.com": "Stack Exchange",
    };
 
    /**
@@ -347,7 +378,7 @@ export class LinkMetadataFetcher {
          if (!res || res.status !== 200) return this.fetchGeneric(url);
          const metadata = await new LinkMetadataParser(url, res.text).parse();
          if (!metadata) return this.fetchGeneric(url);
-         return { ...metadata, author: metadata.title ?? undefined, host: "www.youtube.com", favicon: "https://www.youtube.com/favicon.ico" };
+         return { ...metadata, author: metadata.title ?? undefined, host: "youtube.com", favicon: "https://www.youtube.com/favicon.ico" };
       }
 
       // Videos and playlists: both supported by oEmbed
@@ -370,7 +401,7 @@ export class LinkMetadataFetcher {
          title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
          author: data.author_name ?? undefined,
          description: LinkMetadataParser.sanitizeText(description),
-         host: "www.youtube.com",
+         host: "youtube.com",
          favicon: "https://www.youtube.com/favicon.ico",
          image,
          duration: isPlaylist ? "Playlist" : videoDuration,
@@ -495,7 +526,7 @@ export class LinkMetadataFetcher {
          description: data.description
             ? LinkMetadataParser.sanitizeText(data.description)
             : undefined,
-         host: "www.dailymotion.com",
+         host: "dailymotion.com",
          favicon: "https://www.dailymotion.com/favicon.ico",
          image: data.thumbnail_720_url,
          duration: this.formatDuration(data.duration),
@@ -635,7 +666,7 @@ export class LinkMetadataFetcher {
       return {
          ...metadata,
          author: this.extractTedSpeaker(res.text),
-         host: "www.ted.com",
+         host: "ted.com",
          favicon: "https://www.ted.com/favicon.ico",
          duration: this.extractIso8601Duration(res.text),
       };
@@ -672,7 +703,31 @@ export class LinkMetadataFetcher {
    // If the scrape half breaks, the card still has a title and subreddit from oEmbed.
    private async fetchReddit(url: string, refresh = false): Promise<LinkMetadata | undefined> {
       const isPost = LinkMetadataFetcher.REDDIT_POST_URL.test(url);
+      const result = await this.fetchRedditCard(url, refresh, isPost);
 
+      // A text or link post, a profile and a subreddit all have no image of their own, and
+      // Reddit answers share.redd.it/preview/… with one static branded graphic (Snoo +
+      // wordmark) - the same tile Notion shows.
+      //
+      // The endpoint ignores what it is asked for: /post/<id>, /user/<name>, a made-up id and
+      // a nonexistent user all returned the identical 54014-byte file (sha1 a9f3283…) when
+      // checked on 2026-09-02. Posts and profiles use the form Reddit declares as their own
+      // og:image, so they follow along if it ever becomes a real per-item preview; subreddits,
+      // for which Reddit declares only the 192px favicon, borrow the post form. Should that
+      // ever start 404ing, the card simply drops the thumbnail.
+      if (result && !result.image) {
+         const key = url.match(/\/comments\/(\w+)/)?.[1]
+            ?? (isPost ? undefined : url.match(/reddit\.com\/r\/([^/?#]+)/i)?.[1]);
+         const user = url.match(/reddit\.com\/(?:u|user)\/([^/?#]+)/i)?.[1];
+         if (key) result.image = `https://share.redd.it/preview/post/${encodeURIComponent(key)}`;
+         else if (user) result.image = `https://share.redd.it/preview/user/${encodeURIComponent(user)}`;
+      }
+      return result;
+   }
+
+   private async fetchRedditCard(
+      url: string, refresh: boolean, isPost: boolean
+   ): Promise<LinkMetadata | undefined> {
       // Both endpoints only handle individual posts — oEmbed answers 400 for a subreddit or
       // profile URL — so don't spend a request finding that out.
       if (isPost) {
@@ -696,7 +751,7 @@ export class LinkMetadataFetcher {
       // name in the URL is both accurate and more useful than that, so prefer it.
       if (metadata && this.isGenericRedditPage(metadata.title)) {
          const name = this.redditNameFromUrl(url);
-         if (name) return { ...metadata, title: name, host: "www.reddit.com" };
+         if (name) return { ...metadata, title: name, host: "reddit.com" };
       }
 
       return metadata;
@@ -794,7 +849,7 @@ export class LinkMetadataFetcher {
          // here would describe the wrong thing. The post's actual self-text instead sits
          // inside its entry's <content>, extracted separately below.
          description: isPost ? this.extractRedditFeedEntryBody(res.text) : LinkMetadataParser.sanitizeText(subtitle),
-         host: "www.reddit.com",
+         host: "reddit.com",
          favicon: "https://www.reddit.com/favicon.ico",
          indent: 0,
       };
@@ -928,7 +983,7 @@ export class LinkMetadataFetcher {
                ? `r/${subreddit}`
                : json.author_name ? `u/${json.author_name}` : undefined,
             description,
-            host: "www.reddit.com",
+            host: "reddit.com",
             favicon: "https://www.reddit.com/favicon.ico",
             image: embed?.image,
             indent: 0,
@@ -1300,7 +1355,7 @@ export class LinkMetadataFetcher {
             description: rawDesc
                ? LinkMetadataParser.sanitizeText(rawDesc)
                : undefined,
-            host: "www.printables.com",
+            host: "printables.com",
             favicon: "https://www.printables.com/favicon.ico",
             image,
             indent: 0,
@@ -1338,7 +1393,7 @@ export class LinkMetadataFetcher {
 
          return {
             ...metadata,
-            host: "www.printables.com",
+            host: "printables.com",
             favicon: "https://www.printables.com/favicon.ico",
          };
       } catch {
@@ -1358,7 +1413,7 @@ export class LinkMetadataFetcher {
          url,
          title,
          description: `3D model #${modelId} on Printables.com`,
-         host: "www.printables.com",
+         host: "printables.com",
          favicon: "https://www.printables.com/favicon.ico",
          indent: 0,
       };
@@ -1385,7 +1440,7 @@ export class LinkMetadataFetcher {
          url,
          title: item.l + (item.y ? ` (${item.y})` : ""),
          description: item.s ?? undefined,
-         host: "www.imdb.com",
+         host: "imdb.com",
          favicon: "https://www.imdb.com/favicon.ico",
          image: item.i?.imageUrl ?? undefined,
          indent: 0,
@@ -1419,7 +1474,7 @@ export class LinkMetadataFetcher {
          url,
          title,
          description,
-         host: "www.imdb.com",
+         host: "imdb.com",
          favicon: "https://www.imdb.com/favicon.ico",
          indent: 0,
       };
@@ -1719,28 +1774,34 @@ export class LinkMetadataFetcher {
    }
 
    /* --- ARXIV --- */
+
+   // arXiv's own og:image. A paper has no figure of its own, and the homepage carries no
+   // og:* tags at all, so both lean on this. The version segment can move on a frontend
+   // release; a stale URL just 404s and the card drops the thumbnail.
+   private static readonly ARXIV_LOGO = "https://arxiv.org/static/browse/0.3.4/images/arxiv-logo-fb.png";
+
    private async fetchArxiv(url: string): Promise<LinkMetadata | undefined> {
       // arxiv.org/(abs|pdf|format|html)/<id>, where <id> is "1706.03762", "1706.03762v3", or
       // an old-style "hep-th/9901001". A trailing ".pdf" and any query/hash aren't part of it.
       const id = url
          .match(/arxiv\.org\/(?:abs|pdf|format|html)\/([^\s?#]+)/i)?.[1]
          ?.replace(/\.pdf$/i, "");
-      if (!id) return this.fetchGeneric(url);
+      if (!id) return this.arxivGeneric(url);
 
       // The Atom API returns one <entry> with the full abstract, the author list and the date
       // - the abs page only has a truncated og:description and "Last, First" author names.
       const res = await this.request(
          `https://export.arxiv.org/api/query?id_list=${encodeURIComponent(id)}`
       );
-      if (!res || res.status !== 200) return this.fetchGeneric(url);
+      if (!res || res.status !== 200) return this.arxivGeneric(url);
 
       const entry = res.text.split("<entry>")[1]?.split("</entry>")[0];
-      if (!entry) return this.fetchGeneric(url);
+      if (!entry) return this.arxivGeneric(url);
 
       const clean = (raw: string | undefined) => this.decodeXmlText(raw)?.replace(/\s+/g, " ").trim();
       const title = clean(entry.match(/<title>([\s\S]*?)<\/title>/)?.[1]);
       const summary = clean(entry.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]);
-      if (!title) return this.fetchGeneric(url);
+      if (!title) return this.arxivGeneric(url);
 
       const authors = [...entry.matchAll(/<name>([\s\S]*?)<\/name>/g)]
          .map(m => clean(m[1]))
@@ -1758,8 +1819,218 @@ export class LinkMetadataFetcher {
          description: LinkMetadataParser.sanitizeText(summary),
          host: "arxiv.org",
          favicon: "https://arxiv.org/favicon.ico",
+         image: LinkMetadataFetcher.ARXIV_LOGO,
          indent: 0,
       };
+   }
+
+   /**
+    * Anything on arxiv.org the Atom API can't answer for — the homepage above all.
+    *
+    * The page reads fine generically (a `<title>` and a meta description, no og:* tags at
+    * all), so the only thing missing is the logo the paper cards already carry.
+    */
+   private async arxivGeneric(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      if (!metadata) return metadata;
+      return {
+         ...metadata,
+         image: metadata.image ?? LinkMetadataFetcher.ARXIV_LOGO,
+         favicon: metadata.favicon ?? "https://arxiv.org/favicon.ico",
+      };
+   }
+
+   /* --- STACK EXCHANGE --- */
+
+   // Every Stack Exchange site (stackoverflow.com, superuser.com, math.stackexchange.com, …)
+   // now 403s a non-browser request and microlink can't get through either, so the card is
+   // built from api.stackexchange.com instead - one endpoint, `?site=<name>`, no auth. The
+   // anonymous quota is 300/day/IP, hence the session cache.
+   private static readonly stackExchangeCache = new Map<string, LinkMetadata>();
+
+   private stackExchangeSite(hostname: string): string | undefined {
+      const host = hostname.toLowerCase().replace(/^www\./, "");
+      const named: Record<string, string> = {
+         "stackoverflow.com": "stackoverflow",
+         "serverfault.com": "serverfault",
+         "superuser.com": "superuser",
+         "askubuntu.com": "askubuntu",
+         "stackapps.com": "stackapps",
+         "mathoverflow.net": "mathoverflow",
+      };
+      if (named[host]) return named[host];
+      // math.stackexchange.com → "math", meta.stackoverflow.com → "meta.stackoverflow"
+      const m = host.match(/^(.+)\.stackexchange\.com$/);
+      if (m) return m[1];
+      const meta = host.match(/^meta\.(stackoverflow|serverfault|superuser|askubuntu)\.com$/);
+      return meta ? `meta.${meta[1]}` : undefined;
+   }
+
+   private async fetchStackExchange(url: string): Promise<LinkMetadata | undefined> {
+      let parsed: URL;
+      try { parsed = new URL(url); } catch { return this.fetchGeneric(url); }
+
+      const site = this.stackExchangeSite(parsed.hostname);
+      if (!site) return this.fetchGeneric(url);
+
+      if (CheckIf.isStackExchangeSiteUrl(url)) {
+         return (await this.stackExchangeSiteCard(site, url)) ?? this.fetchGeneric(url);
+      }
+
+      const path = parsed.pathname + parsed.hash;
+      let questionId = path.match(/\/(?:questions|q)\/(\d+)/)?.[1];
+      const answerId = path.match(/\/a\/(\d+)/)?.[1]
+         ?? path.match(/\/questions\/\d+\/[^/]+\/(\d+)(?:$|[?#])/)?.[1]
+         ?? path.match(/#(?:answer-)?(\d+)/)?.[1];
+
+      // An answer link names an answer, not the question. Resolve it: it always yields the
+      // question id (needed for the /a/<id> form, which carries nothing else) and the answer's
+      // author, shown as an "Answer by …" note on top of the question card.
+      let answerNote: string | undefined;
+      if (answerId && answerId !== questionId) {
+         const ans = await this.stackExchangeApi(`answers/${answerId}`, site);
+         const item = ans?.items?.[0] as { question_id?: number; owner?: { display_name?: string; }; } | undefined;
+         if (item?.question_id) {
+            questionId = String(item.question_id);
+            answerNote = item.owner?.display_name ? `Answer by ${item.owner.display_name}` : "Linked to an answer";
+         } else if (!questionId) {
+            return this.fetchGeneric(url);
+         }
+      }
+
+      if (!questionId) return this.fetchGeneric(url);
+
+      // The cache holds the plain question card; the answer note is layered on afterwards, so a
+      // /q link and a /a link to the same question share the cached fetch but read differently.
+      const base = await this.stackExchangeQuestionCard(site, questionId, parsed.hostname);
+      if (!base) return this.fetchGeneric(url);
+
+      const description = answerNote
+         ? LinkMetadataParser.sanitizeText(`${answerNote} · ${base.description ?? ""}`)
+         : base.description;
+      return { ...base, url, description };
+   }
+
+   private async stackExchangeQuestionCard(
+      site: string, questionId: string, hostname: string
+   ): Promise<LinkMetadata | undefined> {
+      const cacheKey = `${site}:${questionId}`;
+      const cached = LinkMetadataFetcher.stackExchangeCache.get(cacheKey);
+      if (cached) return cached;
+
+      const json = await this.stackExchangeApi(`questions/${questionId}`, site, "withbody");
+      const q = json?.items?.[0] as {
+         title?: string; body?: string;
+         score?: number; answer_count?: number; is_answered?: boolean;
+         owner?: { display_name?: string; };
+      } | undefined;
+      if (!q?.title) return undefined;
+
+      const stats = [
+         this.stackExchangeCount(q.score ?? 0, "vote"),
+         `${this.stackExchangeCount(q.answer_count ?? 0, "answer")}${q.is_answered ? " ✓" : ""}`,
+      ].join(" · ");
+      const excerpt = q.body
+         ? this.decodeXmlText(q.body.replace(/<[^>]+>/g, " "))?.replace(/\s+/g, " ").trim()
+         : undefined;
+      const host = hostname.replace(/^www\./, "");
+
+      const card: LinkMetadata = {
+         url: `https://${host}/questions/${questionId}`,
+         title: LinkMetadataParser.sanitizeText(this.decodeXmlText(q.title) ?? q.title, 300) ?? q.title,
+         author: q.owner?.display_name,
+         description: LinkMetadataParser.sanitizeText([stats, excerpt].filter(Boolean).join(" · ")),
+         host,
+         favicon: `https://${host}/favicon.ico`,
+         // StackOverflow only: its logo is a bold mark that reads well cropped into the
+         // thumbnail slot. The other SE sites' icons are small abstract marks that render
+         // poorly there, so those cards stay imageless (the page's real og:image is behind
+         // the 403 and unreachable anyway).
+         image: host === "stackoverflow.com" ? "https://stackoverflow.com/apple-touch-icon.png" : undefined,
+         indent: 0,
+      };
+      LinkMetadataFetcher.stackExchangeCache.set(cacheKey, card);
+      return card;
+   }
+
+   /**
+    * The card for a network site's front page.
+    *
+    * `/2.3/sites` describes all 365 of them in one (site-less) call — name, audience and the
+    * icon set — so a single request covers every SE homepage the vault will ever hold, and
+    * it answers even though the pages themselves 403 us.
+    */
+   private async stackExchangeSiteCard(site: string, url: string): Promise<LinkMetadata | undefined> {
+      const info = (await this.stackExchangeSites())?.get(site);
+      if (!info?.name) return undefined;
+
+      const name = this.decodeXmlText(info.name) ?? info.name;
+      const audience = info.audience ? this.decodeXmlText(info.audience) ?? info.audience : undefined;
+      const host = info.site_url?.replace(/^https?:\/\//, "").replace(/\/$/, "")
+         ?? new URL(url).hostname.replace(/^www\./, "");
+
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(name, 300) ?? name,
+         description: audience
+            ? LinkMetadataParser.sanitizeText(`Q&A for ${audience}`)
+            : undefined,
+         host,
+         favicon: info.favicon_url ?? `https://${host}/favicon.ico`,
+         // The square site mark, at the 2x size. Unlike `logo_url` (a wide wordmark that the
+         // thumbnail slot would crop to a fragment) it fills the tile as-is.
+         //
+         // `thumbnailQuality` doesn't branch here: 2x is 300px, still under what the 200px
+         // slot wants on a retina display, so it is both the best-looking size and the
+         // largest one the API offers. The 1x `icon_url` would only ever be the softer of
+         // the two, never the smaller-and-good-enough the "Best looking" option promises.
+         image: info.high_resolution_icon_url ?? info.icon_url,
+         indent: 0,
+      };
+   }
+
+   private static stackExchangeSiteList: Map<string, StackExchangeSite> | undefined;
+
+   private async stackExchangeSites(): Promise<Map<string, StackExchangeSite> | undefined> {
+      if (LinkMetadataFetcher.stackExchangeSiteList) return LinkMetadataFetcher.stackExchangeSiteList;
+
+      const json = await this.stackExchangeJson("sites?pagesize=500");
+      const items = json?.items as StackExchangeSite[] | undefined;
+      if (!items?.length) return undefined;
+
+      const map = new Map<string, StackExchangeSite>();
+      for (const item of items) {
+         if (item.api_site_parameter) map.set(item.api_site_parameter, item);
+      }
+      LinkMetadataFetcher.stackExchangeSiteList = map;
+      return map;
+   }
+
+   private stackExchangeApi(
+      pathAndId: string, site: string, filter?: string
+   ): Promise<{ items?: unknown[]; quota_remaining?: number; } | undefined> {
+      const qs = `site=${encodeURIComponent(site)}${filter ? `&filter=${filter}` : ""}`;
+      return this.stackExchangeJson(`${pathAndId}?${qs}`);
+   }
+
+   private async stackExchangeJson(
+      pathAndQuery: string
+   ): Promise<{ items?: unknown[]; quota_remaining?: number; } | undefined> {
+      const res = await this.request(`https://api.stackexchange.com/2.3/${pathAndQuery}`, {
+         "Accept": "application/json",
+      });
+      if (!res || res.status !== 200) return undefined;
+      try {
+         return JSON.parse(res.text) as { items?: unknown[]; quota_remaining?: number; };
+      } catch {
+         return undefined;
+      }
+   }
+
+   private stackExchangeCount(n: number, noun: string): string {
+      const label = Math.abs(n) === 1 ? noun : `${noun}s`;
+      const value = Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+      return `${value} ${label}`;
    }
 
    /* --- ENCODING --- */
