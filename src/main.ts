@@ -239,7 +239,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     step();
   }
 
-  private getCardlinkAtMouse(): { url: string; lineStart: number; lineEnd: number; } | undefined {
+  private getCardlinkAtMouse(editor?: Editor): { url: string; lineStart: number; lineEnd: number; } | undefined {
     // Use :hover on the element itself, not as a descendant selector
     const el = activeDocument.querySelector(".auto-card-link-container[data-cardlink-url]:hover");
     if (!el || !(el.instanceOf(HTMLElement))) return;
@@ -249,7 +249,75 @@ export default class ObsidianAutoCardLink extends Plugin {
     const lineEnd = parseInt(el.dataset.cardlinkLineEnd ?? "");
 
     if (!url || isNaN(lineStart) || isNaN(lineEnd)) return;
-    return { url, lineStart, lineEnd };
+
+    const live = editor ? this.cardlinkBlockFromDom(editor, el, url) : undefined;
+    return live ?? { url, lineStart, lineEnd };
+  }
+
+  /**
+   * The lines the hovered card really occupies, asked of CodeMirror rather than of the
+   * coordinates the block recorded when it rendered.
+   *
+   * `getSectionInfo` is read once, at render time, and goes stale as soon as an edit above
+   * shifts the lines - refreshing another card is enough, and the block below is not
+   * re-rendered for it. A stale line normally fails resolveCardlinkRange's url check and
+   * falls back to a document scan, but two cards for the same URL make that check pass
+   * against the wrong block, so the action lands on the other copy. Mapping the live DOM
+   * node back to a position tells them apart; the recorded lines stay as the fallback for
+   * whatever isn't a CodeMirror editor.
+   */
+  private cardlinkBlockFromDom(
+    editor: Editor,
+    el: HTMLElement,
+    url: string
+  ): { url: string; lineStart: number; lineEnd: number; } | undefined {
+    const cm = (editor as Editor & { cm?: { posAtDOM?: (node: Node) => number; }; }).cm;
+    if (typeof cm?.posAtDOM !== "function") return undefined;
+
+    let line: number;
+    try {
+      line = editor.offsetToPos(cm.posAtDOM(el)).line;
+    } catch {
+      return undefined;
+    }
+
+    // The widget can report the boundary either side of the fence it replaces.
+    const lines = editor.getValue().split(/\r?\n/);
+    for (const candidate of [line, line + 1, line - 1]) {
+      const block = this.cardlinkBlockContaining(lines, candidate);
+      if (block?.url === url) return block;
+    }
+    return undefined;
+  }
+
+  /** The cardlink block the given line falls inside, fences included. */
+  private cardlinkBlockContaining(
+    lines: string[],
+    line: number
+  ): { url: string; lineStart: number; lineEnd: number; } | undefined {
+    if (line < 0 || line >= lines.length) return undefined;
+
+    let lineStart = -1;
+    for (let i = line; i >= 0; i--) {
+      const text = (lines[i] ?? "").trim();
+      if (text.startsWith("```cardlink")) { lineStart = i; break; }
+      // A closing fence above means the line sits after a block, not inside one.
+      if (i !== line && text === "```") return undefined;
+    }
+    if (lineStart < 0) return undefined;
+
+    let url: string | undefined;
+    for (let j = lineStart + 1; j < lines.length; j++) {
+      const inner = lines[j] ?? "";
+      if (!url) {
+        const m = inner.match(/^url:\s*(.+)$/);
+        if (m) url = m[1]?.trim().replace(/^["']|["']$/g, "");
+      }
+      if (inner.trim() === "```") {
+        return url && line <= j ? { url, lineStart, lineEnd: j } : undefined;
+      }
+    }
+    return undefined;
   }
 
   private getCardlinkUrlAtCursor(editor: Editor): string | undefined {
@@ -432,10 +500,19 @@ export default class ObsidianAutoCardLink extends Plugin {
       }
     } else {
       const cursor = editor.getCursor();
+
+      // The block the cursor is actually in wins outright. Without this the scan below picks
+      // the nearest match and, on a tie between two cards for the same URL, the earlier one.
+      const containing = this.cardlinkBlockContaining(lines, cursor.line);
+      if (containing?.url === url) {
+        blockStart = containing.lineStart;
+        blockEnd = containing.lineEnd;
+      }
+
       let bestDistance = Infinity;
       let i = Math.max(0, cursor.line - 20);
 
-      while (i < lines.length) {
+      while (blockStart < 0 && i < lines.length) {
         const line = lines[i] ?? "";
         if (line.trim().startsWith("```cardlink")) {
           let end = -1;
@@ -846,7 +923,7 @@ export default class ObsidianAutoCardLink extends Plugin {
 
   private onEditorMenu = (menu: Menu, editor: Editor) => {
     let entryChosen = false;
-    const cardlinkAtMouse = this.getCardlinkAtMouse();
+    const cardlinkAtMouse = this.getCardlinkAtMouse(editor);
 
     // Right-clicking a rendered cardlink moves the cursor into its block, which shifts
     // the layout underneath the pointer. Pin the card where it was.
