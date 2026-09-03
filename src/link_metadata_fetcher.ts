@@ -1942,11 +1942,9 @@ export class LinkMetadataFetcher {
          description: LinkMetadataParser.sanitizeText([stats, excerpt].filter(Boolean).join(" · ")),
          host,
          favicon: `https://${host}/favicon.ico`,
-         // StackOverflow only: its logo is a bold mark that reads well cropped into the
-         // thumbnail slot. The other SE sites' icons are small abstract marks that render
-         // poorly there, so those cards stay imageless (the page's real og:image is behind
-         // the 403 and unreachable anyway).
-         image: host === "stackoverflow.com" ? "https://stackoverflow.com/apple-touch-icon.png" : undefined,
+         // No image. The page's real og:image is behind the 403, and every SE site's only
+         // other mark is its apple-touch-icon - the favicon at a larger size, which the card
+         // would then show twice. An imageless card is the honest one.
          indent: 0,
       };
       LinkMetadataFetcher.stackExchangeCache.set(cacheKey, card);
