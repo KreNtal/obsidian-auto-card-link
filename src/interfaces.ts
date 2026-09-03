@@ -102,6 +102,37 @@ export interface XSyndicationResponse {
 }
 
 /** One entry of `api.stackexchange.com/2.3/sites`, the network's own site directory. */
+export interface BlueskyAuthor {
+  did?: string;
+  handle?: string;
+  displayName?: string;
+  avatar?: string;
+}
+
+export interface BlueskyPost {
+  uri?: string;
+  author?: BlueskyAuthor;
+  record?: { text?: string; };
+  /** Images and link cards; the shape varies by embed type. */
+  embed?: {
+    images?: Array<{ thumb?: string; fullsize?: string; }>;
+    external?: { thumb?: string; };
+    media?: { images?: Array<{ thumb?: string; fullsize?: string; }>; };
+  };
+  replyCount?: number;
+  repostCount?: number;
+  likeCount?: number;
+}
+
+export interface BlueskyProfile {
+  handle?: string;
+  displayName?: string;
+  description?: string;
+  avatar?: string;
+  banner?: string;
+  followersCount?: number;
+}
+
 export interface HackerNewsItem {
   id?: number;
   /** story | comment | job | poll | pollopt */

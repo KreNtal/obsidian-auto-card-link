@@ -1,5 +1,7 @@
 import { Notice, requestUrl } from "obsidian";
 import {
+   BlueskyPost,
+   BlueskyProfile,
    HackerNewsItem,
    HackerNewsUser,
    DailymotionVideoResponse, GitHubRepoResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, OEmbedResponse,
@@ -107,6 +109,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isStackExchangeUrl(url)) return this.fetchStackExchange(url);
       if (CheckIf.isLinkedInUrl(url)) return this.fetchLinkedIn(url);
       if (CheckIf.isHackerNewsUrl(url)) return this.fetchHackerNews(url);
+      if (CheckIf.isBlueskyUrl(url)) return this.fetchBluesky(url);
 
       return this.fetchGeneric(url);
    }
@@ -140,6 +143,7 @@ export class LinkMetadataFetcher {
       "stackexchange.com": "Stack Exchange",
       "linkedin.com": "LinkedIn",
       "news.ycombinator.com": "Hacker News",
+      "bsky.app": "Bluesky",
    };
 
    /**
@@ -2126,8 +2130,16 @@ export class LinkMetadataFetcher {
    }
 
    private countLabel(n: number, noun: string): string {
-      const label = Math.abs(n) === 1 ? noun : `${noun}s`;
-      const value = Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+      const abs = Math.abs(n);
+      // "reply" -> "replies", not "replys". A consonant before the y is what distinguishes
+      // it from "day"/"days".
+      const plural = /[^aeiou]y$/i.test(noun) ? `${noun.slice(0, -1)}ies` : `${noun}s`;
+      const label = abs === 1 ? noun : plural;
+      const value = abs >= 1_000_000
+         ? `${(n / 1_000_000).toFixed(1)}M`
+         : abs >= 1000
+            ? `${(n / 1000).toFixed(1)}k`
+            : String(n);
       return `${value} ${label}`;
    }
 
@@ -2234,6 +2246,142 @@ export class LinkMetadataFetcher {
     * request entirely, instead of falling back to its default below - the way a caller opts
     * out of, say, the default Accept-Language rather than merely not overriding it.
     */
+   /* --- BLUESKY --- */
+
+   /**
+    * Bluesky, through the public AppView - no auth, no key, no quota.
+    *
+    * bsky.app does serve real `og:*`, so the generic path already reads a post: the title is
+    * "<name> (@<handle>)", the description is the post's text, the image is the attached photo
+    * or the author's avatar. This path exists for what those tags cannot say:
+    *
+    *   - a deleted post answers 200 with **no og tags at all**, so the generic read comes back
+    *     titled just "Bluesky", a card that says nothing while looking like it does;
+    *   - likes, reposts and replies exist only in the API.
+    *
+    * The URL's handle can go straight into the at:// URI - the AppView resolves it - so a post
+    * costs one request, not a handle-to-DID round trip first.
+    */
+   private async fetchBluesky(url: string): Promise<LinkMetadata | undefined> {
+      const path = url.match(/bsky[.]app\/profile\/([^/?#]+)(?:\/post\/([^/?#]+))?/i);
+      const actor = path?.[1] ? decodeURIComponent(path[1]) : undefined;
+      if (!actor) return this.fetchGeneric(url);
+
+      return path?.[2]
+         ? this.blueskyPostCard(url, actor, path[2])
+         : this.blueskyProfileCard(url, actor);
+   }
+
+   private async blueskyPostCard(url: string, actor: string, rkey: string): Promise<LinkMetadata> {
+      const uri = `at://${actor}/app.bsky.feed.post/${rkey}`;
+      const json = await this.blueskyJson<{ thread?: { post?: BlueskyPost; }; }>(
+         `app.bsky.feed.getPostThread?uri=${encodeURIComponent(uri)}&depth=0&parentHeight=0`
+      );
+      const post = json?.thread?.post;
+      if (!post?.author?.handle) return this.blueskyFallback(url, actor);
+
+      const handle = post.author.handle;
+      const counts = [
+         this.countLabel(post.likeCount ?? 0, "like"),
+         this.countLabel(post.repostCount ?? 0, "repost"),
+         this.countLabel(post.replyCount ?? 0, "reply"),
+      ].join(" · ");
+      const text = this.blueskyText(post.record?.text);
+      const images = post.embed?.images ?? post.embed?.media?.images;
+
+      return {
+         url,
+         title: `${post.author.displayName?.trim() || handle} (@${handle})`,
+         // The text leads, unlike Stack Exchange and Hacker News where the counts do: there the
+         // title carries the content and the description is context, here the title is only
+         // the author. Which means the text is what runs long, so it is trimmed to leave room
+         // for the counts - trimming the joined string instead cut it mid-separator and left
+         // a card ending in "· ...".
+         description: LinkMetadataParser.sanitizeText(
+            [this.fitBefore(text, counts), counts].filter(Boolean).join(" · ")
+         ),
+         host: "bsky.app",
+         // bsky.app/favicon.ico is a 404 - the icon only exists under /static/.
+         favicon: "https://bsky.app/static/favicon-32x32.png",
+         // The post's own picture when it has one, the link card's thumbnail when it is a
+         // link, and the author's avatar otherwise - which is what Bluesky's own og:image does.
+         image: images?.[0]?.thumb ?? post.embed?.external?.thumb ?? post.author.avatar,
+         indent: 0,
+      };
+   }
+
+   private async blueskyProfileCard(url: string, actor: string): Promise<LinkMetadata> {
+      const profile = await this.blueskyJson<BlueskyProfile>(
+         `app.bsky.actor.getProfile?actor=${encodeURIComponent(actor)}`
+      );
+      if (!profile?.handle) return this.blueskyFallback(url, actor);
+
+      const bio = this.blueskyText(profile.description);
+      const followers = this.countLabel(profile.followersCount ?? 0, "follower");
+
+      return {
+         url,
+         title: `${profile.displayName?.trim() || profile.handle} (@${profile.handle})`,
+         description: LinkMetadataParser.sanitizeText(
+            [this.fitBefore(bio, followers), followers].filter(Boolean).join(" · ")
+         ),
+         host: "bsky.app",
+         favicon: "https://bsky.app/static/favicon-32x32.png",
+         // The banner is the wide image a profile actually presents; the avatar is the
+         // fallback, and the only thing a profile without a banner has.
+         image: profile.banner ?? profile.avatar,
+         indent: 0,
+      };
+   }
+
+   /**
+    * A post's text and a profile's bio are written in paragraphs. Flattening every run of
+    * whitespace to one space runs the paragraphs together into one sentence that reads as a
+    * mistake; a blank line becomes the same separator the rest of the card uses.
+    */
+   private blueskyText(text: string | undefined): string | undefined {
+      const flat = text
+         ?.replace(/\s*\n\s*\n\s*/g, " · ")
+         .replace(/\s+/g, " ")
+         .trim();
+      return flat || undefined;
+   }
+
+   /**
+    * Trims `text` so that it and `tail` together still fit a card description: room has to be
+    * left for the " · " that joins them *and* for the "..." sanitizeText adds when it
+    * cuts, or the join overruns the limit and gets cut a second time - which is what put a
+    * truncated count on the end of a long post.
+    */
+   private fitBefore(text: string | undefined, tail: string, limit = 300): string | undefined {
+      if (!text) return undefined;
+      const room = limit - tail.length - " · ".length - "...".length;
+      return room >= 40 ? LinkMetadataParser.sanitizeText(text, room) : text;
+   }
+
+   private async blueskyJson<T>(pathAndQuery: string): Promise<T | undefined> {
+      const res = await this.request(`https://public.api.bsky.app/xrpc/${pathAndQuery}`, {
+         "Accept": "application/json",
+      });
+      if (!res || res.status !== 200) return undefined;
+      try {
+         return JSON.parse(res.text) as T;
+      } catch {
+         return undefined;
+      }
+   }
+
+   /** A deleted post or an unknown handle. The URL still names who was being read. */
+   private blueskyFallback(url: string, actor: string): LinkMetadata {
+      return {
+         url,
+         title: actor.startsWith("did:") ? "Bluesky" : `@${actor}`,
+         host: "bsky.app",
+         favicon: "https://bsky.app/static/favicon-32x32.png",
+         indent: 0,
+      };
+   }
+
    /* --- HACKER NEWS --- */
 
    /**

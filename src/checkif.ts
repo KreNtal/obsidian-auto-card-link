@@ -73,6 +73,11 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?arxiv\.org\/?([?#]|$)/i.test(url);
   }
 
+  public static isBlueskyUrl(url: string): boolean {
+    // A post or a profile. The handle may also be a raw DID, which the API accepts as-is.
+    return /^https?:\/\/bsky\.app\/profile\/[^/?#]+/i.test(url);
+  }
+
   public static isHackerNewsUrl(url: string): boolean {
     // Only the two routes the API can answer for. /newest, /front and the front page carry
     // nothing an API call improves on, so they stay generic.
