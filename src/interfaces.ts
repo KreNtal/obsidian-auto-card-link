@@ -102,6 +102,30 @@ export interface XSyndicationResponse {
 }
 
 /** One entry of `api.stackexchange.com/2.3/sites`, the network's own site directory. */
+export interface HackerNewsItem {
+  id?: number;
+  /** story | comment | job | poll | pollopt */
+  type?: string;
+  by?: string;
+  title?: string;
+  /** The link a story points at; absent on Ask HN, polls and comments. */
+  url?: string;
+  /** HTML, entity-escaped: the body of an Ask HN, a job ad or a comment. */
+  text?: string;
+  score?: number;
+  descendants?: number;
+  parent?: number;
+  deleted?: boolean;
+  dead?: boolean;
+}
+
+export interface HackerNewsUser {
+  id?: string;
+  karma?: number;
+  about?: string;
+  created?: number;
+}
+
 export interface StackExchangeSite {
   api_site_parameter?: string;
   name?: string;

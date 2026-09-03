@@ -1,5 +1,7 @@
 import { Notice, requestUrl } from "obsidian";
 import {
+   HackerNewsItem,
+   HackerNewsUser,
    DailymotionVideoResponse, GitHubRepoResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, OEmbedResponse,
    PrintablesGraphQLResponse, StackExchangeSite, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
@@ -104,6 +106,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
       if (CheckIf.isStackExchangeUrl(url)) return this.fetchStackExchange(url);
       if (CheckIf.isLinkedInUrl(url)) return this.fetchLinkedIn(url);
+      if (CheckIf.isHackerNewsUrl(url)) return this.fetchHackerNews(url);
 
       return this.fetchGeneric(url);
    }
@@ -136,6 +139,7 @@ export class LinkMetadataFetcher {
       "mathoverflow.net": "MathOverflow",
       "stackexchange.com": "Stack Exchange",
       "linkedin.com": "LinkedIn",
+      "news.ycombinator.com": "Hacker News",
    };
 
    /**
@@ -997,6 +1001,9 @@ export class LinkMetadataFetcher {
          ?.replace(/&gt;/g, ">")
          ?.replace(/&quot;/g, '"')
          ?.replace(/&#39;|&apos;/g, "'")
+         ?.replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+         ?.replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(parseInt(code, 16)))
+         // Last, so a literal "&amp;#39;" doesn't turn into an apostrophe.
          ?.replace(/&amp;/g, "&")
          ?.trim();
    }
@@ -2020,8 +2027,8 @@ export class LinkMetadataFetcher {
       if (!q?.title) return undefined;
 
       const stats = [
-         this.stackExchangeCount(q.score ?? 0, "vote"),
-         `${this.stackExchangeCount(q.answer_count ?? 0, "answer")}${q.is_answered ? " ✓" : ""}`,
+         this.countLabel(q.score ?? 0, "vote"),
+         `${this.countLabel(q.answer_count ?? 0, "answer")}${q.is_answered ? " ✓" : ""}`,
       ].join(" · ");
       const excerpt = q.body
          ? this.decodeXmlText(q.body.replace(/<[^>]+>/g, " "))?.replace(/\s+/g, " ").trim()
@@ -2118,7 +2125,7 @@ export class LinkMetadataFetcher {
       }
    }
 
-   private stackExchangeCount(n: number, noun: string): string {
+   private countLabel(n: number, noun: string): string {
       const label = Math.abs(n) === 1 ? noun : `${noun}s`;
       const value = Math.abs(n) >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
       return `${value} ${label}`;
@@ -2227,6 +2234,149 @@ export class LinkMetadataFetcher {
     * request entirely, instead of falling back to its default below - the way a caller opts
     * out of, say, the default Accept-Language rather than merely not overriding it.
     */
+   /* --- HACKER NEWS --- */
+
+   /**
+    * Hacker News, through its official Firebase API: open, unauthenticated, no quota.
+    *
+    * The API is the only way to get a story's score and comment count. The site itself
+    * serves plain HTML with no `og:*` tags at all, so the generic path can read nothing but
+    * `<title>`, which is "<story title> | Hacker News" - the title, and no more.
+    *
+    * A missing item is not a 404: the API answers 200 with the literal `null`, so the check
+    * is on the body, not the status.
+    */
+   private async fetchHackerNews(url: string): Promise<LinkMetadata | undefined> {
+      const user = url.match(/[?&]id=([^&#]+)/i)?.[1];
+      if (/\/user[?]/i.test(url)) {
+         return this.hackerNewsUserCard(url, decodeURIComponent(user ?? ""));
+      }
+
+      const id = url.match(/[?&]id=(\d+)/i)?.[1];
+      if (!id) return this.fetchGeneric(url);
+
+      const item = await this.hackerNewsItem(id);
+      if (!item) return this.hackerNewsFallback(url, "Hacker News item");
+
+      // A comment carries no title of its own. Its story does, and that is what a reader
+      // pasting the link is pointing at - so walk up to it. The chain is short in practice
+      // but unbounded in principle, hence the hop limit; past it the comment still gets a
+      // card, just without the story's name on it.
+      if (item.type === "comment") return this.hackerNewsCommentCard(url, item);
+
+      return this.hackerNewsItemCard(url, item);
+   }
+
+   private hackerNewsItemCard(url: string, item: HackerNewsItem): LinkMetadata {
+      const parts: string[] = [];
+      // A job ad has a token score of 1 and no comments; saying "1 point, 0 comments" about
+      // it is noise dressed as data.
+      if (item.type !== "job") {
+         parts.push(this.countLabel(item.score ?? 0, "point"));
+         parts.push(this.countLabel(item.descendants ?? 0, "comment"));
+      }
+      // The domain a story points at, the way Hacker News itself labels its links.
+      const target = this.hackerNewsTargetHost(item.url);
+      if (target) parts.push(target);
+      const body = this.hackerNewsText(item.text);
+      if (body) parts.push(body);
+
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(item.title, 300) ?? item.title ?? "Hacker News",
+         author: item.by,
+         description: LinkMetadataParser.sanitizeText(parts.join(" · ")),
+         host: "news.ycombinator.com",
+         favicon: "https://news.ycombinator.com/favicon.ico",
+         indent: 0,
+      };
+   }
+
+   private async hackerNewsCommentCard(url: string, comment: HackerNewsItem): Promise<LinkMetadata> {
+      let root: HackerNewsItem | undefined = comment;
+      for (let hop = 0; hop < 5 && root?.type === "comment" && root.parent !== undefined; hop++) {
+         root = await this.hackerNewsItem(String(root.parent));
+      }
+      const storyTitle = root?.type !== "comment" ? root?.title : undefined;
+      const body = this.hackerNewsText(comment.text);
+
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(storyTitle, 300) ?? storyTitle ?? "Hacker News comment",
+         author: comment.by,
+         description: LinkMetadataParser.sanitizeText(["Comment", body].filter(Boolean).join(" · ")),
+         host: "news.ycombinator.com",
+         favicon: "https://news.ycombinator.com/favicon.ico",
+         indent: 0,
+      };
+   }
+
+   private async hackerNewsUserCard(url: string, name: string): Promise<LinkMetadata> {
+      const res = name
+         ? await this.request(`https://hacker-news.firebaseio.com/v0/user/${encodeURIComponent(name)}.json`)
+         : undefined;
+      const user = this.hackerNewsJson<HackerNewsUser>(res);
+      if (!user?.id) return this.hackerNewsFallback(url, name || "Hacker News user");
+
+      // Hacker News says "karma", uncountable, and shows the exact number - so no k-shortening.
+      const parts = [`${user.karma ?? 0} karma`];
+      const about = this.hackerNewsText(user.about);
+      if (about) parts.push(about);
+
+      return {
+         url,
+         title: user.id,
+         description: LinkMetadataParser.sanitizeText(parts.join(" · ")),
+         host: "news.ycombinator.com",
+         favicon: "https://news.ycombinator.com/favicon.ico",
+         indent: 0,
+      };
+   }
+
+   private async hackerNewsItem(id: string): Promise<HackerNewsItem | undefined> {
+      const res = await this.request(`https://hacker-news.firebaseio.com/v0/item/${encodeURIComponent(id)}.json`);
+      const item = this.hackerNewsJson<HackerNewsItem>(res);
+      // Deleted and dead items still return an object, with nothing worth showing in it.
+      return item && !item.deleted && !item.dead ? item : undefined;
+   }
+
+   private hackerNewsJson<T>(res: { status: number; text: string; } | undefined): T | undefined {
+      if (!res || res.status !== 200) return undefined;
+      try {
+         return (JSON.parse(res.text) as T | null) ?? undefined;
+      } catch {
+         return undefined;
+      }
+   }
+
+   /** The story's own body, a job ad, a comment: HTML with entities, flattened to one line. */
+   private hackerNewsText(text: string | undefined): string | undefined {
+      if (!text) return undefined;
+      const flat = this.decodeXmlText(
+         text.replace(/<p>/gi, " ").replace(/<[^>]+>/g, " ")
+      )?.replace(/\s+/g, " ").trim();
+      return flat || undefined;
+   }
+
+   private hackerNewsTargetHost(target: string | undefined): string | undefined {
+      if (!target) return undefined;
+      try {
+         return new URL(target).hostname.replace(/^www[.]/i, "");
+      } catch {
+         return undefined;
+      }
+   }
+
+   private hackerNewsFallback(url: string, title: string): LinkMetadata {
+      return {
+         url,
+         title,
+         host: "news.ycombinator.com",
+         favicon: "https://news.ycombinator.com/favicon.ico",
+         indent: 0,
+      };
+   }
+
    /**
     * LinkedIn.
     *

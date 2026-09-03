@@ -73,6 +73,12 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?arxiv\.org\/?([?#]|$)/i.test(url);
   }
 
+  public static isHackerNewsUrl(url: string): boolean {
+    // Only the two routes the API can answer for. /newest, /front and the front page carry
+    // nothing an API call improves on, so they stay generic.
+    return /^https?:\/\/news\.ycombinator\.com\/(item|user)\?id=/i.test(url);
+  }
+
   public static isLinkedInUrl(url: string): boolean {
     // Any LinkedIn page, including the country subdomains (it.linkedin.com) the share
     // buttons hand out.
