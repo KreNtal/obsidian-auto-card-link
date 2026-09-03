@@ -103,6 +103,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
       if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
       if (CheckIf.isStackExchangeUrl(url)) return this.fetchStackExchange(url);
+      if (CheckIf.isLinkedInUrl(url)) return this.fetchLinkedIn(url);
 
       return this.fetchGeneric(url);
    }
@@ -134,6 +135,7 @@ export class LinkMetadataFetcher {
       "askubuntu.com": "Ask Ubuntu",
       "mathoverflow.net": "MathOverflow",
       "stackexchange.com": "Stack Exchange",
+      "linkedin.com": "LinkedIn",
    };
 
    /**
@@ -2225,6 +2227,111 @@ export class LinkMetadataFetcher {
     * request entirely, instead of falling back to its default below - the way a caller opts
     * out of, say, the default Accept-Language rather than merely not overriding it.
     */
+   /**
+    * LinkedIn.
+    *
+    * There is no API without OAuth, but the pages do describe themselves to an anonymous
+    * request: the login wall a browser hits does not stop the og:* tags from being served.
+    * Two things make this worth its own path rather than `fetchGeneric`, both checked
+    * 2026-09-03:
+    *
+    *   - `/school/<name>` answers our normal browser UA with HTTP 999 - LinkedIn's own
+    *     throttle code - and a 1.5 KB stub, while the identical request with a crawler UA
+    *     returns the full 264 KB page. `/company/`, `/in/`, `/posts/`, `/feed/update/` and
+    *     `/events/` answer either way, so the crawler UA is simply the form that works
+    *     everywhere.
+    *   - the titles carry LinkedIn's own furniture. A post is titled
+    *     `<text> | <author> | <n> comments`, a profile or company `<name> | LinkedIn`. The
+    *     comment count is noise that is stale the day after it is written into a note, and
+    *     the author belongs in the card's author field, not in its title.
+    */
+   private static readonly LINKEDIN_CRAWLER_UA =
+      "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
+
+   private async fetchLinkedIn(url: string): Promise<LinkMetadata | undefined> {
+      let res = await this.request(url, {
+         "User-Agent": LinkMetadataFetcher.LINKEDIN_CRAWLER_UA,
+         "Referer": "https://www.google.com/",
+      });
+
+      // Should LinkedIn ever stop trusting that UA, the default one still covers every route
+      // except /school/.
+      if (!res || res.status !== 200) {
+         res = await this.request(url, { "Referer": "https://www.google.com/" });
+      }
+      if (!res || res.status !== 200) return this.buildLinkedInFallback(url);
+
+      const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+
+      // Some routes (`/events/<id>` among them) answer 200 with the sign-in page instead of
+      // the content, so a card built from it would read "Sign Up | LinkedIn" as if that were
+      // the page. The title is localised - it came back in Italian on one run and English on
+      // the next - so the reliable tell is that the page declares someone else's address:
+      // every real page echoes its own URL in og:url, the wall says /login.
+      if (LinkMetadataFetcher.isLinkedInAuthWall(decodedText)) {
+         console.debug(`LinkedIn served the sign-in page for ${url}.`);
+         return this.buildLinkedInFallback(url);
+      }
+
+      const metadata = await new LinkMetadataParser(url, decodedText).parse();
+      if (!metadata) return this.buildLinkedInFallback(url);
+
+      const { title, author } = this.parseLinkedInTitle(metadata.title, url);
+      return {
+         ...metadata,
+         title,
+         author: author ?? metadata.author,
+         description: this.trimLinkedInDescription(metadata.description),
+         host: "linkedin.com",
+         favicon: metadata.favicon ?? "https://www.linkedin.com/favicon.ico",
+      };
+   }
+
+   /**
+    * Every failure above builds from the URL rather than falling back, and that is deliberate.
+    *
+    * `fetchGeneric` would only repeat the request just made. `fetchFallback` is worse:
+    * Microlink renders the page with a headless browser, hits the very same wall, and hands
+    * back a confident card built from it - a dead post came out titled "LinkedIn" with the
+    * language picker as its description, and the sign-in page came out as "LinkedIn Login,
+    * Sign in". `fetchTitleOnly` would re-read that same `<title>`. Reddit is excluded from
+    * Microlink for the same reason.
+    *
+    * A LinkedIn URL carries more than most: /posts/<handle>_<slug>-activity-<id> holds both
+    * the author's handle and the words of the post, so a dead post still reads as something
+    * a person can recognise instead of as a login form.
+    */
+   private buildLinkedInFallback(url: string): LinkMetadata {
+      const base = { url, host: "linkedin.com", favicon: "https://www.linkedin.com/favicon.ico", indent: 0 };
+
+      let path: string;
+      try {
+         path = new URL(url).pathname;
+      } catch {
+         return { ...base, title: "LinkedIn" };
+      }
+
+      const post = path.match(/^\/posts\/([^/_]+)_(.+?)-activity-\d+/i);
+      if (post) {
+         const words = LinkMetadataFetcher.deslug(post[2]);
+         return { ...base, title: words ?? "LinkedIn post", author: post[1] };
+      }
+      if (/^\/feed\/update\//i.test(path)) return { ...base, title: "LinkedIn post" };
+      if (/^\/events\//i.test(path)) return { ...base, title: "LinkedIn event" };
+      if (/^\/newsletters\//i.test(path)) return { ...base, title: "LinkedIn newsletter" };
+      if (/^\/jobs\//i.test(path)) return { ...base, title: "LinkedIn job" };
+
+      // A profile, company or school slug is a name, so each word is capitalised
+      // ("stanford-university" -> "Stanford University"); a post slug is a sentence and
+      // keeps sentence case.
+      const named = path.match(/^\/(?:in|company|school)\/([^/?#]+)/i);
+      // A public profile slug ends in a disambiguating token when the name was taken:
+      // "mario-rossi-1a2b3c". It always carries a digit, which a name word never does.
+      const slug = named?.[1]?.replace(/-[0-9a-z]*\d[0-9a-z]*$/i, "") || named?.[1];
+      const name = LinkMetadataFetcher.deslug(slug, "title");
+      return { ...base, title: name ?? "LinkedIn" };
+   }
+
    private static deslug(segment?: string, casing: "sentence" | "title" = "sentence"): string | undefined {
       if (!segment) return undefined;
       let words: string;
@@ -2241,6 +2348,39 @@ export class LinkMetadataFetcher {
       return words.charAt(0).toUpperCase() + words.slice(1);
    }
 
+   private static isLinkedInAuthWall(html: string): boolean {
+      const declared = html.match(/property="og:url"\s+content="([^"]*)"/i)
+         ?? html.match(/content="([^"]*)"\s+property="og:url"/i);
+      return /linkedin\.com\/(login|signup|uas\/login|authwall)/i.test(declared?.[1] ?? "");
+   }
+
+   private parseLinkedInTitle(title: string, url: string): { title: string; author?: string; } {
+      const stripped = title
+         .replace(/\s*\|\s*\d[\d.,\s]*comments?\s*$/i, "")
+         .replace(/\s*\|\s*LinkedIn\s*$/i, "")
+         .trim();
+      if (!stripped) return { title };
+
+      // Only a post puts the author in the title. On a profile or a company page the whole
+      // remainder is the name, and a "|" inside it (a tagline, say) is part of it.
+      if (!/linkedin\.com\/(posts|feed\/update)\//i.test(url)) return { title: stripped };
+
+      const split = stripped.lastIndexOf("|");
+      if (split < 0) return { title: stripped };
+      const head = stripped.slice(0, split).trim();
+      const author = stripped.slice(split + 1).trim();
+      return head && author ? { title: head, author } : { title: stripped };
+   }
+
+   private trimLinkedInDescription(description?: string): string | undefined {
+      // The same furniture as the title, in its og:description form: "... | 365 comments on
+      // LinkedIn". A description long enough to be truncated has already lost it.
+      const trimmed = description
+         ?.replace(/\s*\|\s*\d[\d.,\s]*comments?\s+on\s+LinkedIn\s*$/i, "")
+         .trim();
+      return trimmed || undefined;
+   }
+
    /**
     * The last resort: a card built from the URL alone, with no further request.
     *
@@ -2248,12 +2388,12 @@ export class LinkMetadataFetcher {
     * merely hard to read. Two things follow from that. It must not spend a Microlink request:
     * a headless browser renders the same 404 the plain one got, and the quota is as low as
     * 25/day. And it must not read the page's own words either, because on a dead page those
-    * describe the error, not the content ("404 Not Found", "- YouTube").
+    * describe the error, not the content ("LinkedIn Login, Sign in", "- YouTube").
     *
     * What is left is the URL, which the reader chose to paste and can still recognise. A
     * title is taken from the last path segment that carries letters; a bare id is skipped,
     * since "763622" tells a reader nothing (the Thingiverse lesson). Sites whose URLs have a
-    * known shape refine this - see buildXFallback, buildImdbFallback, buildYouTubeFallback.
+    * known shape refine this - see buildLinkedInFallback, buildXFallback, buildImdbFallback.
     */
    private buildUrlCard(url: string): LinkMetadata {
       let parsed: URL;

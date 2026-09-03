@@ -73,6 +73,12 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?arxiv\.org\/?([?#]|$)/i.test(url);
   }
 
+  public static isLinkedInUrl(url: string): boolean {
+    // Any LinkedIn page, including the country subdomains (it.linkedin.com) the share
+    // buttons hand out.
+    return /^https?:\/\/([a-z]{2,3}\.)?linkedin\.com(\/|$|[?#])/i.test(url);
+  }
+
   private static readonly SE_HOST = "(www\\.)?([a-z-]+\\.)?(stackoverflow|serverfault|superuser|askubuntu|stackapps|stackexchange)\\.com|mathoverflow\\.net";
 
   public static isStackExchangeUrl(url: string): boolean {
