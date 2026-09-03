@@ -219,6 +219,16 @@ export class LinkMetadataFetcher {
 
       if (!res || res.status !== 200) {
          console.debug(`Fetch failed for ${url}. Status: ${res?.status}`);
+         // 404/410 is the server stating the page is not there. Microlink would render the
+         // same absence at the cost of one of its ~25 daily requests, so it is not asked.
+         // The error page's own <title> is about the error, so the title comes from the URL -
+         // but its og:image and og:description are kept: they are the site's own furniture,
+         // and a card carrying the site's graphic reads better than a bare one (Roberto's
+         // call, 2026-09-03).
+         if (res && (res.status === 404 || res.status === 410)) {
+            const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+            return this.errorPageCard(url, html);
+         }
          return this.fetchFallback(url);
       }
 
@@ -244,6 +254,13 @@ export class LinkMetadataFetcher {
       return metadata ?? this.fetchFallback(url);
    }
 
+   private async errorPageCard(url: string, html: string): Promise<LinkMetadata> {
+      const card = this.buildUrlCard(url);
+      const parsed = await new LinkMetadataParser(url, html).parse();
+      if (!parsed) return card;
+      return { ...card, description: parsed.description, image: parsed.image };
+   }
+
    private looksLikeUrlSlugTitle(title: string, url: string): boolean {
       try {
          const segments = new URL(url).pathname.split("/").filter(Boolean);
@@ -265,6 +282,15 @@ export class LinkMetadataFetcher {
       // them. Spending one of its ~25 daily requests here only takes quota from sites where
       // it can actually help.
       if (this.settings?.useExternalFallback && !CheckIf.isRedditUrl(url)) {
+         // Once Microlink has answered 429 the quota is gone for the day - it is per IP and
+         // daily - so every further call returns the same 429 and the round trip is skipped.
+         // The notice still fires: that this link is one the direct fetch cannot handle is
+         // worth knowing even on a day when nothing can be done about it.
+         if (LinkMetadataFetcher.microlinkExhausted) {
+            new Notice(LinkMetadataFetcher.MICROLINK_LIMIT_NOTICE);
+            return this.lastResortCard(url);
+         }
+
          const result = await this.fetchViaMicrolink(url);
          // Microlink can hit the same anti-bot placeholder shell we do — its headless
          // browser isn't a guaranteed bypass — so the result needs the same sanity check
@@ -277,13 +303,32 @@ export class LinkMetadataFetcher {
             console.debug(`Microlink result for ${url} looked like a placeholder title:`, result.metadata.title);
          }
          if (result.rateLimited) {
-            new Notice("Daily limit for the external metadata service (microlink.io) reached. Showing a basic card — try again tomorrow.");
-            return this.fetchTitleOnly(url);
+            LinkMetadataFetcher.microlinkExhausted = true;
+            new Notice(LinkMetadataFetcher.MICROLINK_LIMIT_NOTICE);
+            return this.lastResortCard(url);
          }
       }
       new Notice(`Couldn't fetch metadata for ${new URL(url).hostname}`);
-      return this.fetchTitleOnly(url);
+      return this.lastResortCard(url);
    }
+
+   /**
+    * fetchTitleOnly gives up with the bare hostname as the title; the URL's own slug says more
+    * than that ("This question does not exist" beats "stackoverflow.com"). When the URL has no
+    * slug either, buildUrlCard lands on the same hostname and nothing changes - which keeps the
+    * markdown-link command's "is this just the hostname?" check working.
+    */
+   private async lastResortCard(url: string): Promise<LinkMetadata> {
+      const titleOnly = await this.fetchTitleOnly(url);
+      return titleOnly.title === new URL(url).hostname ? this.buildUrlCard(url) : titleOnly;
+   }
+
+   /** Set when Microlink answers 429; its quota is daily, so nothing changes before tomorrow. */
+   private static microlinkExhausted = false;
+
+   /** Shown both when Microlink reports the limit and when a later link is skipped for it. */
+   private static readonly MICROLINK_LIMIT_NOTICE =
+      "Daily limit for the external metadata service (microlink.io) reached. Showing a basic card.\nTry again tomorrow.";
 
    private async fetchViaMicrolink(url: string): Promise<{ metadata?: LinkMetadata; rateLimited?: boolean; }> {
       // https://microlink.io — free, no API key. Sends the URL to a third-party server,
@@ -338,9 +383,11 @@ export class LinkMetadataFetcher {
          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       });
 
-      // Even on non-200, some sites return HTML in the body (e.g. 202, 403 with a page)
-      // so we attempt to parse the title regardless of status
-      if (res?.text) {
+      // A 202 or a 3xx often still carries the real page in its body, so the status alone is
+      // not a reason to ignore it. A 4xx/5xx body is a different thing: its <title> describes
+      // the error ("404 Not Found", "Just a moment..."), never the link, and putting that in a
+      // card states something false about the page.
+      if (res?.text && (res.status ?? 200) < 400) {
          const match = res.text.match(/<title[^>]*>([^<]+)<\/title>/i);
          const title = match?.[1]?.trim()
             ?.replace(/&amp;/g, "&")
@@ -360,7 +407,9 @@ export class LinkMetadataFetcher {
          }
       }
 
-      // Nothing worked — return a minimal card with just the hostname as title
+      // Nothing worked - a minimal card with just the hostname as title. Deliberately not
+      // buildUrlCard: the markdown-link command treats a bare-hostname title as "found
+      // nothing" and keeps the plain URL, and a slug title would defeat that check.
       return {
          url,
          title: hostname,
@@ -371,6 +420,13 @@ export class LinkMetadataFetcher {
    }
 
    /* --- YOUTUBE --- */
+   private buildYouTubeFallback(url: string): LinkMetadata {
+      const base = { url, host: "youtube.com", favicon: "https://www.youtube.com/favicon.ico", indent: 0 };
+      if (/youtube\.com\/playlist\?/.test(url)) return { ...base, title: "YouTube playlist" };
+      if (/youtube\.com\/shorts\//.test(url)) return { ...base, title: "YouTube Short" };
+      return { ...base, title: "YouTube video" };
+   }
+
    private async fetchYouTube(url: string): Promise<LinkMetadata | undefined> {
       // Channels: oEmbed doesn't support them, scrape the page directly
       if (/youtube\.com\/(@|c\/|channel\/)/.test(url)) {
@@ -384,7 +440,10 @@ export class LinkMetadataFetcher {
       // Videos and playlists: both supported by oEmbed
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
       const res = await this.request(oembedUrl);
-      if (!res || res.status !== 200) return;
+      // oEmbed answers 400 for a video that is deleted, private or region-blocked. The watch
+      // page is no help there - it carries no og:* tags at all and titles itself " - YouTube"
+      // - so there is nothing to fetch and the URL is all there is to build from.
+      if (!res || res.status !== 200) return this.buildYouTubeFallback(url);
 
       const data = JSON.parse(res.text) as OEmbedResponse;
       const videoId = this.getYouTubeVideoId(url);
@@ -932,12 +991,12 @@ export class LinkMetadataFetcher {
 
    private decodeXmlText(value: string | undefined): string | undefined {
       return value
-        ?.replace(/&lt;/g, "<")
-        ?.replace(/&gt;/g, ">")
-        ?.replace(/&quot;/g, '"')
-        ?.replace(/&#39;|&apos;/g, "'")
-        ?.replace(/&amp;/g, "&")
-        ?.trim();
+         ?.replace(/&lt;/g, "<")
+         ?.replace(/&gt;/g, ">")
+         ?.replace(/&quot;/g, '"')
+         ?.replace(/&#39;|&apos;/g, "'")
+         ?.replace(/&amp;/g, "&")
+         ?.trim();
    }
 
    private redditNameFromUrl(url: string): string | undefined {
@@ -1506,9 +1565,27 @@ export class LinkMetadataFetcher {
       ]);
 
       // The social-preview image comes from the page whichever path fills the text.
-      let image: string | undefined;
-      if (htmlRes?.text) {
-         image = (await new LinkMetadataParser(url, htmlRes.text).parse())?.image;
+      const fromPage = htmlRes?.text
+         ? await new LinkMetadataParser(url, htmlRes.text).parse()
+         : undefined;
+      const image = fromPage?.image;
+
+      // A 404 from the API is the repo being gone, renamed or private - and the page is a 404
+      // too, so its <title> and star count describe nothing. `owner/repo` is the name a reader
+      // knows it by; the 404 page's own image and description ride along, as everywhere else.
+      // Not cached: the repo may exist tomorrow.
+      if (apiRes?.status === 404 || htmlRes?.status === 404) {
+         console.debug(`GitHub repo ${key} does not exist (API ${apiRes?.status}, page ${htmlRes?.status}).`);
+         return {
+            url,
+            title: `${owner}/${repo}`,
+            author: owner,
+            description: fromPage?.description,
+            host: "github.com",
+            favicon: "https://github.com/favicon.ico",
+            image,
+            indent: 0,
+         };
       }
 
       // Rate-limited (403) → rebuild from the repo's own HTML instead of the generic scrape,
@@ -1795,13 +1872,16 @@ export class LinkMetadataFetcher {
       );
       if (!res || res.status !== 200) return this.arxivGeneric(url);
 
+      // A well-formed id with no <entry> is a paper that isn't there. The generic path would
+      // read arXiv's 404 and end up titled after the URL's route segment ("Abs"); the id
+      // itself is the citation form a reader recognises.
       const entry = res.text.split("<entry>")[1]?.split("</entry>")[0];
-      if (!entry) return this.arxivGeneric(url);
+      if (!entry) return this.arxivIdCard(url, id);
 
       const clean = (raw: string | undefined) => this.decodeXmlText(raw)?.replace(/\s+/g, " ").trim();
       const title = clean(entry.match(/<title>([\s\S]*?)<\/title>/)?.[1]);
       const summary = clean(entry.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]);
-      if (!title) return this.arxivGeneric(url);
+      if (!title) return this.arxivIdCard(url, id);
 
       const authors = [...entry.matchAll(/<name>([\s\S]*?)<\/name>/g)]
          .map(m => clean(m[1]))
@@ -1817,6 +1897,17 @@ export class LinkMetadataFetcher {
          title: LinkMetadataParser.sanitizeText(title, 300) ?? title,
          author,
          description: LinkMetadataParser.sanitizeText(summary),
+         host: "arxiv.org",
+         favicon: "https://arxiv.org/favicon.ico",
+         image: LinkMetadataFetcher.ARXIV_LOGO,
+         indent: 0,
+      };
+   }
+
+   private arxivIdCard(url: string, id: string): LinkMetadata {
+      return {
+         url,
+         title: `arXiv:${id}`,
          host: "arxiv.org",
          favicon: "https://arxiv.org/favicon.ico",
          image: LinkMetadataFetcher.ARXIV_LOGO,
@@ -2134,6 +2225,66 @@ export class LinkMetadataFetcher {
     * request entirely, instead of falling back to its default below - the way a caller opts
     * out of, say, the default Accept-Language rather than merely not overriding it.
     */
+   private static deslug(segment?: string, casing: "sentence" | "title" = "sentence"): string | undefined {
+      if (!segment) return undefined;
+      let words: string;
+      try {
+         words = decodeURIComponent(segment);
+      } catch {
+         words = segment;
+      }
+      words = words.replace(/[_+-]+/g, " ").replace(/\s+/g, " ").trim();
+      if (!/\p{L}/u.test(words)) return undefined;
+      if (casing === "title") {
+         return words.replace(/(^|\s)(\p{L})/gu, (_, space: string, letter: string) => space + letter.toUpperCase());
+      }
+      return words.charAt(0).toUpperCase() + words.slice(1);
+   }
+
+   /**
+    * The last resort: a card built from the URL alone, with no further request.
+    *
+    * Reached when the page is known not to be readable - a 404, an auth wall - rather than
+    * merely hard to read. Two things follow from that. It must not spend a Microlink request:
+    * a headless browser renders the same 404 the plain one got, and the quota is as low as
+    * 25/day. And it must not read the page's own words either, because on a dead page those
+    * describe the error, not the content ("404 Not Found", "- YouTube").
+    *
+    * What is left is the URL, which the reader chose to paste and can still recognise. A
+    * title is taken from the last path segment that carries letters; a bare id is skipped,
+    * since "763622" tells a reader nothing (the Thingiverse lesson). Sites whose URLs have a
+    * known shape refine this - see buildXFallback, buildImdbFallback, buildYouTubeFallback.
+    */
+   private buildUrlCard(url: string): LinkMetadata {
+      let parsed: URL;
+      try {
+         parsed = new URL(url);
+      } catch {
+         return { url, title: url, host: "", indent: 0 };
+      }
+      const host = parsed.hostname.replace(/^www\./i, "");
+      return {
+         url,
+         title: LinkMetadataFetcher.titleFromUrlPath(parsed)
+            ?? LinkMetadataFetcher.siteNameFor(host)
+            ?? host,
+         host,
+         favicon: `https://${parsed.hostname}/favicon.ico`,
+         indent: 0,
+      };
+   }
+
+   private static titleFromUrlPath(parsed: URL): string | undefined {
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      // Last segment first, skipping any that carries no letters: an id, a date, a page
+      // number. "763622" tells a reader nothing.
+      for (let i = segments.length - 1; i >= 0; i--) {
+         const words = LinkMetadataFetcher.deslug(segments[i]!.replace(/\.\w{2,5}$/, ""));
+         if (words) return words;
+      }
+      return undefined;
+   }
+
    private async request(
       url: string, customHeaders: Record<string, string | undefined> = {}, timeoutMs = 5000
    ) {
@@ -2150,8 +2301,12 @@ export class LinkMetadataFetcher {
       );
 
       try {
+         // `throw: false` matters: without it requestUrl rejects on every non-2xx, this catch
+         // swallows the response, and callers see `undefined` with no status at all - so a
+         // 404 and a dead network looked identical, and every `res.status !== 200` test below
+         // was in practice only ever testing `!res`.
          return await Promise.race([
-            requestUrl({ url, headers }),
+            requestUrl({ url, headers, throw: false }),
             new Promise<never>((_, reject) =>
                window.setTimeout(() => reject(new Error("Timeout")), timeoutMs)
             ),
