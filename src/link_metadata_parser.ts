@@ -176,10 +176,25 @@ export class LinkMetadataParser {
   private findJsonLdImage(): string | undefined {
     const jsonLd = this.getJsonLdData() as Record<string, unknown> | null;
     if (!jsonLd) return undefined;
-    const img = jsonLd.image as string | string[] | { url: string; } | undefined;
-    if (Array.isArray(img) && img.length > 0) return this.resolveUrl(img[0]!);
-    if (typeof img === "string") return this.resolveUrl(img);
-    if (img && typeof img === "object" && "url" in img) return this.resolveUrl(img.url);
+
+    // schema.org lets `image` be a URL, an ImageObject, or an array of either. Three of those
+    // four shapes were handled; an array of ImageObjects - what The Verge publishes - fell
+    // through to resolveUrl with the object itself, which threw and took the whole card down
+    // with it, notice and all. Flatten first, then read a URL out of whichever shape arrived.
+    const candidates = Array.isArray(jsonLd.image) ? (jsonLd.image as unknown[]) : [jsonLd.image];
+    for (const candidate of candidates) {
+      const url = LinkMetadataParser.jsonLdImageUrl(candidate);
+      if (url) return this.resolveUrl(url);
+    }
+    return undefined;
+  }
+
+  private static jsonLdImageUrl(value: unknown): string | undefined {
+    if (typeof value === "string") return value.trim() || undefined;
+    if (value && typeof value === "object") {
+      const url = (value as { url?: unknown; }).url;
+      if (typeof url === "string") return url.trim() || undefined;
+    }
     return undefined;
   }
 
@@ -206,7 +221,9 @@ export class LinkMetadataParser {
   }
 
   private resolveUrl(url: string): string {
-    if (!url) return "";
+    // JSON-LD is untyped at runtime, so a caller can hand this anything a site chose to put
+    // in a field: guard rather than throw and lose the card.
+    if (!url || typeof url !== "string") return "";
     // A `content` read off a <meta> tag is normally entity-decoded by the DOM already, but a
     // doubly-encoded source (seen on TED's og:image) leaves a literal `&amp;` mid-URL, which
     // then breaks the query string. Decoding here is idempotent on a clean URL.

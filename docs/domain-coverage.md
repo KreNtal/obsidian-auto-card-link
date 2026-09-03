@@ -51,8 +51,13 @@ path) is a separate spot-check — see the list at the bottom.
 Go through `fetchGeneric` (og/twitter/JSON-LD tags), with the microlink fallback if the
 user enabled it. Roberto is verifying these in Obsidian.
 
+`appendSiteName` (markdown links only — a card shows `host` instead) appends the site name unless the title already ends in it after a separator. The recognised set is `-|·•:–—`, so a title like “Some story • Reuters” is left alone; `-` is what gets appended. Verified against the three news sites' real titles on 2026-09-03. One known false negative, contrived enough to leave: the separator split allows zero spaces, so a hyphenated title whose tail happens to equal the site name (“Anti-Trump rally” for a site called “Trump rally”) keeps its suffix off.
+
 | Site        | Status | Notes                                                                                                                                                                                                                                                                                                          |
 | ----------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| BBC | ✅ | Articles carry full `og:*` — title, description and a 1024px image — but **`bbc.com` omits `og:site_name` on news articles**, while the identical article on `bbc.co.uk` declares “BBC News” and `bbc.com`'s own sport articles declare “BBC Sport”. `SITE_NAMES` now carries “BBC” as a floor for both domains: a declared name still wins, so the specific ones survive and only the gap is filled. Checked 2026-09-03. |
+| The Verge | ✅ | Full `og:*` including `og:site_name`. The `<title>` carries a `… \| The Verge` suffix but `og:title` does not, so nothing has to be stripped. Checked 2026-09-03. |
+| Ars Technica | ✅ | Full `og:*` including `og:site_name`; same split as The Verge, with the suffix only in `<title>`. Checked 2026-09-03. |
 | Amazon      | ✅     | JSON-LD image, `#landingImage` DOM fallback                                                                                                                                                                                                                                                                    |
 | Thingiverse | 🟡     | **Regressed 2026-09-02**: every model page now serves the same shell, so every card reads "Thingiverse - The community for Open Hardware" with the site logo. Left on the generic path deliberately — see the rejected table for what was tried, and why a URL-built `Thing <id>` card was tried and reverted. |
 | Cults3D     | ✅     | `twitter:image` points to the real asset                                                                                                                                                                                                                                                                       |
@@ -97,7 +102,7 @@ checked in Obsidian; add a row above with caveats if anything is odd.
 - [x] Stack Overflow / Stack Exchange — dedicated fetcher via the SE API; needs an Obsidian render check (a question, a `/q/` and `/a/` short link, a non-SO site, an answer link, a dead id)
 - [x] LinkedIn — dedicated fetcher (crawler UA + title cleanup); needs an Obsidian render check
 - [x] Hacker News — dedicated fetcher via the official Firebase API; needs an Obsidian render check
-- [ ] News: BBC, The Verge, Ars Technica — also exercises the `•` separator in `appendSiteName`
+- [x] News: BBC, The Verge, Ars Technica — all three read correctly on the generic path; only BBC needed a site-name floor. Exercised `appendSiteName` and its `•` separator.
 - [x] Bluesky — dedicated fetcher via the public AppView; needs an Obsidian render check
 - [ ] Mastodon (any instance) — `/@user/<id>`
 - [ ] GitLab

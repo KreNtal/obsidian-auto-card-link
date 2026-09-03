@@ -115,10 +115,14 @@ export class LinkMetadataFetcher {
    }
 
    /**
-    * Display names for the sites we handle with a dedicated fetcher. Those paths answer
-    * from an API or oEmbed and never look at the page HTML, so there is no og:site_name
-    * to read; deriving a name from the hostname instead would get the capitalisation
-    * wrong ("Youtube", "Imdb", "Github").
+    * Display names for sites that cannot tell us their own.
+    *
+    * Mostly the dedicated fetchers: they answer from an API or oEmbed and never look at the
+    * page HTML, so there is no og:site_name to read, and deriving a name from the hostname
+    * would get the capitalisation wrong ("Youtube", "Imdb", "Github").
+    *
+    * A site on the generic path belongs here only when it genuinely omits the tag. A name
+    * the page declares always wins over this map, so an entry is a floor, not an override.
     */
    private static readonly SITE_NAMES: Record<string, string> = {
       "youtube.com": "YouTube",
@@ -144,6 +148,12 @@ export class LinkMetadataFetcher {
       "linkedin.com": "LinkedIn",
       "news.ycombinator.com": "Hacker News",
       "bsky.app": "Bluesky",
+      // Generic path, but bbc.com omits og:site_name on its news articles - while the same
+      // article on bbc.co.uk declares "BBC News", and bbc.com's own sport articles declare
+      // "BBC Sport". Those keep their specific names; this only fills the gap, so it is the
+      // one form that is right for every section.
+      "bbc.com": "BBC",
+      "bbc.co.uk": "BBC",
    };
 
    /**

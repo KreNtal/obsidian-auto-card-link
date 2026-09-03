@@ -100,7 +100,14 @@ export class CodeBlockGenerator {
       this.editor.replaceRange(replacement, found.startPos, found.endPos);
     };
 
-    const tryFetch = () => this.fetchLinkMetadata(url, options);
+    // Both catches used to swallow the error whole. Since fetchGeneric always returns a card
+    // - it falls back rather than giving up - a "Couldn't fetch link metadata" notice on a
+    // generic URL can only mean something threw, and there was nothing in the console saying
+    // what. The error is the whole diagnosis, so it gets logged.
+    const tryFetch = () => this.fetchLinkMetadata(url, options).catch((e) => {
+      console.error(`Fetching metadata for ${url} threw:`, e);
+      throw e;
+    });
 
     let linkMetadata = await tryFetch().catch(() => null);
 
