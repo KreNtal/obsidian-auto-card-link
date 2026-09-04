@@ -58,6 +58,25 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?github\.com\/[^/]+\/[^/?#]+(\/)?([?#].*)?$/.test(url);
   }
 
+  public static isGitLabUrl(url: string): boolean {
+    // gitlab.com project pages only (`<namespace>/<project>`, groups may nest deeper).
+    // A path carrying GitLab's `/-/` infix is an issue, MR, file or tree view — those read
+    // fine on the generic path. A single segment is a user or group landing page, not a
+    // project. Reserved top-level routes aren't projects either. Anything that slips through
+    // (a group URL two segments deep, a typo) 404s the API and falls back to generic.
+    const m = url.match(/^https?:\/\/(www\.)?gitlab\.com\/([^?#]+)/i);
+    const path = m?.[2]?.replace(/\/+$/, "");
+    if (!path || !path.includes("/") || path.includes("/-/")) return false;
+    return !/^(-|help|explore|dashboard|groups|projects|users|api|admin|search|sitemap)(\/|$)/i.test(path);
+  }
+
+  public static isNpmUrl(url: string): boolean {
+    // A package page, scoped or not, with or without a trailing `/v/<version>`. Every other
+    // npmjs.com route (search, orgs, the front page) is 403 to us too, but has nothing the
+    // registry API could answer for, so it stays generic.
+    return /^https?:\/\/(www\.)?npmjs\.com\/package\/[^/?#]/i.test(url);
+  }
+
   public static isSpotifyUrl(url: string): boolean {
     return /^https?:\/\/open\.spotify\.com\/(intl-[a-z]+\/)?(track|album|playlist|artist|episode)\//.test(url);
   }

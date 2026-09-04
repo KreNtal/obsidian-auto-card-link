@@ -59,6 +59,25 @@ export interface GitHubRepoResponse {
   stargazers_count?: number;
 }
 
+export interface GitLabProjectResponse {
+  name?: string;
+  name_with_namespace?: string;
+  description?: string;
+  star_count?: number;
+  forks_count?: number;
+  avatar_url?: string | null;
+  namespace?: { name?: string; };
+}
+
+export interface NpmPackageResponse {
+  name?: string;
+  version?: string;
+  description?: string;
+  license?: string;
+  homepage?: string;
+  author?: { name?: string; } | string;
+}
+
 export interface MicrolinkResponse {
   status?: string;
   data?: {

@@ -4,7 +4,7 @@ import {
    BlueskyProfile,
    HackerNewsItem,
    HackerNewsUser,
-   DailymotionVideoResponse, GitHubRepoResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, OEmbedResponse,
+   DailymotionVideoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    PrintablesGraphQLResponse, StackExchangeSite, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
@@ -103,6 +103,8 @@ export class LinkMetadataFetcher {
       if (CheckIf.isImdbUrl(url)) return this.fetchImdb(url);
       if (CheckIf.isPrintablesUrl(url)) return this.fetchPrintables(url);
       if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url, refresh);
+      if (CheckIf.isGitLabUrl(url)) return this.fetchGitLab(url, refresh);
+      if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
       if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
@@ -135,6 +137,8 @@ export class LinkMetadataFetcher {
       "imdb.com": "IMDb",
       "printables.com": "Printables",
       "github.com": "GitHub",
+      "gitlab.com": "GitLab",
+      "npmjs.com": "npm",
       "spotify.com": "Spotify",
       "x.com": "X",
       "twitter.com": "X",
@@ -1623,8 +1627,8 @@ export class LinkMetadataFetcher {
       return card;
    }
 
-   private gitHubStarsLabel(stars: number): string {
-      return stars >= 1000 ? `${(stars / 1000).toFixed(1)}k` : String(stars);
+   private compactCount(n: number): string {
+      return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
    }
 
    private gitHubCardFromApi(
@@ -1640,7 +1644,7 @@ export class LinkMetadataFetcher {
       const parts: string[] = [];
       if (data.description) parts.push(data.description);
       if (data.language) parts.push(data.language);
-      parts.push(`★ ${this.gitHubStarsLabel(data.stargazers_count ?? 0)}`);
+      parts.push(`★ ${this.compactCount(data.stargazers_count ?? 0)}`);
 
       return {
          url,
@@ -1674,7 +1678,7 @@ export class LinkMetadataFetcher {
 
       const parts: string[] = [];
       if (description) parts.push(description);
-      if (starsMatch) parts.push(`★ ${this.gitHubStarsLabel(Number(starsMatch[1]))}`);
+      if (starsMatch) parts.push(`★ ${this.compactCount(Number(starsMatch[1]))}`);
 
       return {
          url,
@@ -1710,6 +1714,212 @@ export class LinkMetadataFetcher {
          .replace(new RegExp(`\\s*-\\s*${o}/${r}\\s*$`, "i"), "")
          .trim();
       return cleaned || undefined;
+   }
+
+   /* --- GITLAB --- */
+
+   // Same shape as GitHub: a repo built once is kept for the session so a refresh or a
+   // second paste costs no request. Session-only, never written to disk.
+   private static readonly gitLabCache = new Map<string, LinkMetadata>();
+
+   /**
+    * gitlab.com projects and groups, through the public REST API - no auth for a public one.
+    *
+    * The generic path already reads GitLab's og:* on a project page, but the title comes out
+    * as "<Namespace> / <project> · GitLab" and there is no star count. `/api/v4/projects/<path>`
+    * gives a clean `name_with_namespace` and the counts. The path can nest
+    * (`group/subgroup/project`), so the whole thing is URL-encoded as one segment.
+    *
+    * A 404 there is a group page, a renamed/private/deleted project, or a typo. `fetchGeneric`
+    * is the wrong fallback for the last two: GitLab redirects a missing project to
+    * `/users/sign_in` (a 302, not a 404), so the generic path can't tell it is gone and spends
+    * a Microlink request rendering the sign-in page. So the group API is tried next - a 200
+    * there means it is a real group and gets its own card - and only when both miss is a card
+    * built straight from the URL, with no further request.
+    */
+   private async fetchGitLab(url: string, refresh = false): Promise<LinkMetadata | undefined> {
+      const path = url.match(/^https?:\/\/(?:www\.)?gitlab\.com\/([^?#]+)/i)?.[1]?.replace(/\/+$/, "");
+      if (!path) return this.fetchGeneric(url);
+
+      const key = path.toLowerCase();
+      const cached = LinkMetadataFetcher.gitLabCache.get(key);
+      if (cached && !refresh) return { ...cached, url };
+
+      const encoded = encodeURIComponent(path);
+      const res = await this.request(
+         `https://gitlab.com/api/v4/projects/${encoded}`, { "Accept": "application/json" }
+      );
+
+      // A rate limit or a server error - the project may well exist, so let the generic
+      // scrape (and its external fallback) try rather than declaring the link dead.
+      if (res && res.status !== 200 && res.status !== 404) {
+         console.debug(`GitLab projects API for ${path} returned ${res.status}; falling back to generic.`);
+         return this.fetchGeneric(url);
+      }
+
+      if (res?.status === 200) {
+         const card = this.gitLabProjectCard(url, path, res.text);
+         if (!card) return this.fetchGeneric(url);
+         LinkMetadataFetcher.gitLabCache.set(key, card);
+         return card;
+      }
+
+      // Project 404. A real group gets its own card and is cached; anything else is built
+      // from the URL and left uncached - it may be a project that exists again tomorrow.
+      const group = await this.gitLabGroupCard(url, path, encoded);
+      if (group) {
+         LinkMetadataFetcher.gitLabCache.set(key, group);
+         return group;
+      }
+      console.debug(`GitLab has no project or group at ${path}; building a card from the URL.`);
+      return this.buildUrlCard(url);
+   }
+
+   private gitLabProjectCard(url: string, path: string, body: string): LinkMetadata | undefined {
+      let data: GitLabProjectResponse;
+      try {
+         data = JSON.parse(body) as GitLabProjectResponse;
+      } catch {
+         return undefined;
+      }
+
+      const parts: string[] = [];
+      if (data.description) parts.push(data.description);
+      parts.push(`★ ${this.compactCount(data.star_count ?? 0)}`);
+
+      return {
+         url,
+         title: data.name_with_namespace ?? data.name ?? path,
+         author: data.namespace?.name ?? path.split("/")[0],
+         description: LinkMetadataParser.sanitizeText(parts.join(" · ")),
+         host: "gitlab.com",
+         favicon: "https://gitlab.com/favicon.ico",
+         // The project avatar - GitLab's own og:image is this same file. Often null, and the
+         // card simply carries no image then, as GitHub's does when there is no social preview.
+         image: data.avatar_url ?? undefined,
+         indent: 0,
+      };
+   }
+
+   private async gitLabGroupCard(url: string, path: string, encoded: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(
+         `https://gitlab.com/api/v4/groups/${encoded}`, { "Accept": "application/json" }
+      );
+      if (!res || res.status !== 200) return undefined;
+
+      let data: { name?: string; full_name?: string; description?: string; avatar_url?: string | null; };
+      try {
+         data = JSON.parse(res.text) as typeof data;
+      } catch {
+         return undefined;
+      }
+
+      return {
+         url,
+         title: data.full_name ?? data.name ?? path,
+         description: LinkMetadataParser.sanitizeText(data.description ?? undefined),
+         host: "gitlab.com",
+         favicon: "https://gitlab.com/favicon.ico",
+         image: data.avatar_url ?? undefined,
+         indent: 0,
+      };
+   }
+
+   /* --- NPM --- */
+
+   private static readonly npmCache = new Map<string, LinkMetadata>();
+
+   /**
+    * npm packages, through the public registry - `registry.npmjs.org`, the documented and
+    * versioned API every npm client already speaks. No auth, no key, no quota.
+    *
+    * Unlike GitLab, there is nothing to weigh here: **npmjs.com answers 403 to every user
+    * agent** - a browser's, facebookexternalhit's and Googlebot's alike, checked 2026-09-04 -
+    * so the generic path reads absolutely nothing and every npm link a vault holds would be
+    * spent on Microlink. And since a missing package is a registry 404 while its page is the
+    * same 403 a live one gives, only the registry can tell a dead link from a blocked one.
+    *
+    * `/<pkg>/latest` rather than `/<pkg>`: the full packument carries every version ever
+    * published (6.7 MB for react), the latest manifest is 1 KB and holds everything a card
+    * shows. Weekly downloads come from the separate downloads API - the one number that says
+    * what a package is worth, npm's equivalent of GitHub's star count - and it is asked for
+    * alongside, never blocking: no answer just means that segment is missing.
+    *
+    * No image. There is no per-package artwork, npm's own og:image is behind the 403, and the
+    * npm wordmark would be site furniture the card already carries as its favicon - the same
+    * call as the Stack Exchange question cards.
+    */
+   private async fetchNpm(url: string, refresh = false): Promise<LinkMetadata | undefined> {
+      // `@scope/name` counts as one name; a trailing `/v/<version>` is not part of it.
+      const pkg = url.match(/npmjs\.com\/package\/((?:@[^/?#]+\/)?[^/?#]+)/i)?.[1];
+      if (!pkg) return this.fetchGeneric(url);
+
+      // A `/v/<version>` link is about that version, so the card must not describe a
+      // different one - the registry serves any published version at the same path.
+      const version = url.match(/\/v\/([^/?#]+)/i)?.[1];
+      const key = version ? `${pkg}@${version}` : pkg;
+
+      const cached = LinkMetadataFetcher.npmCache.get(key);
+      if (cached && !refresh) return { ...cached, url };
+
+      const base = { url, host: "npmjs.com", favicon: "https://www.npmjs.com/favicon.ico", indent: 0 };
+      // Only the slash is escaped: the registry wants `@scope%2Fname`, and rejects an
+      // encoded `@`. The downloads API takes the plain form, slash and all.
+      const [res, downloads] = await Promise.all([
+         this.request(
+            `https://registry.npmjs.org/${pkg.replace("/", "%2F")}/${encodeURIComponent(version ?? "latest")}`,
+            { "Accept": "application/json" }
+         ),
+         this.request(`https://api.npmjs.org/downloads/point/last-week/${pkg}`, {
+            "Accept": "application/json",
+         }),
+      ]);
+
+      // 404 is the registry stating this is not published - the package at all, or the one
+      // version a `/v/` link named. Proof either way, and the only source of it. The name is
+      // already the most a reader can be told, so it is the title verbatim: a package name is
+      // not a slug and must not be de-slugged into prose ("left-pad", never "Left pad").
+      if (res?.status === 404) {
+         console.debug(`npm has no ${key}; building a card from the URL.`);
+         return { ...base, title: pkg };
+      }
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      let data: NpmPackageResponse;
+      try {
+         data = JSON.parse(res.text) as NpmPackageResponse;
+      } catch {
+         return this.fetchGeneric(url);
+      }
+
+      const parts: string[] = [];
+      if (data.description) parts.push(data.description);
+      if (data.version) parts.push(`v${data.version}`);
+      if (data.license) parts.push(data.license);
+      const weekly = this.npmWeeklyDownloads(downloads?.status === 200 ? downloads.text : undefined);
+      if (weekly !== undefined) parts.push(`${this.countLabel(weekly, "download")}/week`);
+
+      const author = typeof data.author === "string" ? data.author : data.author?.name;
+      const card: LinkMetadata = {
+         ...base,
+         title: data.name ?? pkg,
+         // npm's `author` is free-form and often carries an email or a URL in the string
+         // form; only the leading name is a name.
+         author: author?.split(/\s*[<(]/)[0]?.trim() || undefined,
+         description: LinkMetadataParser.sanitizeText(parts.join(" · ")),
+      };
+      LinkMetadataFetcher.npmCache.set(key, card);
+      return card;
+   }
+
+   private npmWeeklyDownloads(body: string | undefined): number | undefined {
+      if (!body) return undefined;
+      try {
+         const n = (JSON.parse(body) as { downloads?: number; }).downloads;
+         return typeof n === "number" ? n : undefined;
+      } catch {
+         return undefined;
+      }
    }
 
    /* --- SPOTIFY --- */
