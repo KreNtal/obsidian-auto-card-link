@@ -171,7 +171,14 @@ export class CodeBlockGenerator {
     // Requiring a separator is what keeps a title that merely ends with the word
     // ("How to use Spotify") from losing its suffix.
     const segments = trimmed.split(/\s*[-|\u2013\u2014\u00b7\u2022:]\s*/);
-    if (segments.length > 1 && (segments[segments.length - 1] ?? "").toLowerCase().endsWith(name)) {
+    const last = (segments[segments.length - 1] ?? "").toLowerCase();
+    // The last segment either carries the whole name, or is the short form a site titles
+    // itself with while og:site_name spells it out: an MDN page ends "| MDN" and declares
+    // "MDN Web Docs", which appended read "\u2026 | MDN - MDN Web Docs". Requiring a whole-word
+    // prefix keeps that narrow - the only thing it can skip wrongly is a title ending in a
+    // word the site name happens to start with ("\u2026 - The", for "The Verge"), which is not a
+    // shape real titles take.
+    if (segments.length > 1 && (last.endsWith(name) || name.startsWith(`${last} `))) {
       return trimmed;
     }
 

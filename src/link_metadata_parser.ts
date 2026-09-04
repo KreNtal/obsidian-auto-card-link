@@ -39,11 +39,23 @@ export class LinkMetadataParser {
    * The site's own display name, with its own capitalisation ("YouTube", "IMDb").
    * Only used for inline markdown links, where the host isn't shown separately.
    */
+  /**
+   * An OpenGraph tag is `<meta property="og:…">`, but writing `name=` instead is a common
+   * enough mistake that entire sites ship it - developer.mozilla.org declares all nine of its
+   * og tags that way, so every one of them was invisible here and MDN pages fell back to
+   * `<title>` and the plain meta description. `property` is tried first, so a page declaring
+   * both keeps the conformant one and nothing that worked before changes. `getImage()` already
+   * special-cased `meta[name='og:image']`; this is the same allowance for the rest.
+   */
+  private ogContent(property: string): string | undefined {
+    const value =
+      this.htmlDoc.querySelector(`meta[property='${property}']`)?.getAttribute("content") ??
+      this.htmlDoc.querySelector(`meta[name='${property}']`)?.getAttribute("content");
+    return value?.trim() || undefined;
+  }
+
   private getSiteName(): string | undefined {
-    const raw = this.htmlDoc
-      .querySelector("meta[property='og:site_name']")
-      ?.getAttribute("content")
-      ?.trim();
+    const raw = this.ogContent("og:site_name");
     if (!raw) return undefined;
 
     // Sites routinely append a tagline ("Thingiverse - The community for Open Hardware");
@@ -55,10 +67,8 @@ export class LinkMetadataParser {
 
   private getTitle(): string | undefined {
     // 1. Try OpenGraph Title
-    const ogTitle = this.htmlDoc
-      .querySelector("meta[property='og:title']")
-      ?.getAttribute("content");
-    if (ogTitle && ogTitle.trim().length > 0) return ogTitle.trim();
+    const ogTitle = this.ogContent("og:title");
+    if (ogTitle) return ogTitle;
 
     // 2. Try Twitter Title fallback
     const twitterTitle = this.htmlDoc
@@ -80,7 +90,7 @@ export class LinkMetadataParser {
 
   private getDescription(): string | undefined {
     const raw =
-      this.htmlDoc.querySelector("meta[property='og:description']")?.getAttribute("content") ??
+      this.ogContent("og:description") ??
       this.htmlDoc.querySelector("meta[name='description']")?.getAttribute("content");
 
     if (!raw) return undefined;

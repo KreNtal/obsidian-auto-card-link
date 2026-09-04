@@ -265,7 +265,7 @@ export class LinkMetadataFetcher {
       // og:/twitter:/description tag is missing too. parser.parse() still "succeeds" since it
       // found *a* title, so without this check we'd silently show that placeholder as if it
       // were real content, and never give the external fallback (if enabled) a chance.
-      if (metadata && this.looksLikeUrlSlugTitle(metadata.title, url)) {
+      if (metadata && this.looksLikePlaceholder(metadata, url)) {
          console.debug(`Fetch for ${url} returned only a URL-slug placeholder title.`);
          return this.fetchFallback(url);
       }
@@ -283,6 +283,23 @@ export class LinkMetadataFetcher {
       const parsed = await new LinkMetadataParser(url, html).parse();
       if (!parsed) return card;
       return { ...card, description: parsed.description, image: parsed.image };
+   }
+
+   /**
+    * Whether a parse "succeeded" but returned the SPA shell rather than the page.
+    *
+    * The tell is a title that is just the URL's own last segment. On its own that is not
+    * enough: a title legitimately equals its slug whenever the thing is *named* by it, and
+    * pypi.org/project/requests/ - og:title "requests" - was condemned for it, sent to
+    * Microlink, and had the identical answer rejected a second time, ending as a bare card
+    * for a page that had described itself perfectly. So the second half of the shell's
+    * signature is now required too, the half the comment above always claimed and the code
+    * never checked: a real shell carries no description and no image either. A page that
+    * supplied one of those told us something, whatever its title looks like.
+    */
+   private looksLikePlaceholder(metadata: LinkMetadata, url: string): boolean {
+      if (metadata.description || metadata.image) return false;
+      return this.looksLikeUrlSlugTitle(metadata.title, url);
    }
 
    private looksLikeUrlSlugTitle(title: string, url: string): boolean {
@@ -323,7 +340,7 @@ export class LinkMetadataFetcher {
          // daily quota (as low as 25/day) for a bypass that isn't reliable anyway — a stale
          // cached placeholder and a freshly-blocked render look identical from here.
          if (result.metadata) {
-            if (!this.looksLikeUrlSlugTitle(result.metadata.title, url)) return result.metadata;
+            if (!this.looksLikePlaceholder(result.metadata, url)) return result.metadata;
             console.debug(`Microlink result for ${url} looked like a placeholder title:`, result.metadata.title);
          }
          if (result.rateLimited) {
