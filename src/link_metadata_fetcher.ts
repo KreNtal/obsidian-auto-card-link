@@ -571,7 +571,18 @@ export class LinkMetadataFetcher {
       const res = await this.request(
          `https://vimeo.com/api/oembed.json?url=${encodeURIComponent(url)}`
       );
-      if (!res || res.status !== 200) return this.fetchGeneric(url);
+      if (!res || res.status !== 200) {
+         // oEmbed 404s for two different things: a video that is gone, and a URL that never was
+         // one (`vimeo.com/<user>`, which reads fine generically). Only the first is proven
+         // dead - and its page answers **200** with no <title> and no og tags at all, so the
+         // 404/410 rule in fetchGeneric never fires and a Microlink request gets spent on it.
+         // A 6+ digit path segment is the video id form.
+         if (res?.status === 404 && /\/\d{6,}(?:\/|$|[?#])/.test(url)) {
+            console.debug(`Vimeo has no video at ${url}; building a card from the URL.`);
+            return { url, title: "Vimeo video", host: "vimeo.com", favicon: "https://vimeo.com/favicon.ico", indent: 0 };
+         }
+         return this.fetchGeneric(url);
+      }
 
       const data = JSON.parse(res.text) as OEmbedResponse;
       return {
@@ -598,6 +609,14 @@ export class LinkMetadataFetcher {
       const res = await this.request(
          `https://api.dailymotion.com/video/${videoId}?fields=title,description,duration,thumbnail_720_url,owner.screenname`
       );
+      // The id was taken from a /video/ (or dai.ly/) URL, so a 404 here is the video itself
+      // being gone - proof, not a failed call. Its page then answers **200** with no og tags
+      // and a bare "Dailymotion" <title>, indistinguishable from a live one to fetchGeneric,
+      // which would spend a Microlink request and end up writing that same empty title.
+      if (res?.status === 404) {
+         console.debug(`Dailymotion has no video ${videoId}; building a card from the URL.`);
+         return { url, title: "Dailymotion video", host: "dailymotion.com", favicon: "https://www.dailymotion.com/favicon.ico", indent: 0 };
+      }
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
       const data = JSON.parse(res.text) as DailymotionVideoResponse;
@@ -2218,7 +2237,10 @@ export class LinkMetadataFetcher {
             questionId = String(item.question_id);
             answerNote = item.owner?.display_name ? `Answer by ${item.owner.display_name}` : "Linked to an answer";
          } else if (!questionId) {
-            return this.fetchGeneric(url);
+            // An empty `items` is the API stating the answer is deleted or never existed; a
+            // failed call carries no `items` at all and proves nothing. See below for why the
+            // difference is worth the branch.
+            return Array.isArray(ans?.items) ? this.buildUrlCard(url) : this.fetchGeneric(url);
          }
       }
 
@@ -2227,6 +2249,12 @@ export class LinkMetadataFetcher {
       // The cache holds the plain question card; the answer note is layered on afterwards, so a
       // /q link and a /a link to the same question share the cached fetch but read differently.
       const base = await this.stackExchangeQuestionCard(site, questionId, parsed.hostname);
+      // Every SE page answers a non-browser request with 403, live or deleted alike, so
+      // fetchGeneric cannot tell the two apart and spends a Microlink request either way -
+      // on the one link where the API has already given a definitive answer. The URL's own
+      // slug says more than that render would ("This question does not exist" beats a
+      // rate-limit notice), and it costs nothing.
+      if (base === "absent") return this.buildUrlCard(url);
       if (!base) return this.fetchGeneric(url);
 
       const description = answerNote
@@ -2235,9 +2263,15 @@ export class LinkMetadataFetcher {
       return { ...base, url, description };
    }
 
+   /**
+    * `"absent"` is the API answering with an empty `items`: the question is deleted or never
+    * existed, which is proof rather than a failure. `undefined` is the call itself not getting
+    * through (quota, network, a 400), which proves nothing and must stay on the generic path.
+    * Only the first may be turned into a card built from the URL - see the caller.
+    */
    private async stackExchangeQuestionCard(
       site: string, questionId: string, hostname: string
-   ): Promise<LinkMetadata | undefined> {
+   ): Promise<LinkMetadata | "absent" | undefined> {
       const cacheKey = `${site}:${questionId}`;
       const cached = LinkMetadataFetcher.stackExchangeCache.get(cacheKey);
       if (cached) return cached;
@@ -2248,7 +2282,9 @@ export class LinkMetadataFetcher {
          score?: number; answer_count?: number; is_answered?: boolean;
          owner?: { display_name?: string; };
       } | undefined;
-      if (!q?.title) return undefined;
+      // Not cached either way: a deleted question may be undeleted, and a failed call says
+      // nothing about tomorrow.
+      if (!q?.title) return Array.isArray(json?.items) ? "absent" : undefined;
 
       const stats = [
          this.countLabel(q.score ?? 0, "vote"),
