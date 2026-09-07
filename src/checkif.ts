@@ -72,8 +72,8 @@ export class CheckIf {
 
   public static isNpmUrl(url: string): boolean {
     // A package page, scoped or not, with or without a trailing `/v/<version>`. Every other
-    // npmjs.com route (search, orgs, the front page) is 403 to us too, but has nothing the
-    // registry API could answer for, so it stays generic.
+    // npmjs.com route (search, orgs, profiles) reads fine on the generic path and has nothing
+    // the registry API could answer for anyway, so it stays there.
     return /^https?:\/\/(www\.)?npmjs\.com\/package\/[^/?#]/i.test(url);
   }
 
