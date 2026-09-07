@@ -311,10 +311,27 @@ export class LinkMetadataFetcher {
    }
 
    private async errorPageCard(url: string, html: string): Promise<LinkMetadata> {
-      const card = this.buildUrlCard(url);
       const parsed = await new LinkMetadataParser(url, html).parse();
+      return this.withPageFurniture(this.buildUrlCard(url), parsed);
+   }
+
+   /**
+    * A card built from the URL still keeps whatever furniture the page itself supplied.
+    *
+    * Roberto's call (2026-09-03) for the description and the image: they are the site's own,
+    * and a card carrying the site's graphic reads better than a bare one. The **favicon**
+    * joined them on 2026-09-07, having been missed: buildUrlCard guesses `/favicon.ico`, so a
+    * removed Medium article lost the real `miro.medium.com` icon the page had just handed us.
+    * Same reasoning as the other two - the site told us, so it is not ours to throw away.
+    */
+   private withPageFurniture(card: LinkMetadata, parsed?: LinkMetadata): LinkMetadata {
       if (!parsed) return card;
-      return { ...card, description: parsed.description, image: parsed.image };
+      return {
+         ...card,
+         description: parsed.description,
+         image: parsed.image,
+         favicon: parsed.favicon ?? card.favicon,
+      };
    }
 
    /**
@@ -1911,7 +1928,7 @@ export class LinkMetadataFetcher {
    private fetchMedium(url: string): Promise<LinkMetadata | undefined> {
       return this.fetchGeneric(url, {
          goneCard: (metadata) => LinkMetadataFetcher.isBareSiteName(metadata, "Medium")
-            ? this.buildMediumFallback(url)
+            ? this.withPageFurniture(this.buildMediumFallback(url), metadata)
             : undefined,
       });
    }
@@ -1961,11 +1978,7 @@ export class LinkMetadataFetcher {
             if (metadata.title.trim().toLowerCase() !== "goodreads") return undefined;
             // The furniture rides along, as it does for a real 404 (see errorPageCard): only
             // the title has to stop claiming to be the book.
-            return {
-               ...this.buildGoodreadsFallback(url),
-               description: metadata.description,
-               image: metadata.image,
-            };
+            return this.withPageFurniture(this.buildGoodreadsFallback(url), metadata);
          },
       });
    }

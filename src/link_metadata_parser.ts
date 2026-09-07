@@ -16,7 +16,8 @@ export class LinkMetadataParser {
     // Titles get a longer cap than descriptions: a product page's title carries the
     // category tail ("... : Amazon.it: Elettronica") that the 160 default cut off, and an
     // inline markdown link shows the title in full where a card clamps it in CSS.
-    const title = LinkMetadataParser.sanitizeText(this.getTitle(), 300);
+    const title = LinkMetadataParser.sanitizeText(
+      LinkMetadataParser.trimTrailingSeparator(this.getTitle()), 300);
     if (!title) return;
     const description = LinkMetadataParser.sanitizeText(this.getDescription());
     const { hostname } = new URL(this.url);
@@ -63,6 +64,22 @@ export class LinkMetadataParser {
     const name = raw.split(/\s+[-|\u2013\u2014:\u00b7]\s+/)[0]?.trim();
     if (!name || name.length > 40) return undefined;
     return LinkMetadataParser.sanitizeText(name);
+  }
+
+  /**
+   * Drops a separator left dangling at the end of a title.
+   *
+   * A site that splits its own heading across og:title and og:description cuts at the
+   * punctuation and keeps it: Medium publishes “Pandas v Psycopg:” with “A Postgres database
+   * speed test. Who wins?” as the description, so the card ended on a colon that leads
+   * nowhere. No real title ends in a separator, so this is safe to do for every site - and
+   * only for separators, never for “...”, “?” or “!”, which are part of a title.
+   */
+  private static trimTrailingSeparator(title: string | undefined): string | undefined {
+    const trimmed = title?.replace(/\s*[-|:·•–—]+\s*$/, "").trim();
+    // A title that was nothing but punctuation is left alone: emptying it here would turn a
+    // parse that succeeded into one that failed.
+    return trimmed || title;
   }
 
   private getTitle(): string | undefined {
