@@ -70,6 +70,21 @@ export class CheckIf {
     return !/^(-|help|explore|dashboard|groups|projects|users|api|admin|search|sitemap)(\/|$)/i.test(path);
   }
 
+  public static isGoodreadsUrl(url: string): boolean {
+    // Book pages only, and not to fetch them differently — they read perfectly on the
+    // generic path. It is the *missing* book that needs handling: Goodreads answers one
+    // with 200 and its own not-found furniture. Author, list and shelf pages are left alone.
+    return /^https?:\/\/(www\.)?goodreads\.com\/book\/show\//i.test(url);
+  }
+
+  public static isMediumUrl(url: string): boolean {
+    // Article pages, including the `<publication>.medium.com` subdomain form. Medium reads
+    // fine on the generic path — this is only so a *removed* article can be recognised, since
+    // Medium answers one with 200 and a page titled just "Medium". Publications on their own
+    // domain are unrecognisable, same limit as Substack.
+    return /^https?:\/\/([a-z0-9-]+\.)?medium\.com\/[^/?#]/i.test(url);
+  }
+
   public static isNpmUrl(url: string): boolean {
     // A package page, scoped or not, with or without a trailing `/v/<version>`. Every other
     // npmjs.com route (search, orgs, profiles) reads fine on the generic path and has nothing

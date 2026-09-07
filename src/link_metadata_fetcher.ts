@@ -105,6 +105,8 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url, refresh);
       if (CheckIf.isGitLabUrl(url)) return this.fetchGitLab(url, refresh);
       if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
+      if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
+      if (CheckIf.isMediumUrl(url)) return this.fetchMedium(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
       if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
@@ -158,6 +160,12 @@ export class LinkMetadataFetcher {
       // one form that is right for every section.
       "bbc.com": "BBC",
       "bbc.co.uk": "BBC",
+      // Also the generic path, and Substack declares no og:site_name at all - the publication's
+      // name lives only in the <title>, after the author. This reaches roughly half of Substack
+      // links: the rest are on the publication's own domain (thefp.com, noahpinion.blog), which
+      // nothing here can recognise as Substack. Half is what is available, and the half it
+      // misses loses only the label on a markdown link.
+      "substack.com": "Substack",
    };
 
    /**
@@ -228,14 +236,30 @@ export class LinkMetadataFetcher {
    }
 
    /* --- GENERIC --- */
-   // `isUnusable` lets a caller reject metadata that parsed fine but isn't real content
-   // (e.g. Reddit's login-wall shell). It has to be checked in here rather than by the
-   // caller: this method already falls back to the external service on failure, so a caller
-   // that inspected the result and then called fetchFallback itself would run that — and
-   // burn Microlink's small daily quota — twice for the same card.
+   /**
+    * Two hooks, and the difference between them is the whole point.
+    *
+    * `isUnusable` says *we could not read the page* - it parsed, but into the site's
+    * anti-bot or login shell rather than content (Reddit's wall). The external fallback is
+    * exactly right for that, and it is checked in here rather than by the caller because
+    * this method already falls back on failure: a caller that inspected the result and then
+    * called fetchFallback itself would run it - and burn Microlink's small daily quota -
+    * twice for the same card.
+    *
+    * `goneCard` says the opposite: the page read fine, and what it says is that the thing is
+    * **not there**. That is proof, so Microlink is not asked (see the invariant in
+    * docs/domain-coverage.md), and the hook returns the card to write instead - it builds it
+    * because only the caller knows how to get a decent title out of that site's URL. It
+    * exists because a 404 is not the only way a site says "gone": goodreads.com answers a
+    * missing book with **200** and its own not-found furniture in the og tags, which reads
+    * as a confident, entirely wrong card.
+    */
    private async fetchGeneric(
       url: string,
-      isUnusable?: (metadata: LinkMetadata) => boolean
+      checks?: {
+         isUnusable?: (metadata: LinkMetadata) => boolean;
+         goneCard?: (metadata: LinkMetadata) => LinkMetadata | undefined;
+      }
    ): Promise<LinkMetadata | undefined> {
       const res = await this.request(url, {
          "Referer": "https://www.google.com/"
@@ -270,7 +294,15 @@ export class LinkMetadataFetcher {
          return this.fetchFallback(url);
       }
 
-      if (metadata && isUnusable?.(metadata)) {
+      // Before isUnusable: this one is the site *telling* us the thing is gone, which is a
+      // fact about the link, not a failure to read it. No fallback, no Microlink.
+      const gone = metadata && checks?.goneCard?.(metadata);
+      if (gone) {
+         console.debug(`Fetch for ${url} returned the site's own not-found page; building from the URL.`);
+         return gone;
+      }
+
+      if (metadata && checks?.isUnusable?.(metadata)) {
          console.debug(`Fetch for ${url} returned a placeholder page rather than real content.`);
          return this.fetchFallback(url);
       }
@@ -863,7 +895,9 @@ export class LinkMetadataFetcher {
 
       // Nothing left to try. Fall back to the generic scrape, which handles the
       // external-service fallback itself.
-      const metadata = await this.fetchGeneric(url, m => this.isGenericRedditPage(m.title, m.description));
+      const metadata = await this.fetchGeneric(url, {
+         isUnusable: m => this.isGenericRedditPage(m.title, m.description),
+      });
 
       // That chain ends in fetchTitleOnly, which reads the page <title> without any such
       // guard — so a blocked subreddit/profile still comes back titled just "Reddit". The
@@ -1859,6 +1893,91 @@ export class LinkMetadataFetcher {
          image: data.avatar_url ?? undefined,
          indent: 0,
       };
+   }
+
+   /* --- MEDIUM --- */
+
+   /**
+    * Medium needs no fetcher either: the plugin reads its articles directly, real og tags and
+    * all. (A scripted probe gets 403 from every user agent but Slackbot's, and a fetcher was
+    * nearly written on that evidence - see the note on probe fidelity in the docs.)
+    *
+    * What it does need is the same guard as Goodreads. A removed article answers **200** with
+    * `og:site_name` "Medium" and no `og:title`, `og:description` or `og:image` at all, so the
+    * parser falls back to the page `<title>` - which is the bare word "Medium" on every Medium
+    * page. The card came out titled "Medium" and otherwise empty: saying nothing while looking
+    * like it had.
+    */
+   private fetchMedium(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, {
+         goneCard: (metadata) => LinkMetadataFetcher.isBareSiteName(metadata, "Medium")
+            ? this.buildMediumFallback(url)
+            : undefined,
+      });
+   }
+
+   /**
+    * `/<publication>/<title-slug>-<hash>` - the hash is Medium's post id and means nothing to
+    * a reader, so it goes before the slug becomes prose. A sentence, hence sentence case.
+    */
+   private buildMediumFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      const last = url.split(/[?#]/)[0]!.replace(/\/+$/, "").split("/").pop();
+      // 8+ hex characters: Medium's ids are 12, and the floor keeps an ordinary English word
+      // that happens to be all hex letters ("facade", "decade") from being amputated.
+      const title = LinkMetadataFetcher.deslug(last?.replace(/-[0-9a-f]{8,}$/i, ""));
+      return title ? { ...card, title } : card;
+   }
+
+   /**
+    * Whether a page that parsed came back saying nothing but the site's own name - the shape
+    * both Goodreads and Medium take when the thing is not there. No real article or book is
+    * titled with just its host's name, and the caller has already narrowed this to one site.
+    * The absent description is the second half of the signal: Goodreads' not-found page does
+    * carry one (its marketing blurb), so that site passes its own extra check instead.
+    */
+   private static isBareSiteName(metadata: LinkMetadata, name: string): boolean {
+      return metadata.title.trim().toLowerCase() === name.toLowerCase() && !metadata.description;
+   }
+
+   /* --- GOODREADS --- */
+
+   /**
+    * Goodreads gets no fetcher, and this is not one: a book that exists reads perfectly on
+    * the generic path - real `og:title`, the blurb, the cover from `m.media-amazon.com` - and
+    * none of that is touched.
+    *
+    * The one thing the generic path gets wrong is a book that does **not** exist. Goodreads
+    * answers it with **HTTP 200**, `<title>Page not found</title>`, and og tags describing
+    * the site rather than the page: `og:title` "Goodreads", the "Discover and share books you
+    * love" blurb, and the Goodreads wordmark as the image. The 404 rule never fires, so the
+    * card came out confident and completely wrong - the site's own furniture presented as if
+    * it were the book. Hence `goneCard`: the tell is `og:title` being nothing but the site's
+    * name, which no real book is titled, and the check is scoped to `/book/show/` anyway.
+    */
+   private fetchGoodreads(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, {
+         goneCard: (metadata) => {
+            if (metadata.title.trim().toLowerCase() !== "goodreads") return undefined;
+            // The furniture rides along, as it does for a real 404 (see errorPageCard): only
+            // the title has to stop claiming to be the book.
+            return {
+               ...this.buildGoodreadsFallback(url),
+               description: metadata.description,
+               image: metadata.image,
+            };
+         },
+      });
+   }
+
+   private buildGoodreadsFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      // `/book/show/2767052-the-hunger-games` - the id leads, and on its own it tells a
+      // reader nothing, so it is dropped before the slug is turned into prose. A URL with
+      // only the id keeps buildUrlCard's answer, which is the bare host.
+      const slug = url.match(/\/book\/show\/\d+[-.]([^/?#]+)/i)?.[1];
+      const title = LinkMetadataFetcher.deslug(slug, "title");
+      return title ? { ...card, title } : card;
    }
 
    /* --- NPM --- */
