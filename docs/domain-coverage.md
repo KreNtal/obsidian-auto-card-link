@@ -159,10 +159,51 @@ checked in Obsidian; add a row above with caveats if anything is odd.
 
 ## Backlog for 1.7
 
-Found while closing 1.6, none of them started. The first four are all the same failure Notion and Discord had — a page that reads as something else — which is now the shape to look for first.
+Found while closing 1.6, none of them started.
+
+**The shape to look for first is no longer “does the site block us”.** 1.6 spent most of its effort on that question and it was the wrong one: MyMiniFactory, Thangs, Medium, npmjs.com, Instagram and Threads were all suspected of blocking us and all read perfectly. The failure that actually costs the reader something is a site that **answers, and answers with something else** — a marketing shell, a sign-in wall, its own homepage — because parsing that *succeeds*, so nothing downstream, Microlink included, ever gets a chance to notice. So the test for a new domain is two pastes, not one: the live thing, and a URL that cannot exist. If the dead one comes back with a title, read it carefully.
+
+And the only verdict that counts comes from a paste into Obsidian. A scripted probe is a lower bound and has now been wrong six times (see the probe-fidelity paragraph above). What to watch for in the console is whether Microlink was called, not whether a card appeared.
+
+### Confirmed broken
+
+All four are the same failure Notion and Discord had.
 
 - [ ] TikTok — a profile comes back titled “Log in | TikTok” with the sign-in blurb, i.e. the LinkedIn auth wall in a different coat. Confirmed in Obsidian 2026-09-08. Needs the same treatment: a tell for the wall, and a card built from the `@handle` the URL carries.
 - [ ] Steam — a real app reads correctly, but an app id that does not exist answers **200** titled “Steam Store”. `store.steampowered.com/api/appdetails?appids=<id>` is unauthenticated and answers `success: false` for a dead id — the documented-API category, like GitLab and npm. Probed 2026-09-08.
 - [ ] Trello — `/templates` came back as the company blurb (“Trello” / “Organize anything, together”) rather than the page. Boards not yet checked in Obsidian.
 - [ ] Google Maps — declares `og:title` “Google Maps” for **everything**, a real place included, so every map link is the same empty card. No public endpoint; the honest ceiling is a URL-built card with the place name taken from the path.
-- [ ] Figma, Miro, Airtable, archive.org — **checked and fine**, recorded so nobody re-checks: each answers a dead item with a real 404, which `errorPageCard` already covers. Telegram is borderline: a channel that does not exist answers 200 titled “Telegram: Contact @<handle>”, wrong but self-identifying.
+
+### Checked and fine
+
+Recorded so that nobody spends an evening re-checking them.
+
+- [x] Figma, Miro, Airtable, archive.org — each answers a dead item with a real 404, which `errorPageCard` already covers. Telegram is borderline: a channel that does not exist answers 200 titled “Telegram: Contact @<handle>”, wrong but self-identifying.
+
+### To check — first tier
+
+Pasted often enough to matter, and each is on this list for a stated reason rather than because it is big. Nothing below has been
+measured: these are candidates, not findings.
+
+- [ ] Google Docs / Sheets / Drive — client-rendered and permission-gated, the exact conditions that produced Notion's shell. A private or deleted document is the case to watch.
+- [ ] Apple Podcasts, SoundCloud, Bandcamp — the audio gap. Spotify is covered and these three are what people paste instead; all have public embed or oEmbed endpoints worth checking before anything else.
+- [ ] Docker Hub, crates.io, pkg.go.dev, RubyGems, Packagist — the rest of the package registries, after npm and PyPI. All five have documented public APIs, which is the cheap category; the question is only whether the generic path is already right.
+- [ ] Codeberg, Bitbucket, SourceForge — the rest of the forges, after GitHub and GitLab. Codeberg is Forgejo, so its API is GitLab-shaped and public.
+- [ ] Hugging Face — models and datasets, increasingly pasted into research notes; public API, and a gated repo is a plausible auth-wall case.
+- [ ] doi.org, Zenodo, bioRxiv, PubMed — the citation side, after arXiv. `doi.org` is a redirector, so the interesting question is whether the card should describe the DOI or wherever it lands.
+- [ ] OpenStreetMap — worth pairing with the Google Maps entry above: if OSM describes a place properly, that is the honest answer to give a maps link.
+- [ ] Letterboxd, MyAnimeList, Rotten Tomatoes — the film and TV side, after IMDb.
+- [ ] itch.io, GOG, App Store, Google Play — the rest of the storefronts, after Steam.
+- [ ] Dev.to, Hashnode, Lobste.rs — the writing platforms, after Medium and Substack.
+
+### To check — second tier
+
+Lower volume, or expected to be fine, or expected to be hopeless. Worth one paste each to find out which.
+
+- [ ] eBay, Etsy, AliExpress — commerce, after Amazon. Bot protection is likely, so these are the ones to judge by whether Microlink was called.
+- [ ] Confluence, Jira, Linear, Coda, ClickUp — the work tools. All auth-gated by nature, so the realistic goal is an honest URL-built card, not a real one.
+- [ ] Kick, Rumble, Odysee, Nebula — the video platforms after YouTube, Vimeo, Dailymotion and Twitch.
+- [ ] Wikidata, Wiktionary, Wikimedia Commons — the rest of the Wikimedia family; the same REST summary API may or may not cover them.
+- [ ] Yelp, TripAdvisor — places, if the maps work above goes anywhere.
+- [ ] CodePen, JSFiddle, Replit, Read the Docs — the code-snippet and docs hosts.
+- [ ] Yeggi — the last 3D-printing aggregator not yet looked at.

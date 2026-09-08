@@ -2,7 +2,7 @@
 
 Automatically generate beautiful <u>card-styled links</u> from URLs by fetching their metadata, thumbnails and favicons, and turning them into a YAML `cardlink` code block or into a compact inline Markdown link carrying the fetched title.
 
-It includes tailored handling for YouTube, Twitch, Reddit, GitHub, Wikipedia, Spotify and more, plus options for thumbnail quality, local image saving and multiple card styles.
+It includes tailored handling for over twenty sites — YouTube, Vimeo, Reddit, X, GitHub, GitLab, npm, Wikipedia, arXiv, Spotify, Stack Exchange, LinkedIn, Hacker News, Bluesky, IMDb, Notion, Discord and more — plus options for thumbnail quality, local image saving and multiple card styles.
 
 <p align="center">
     <img src="docs/demo2.gif">
@@ -16,6 +16,7 @@ It includes tailored handling for YouTube, Twitch, Reddit, GitHub, Wikipedia, Sp
 - Right-click a Markdown link to refresh its title or turn it into a card.
 - Cards and Markdown links have separate commands, so each can have its own hotkey and both can be used side by side.
 - Support for local images through internal links (`image: "[[image.png]]"`).
+- Links to content that is gone — a deleted post, a removed video, an expired invite — produce a card built from the URL, instead of a confident-looking card describing the site's own error page or sign-in wall.
 
 ## Settings
 
