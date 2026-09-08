@@ -92,6 +92,14 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?npmjs\.com\/package\/[^/?#]/i.test(url);
   }
 
+  public static isNotionUrl(url: string): boolean {
+    // A published Notion page: `notion.so` and every workspace's own `*.notion.site`.
+    // `notion.com` - the marketing site, which `notion.so/product` and friends redirect to -
+    // is an ordinary server-rendered page and stays on the generic path.
+    return /^https?:\/\/([a-z0-9-]+\.)?notion\.site(\/|$|[?#])/i.test(url)
+      || /^https?:\/\/(www\.)?notion\.so(\/|$|[?#])/i.test(url);
+  }
+
   public static isSpotifyUrl(url: string): boolean {
     return /^https?:\/\/open\.spotify\.com\/(intl-[a-z]+\/)?(track|album|playlist|artist|episode)\//.test(url);
   }

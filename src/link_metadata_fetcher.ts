@@ -112,6 +112,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
       if (CheckIf.isStackExchangeUrl(url)) return this.fetchStackExchange(url);
       if (CheckIf.isLinkedInUrl(url)) return this.fetchLinkedIn(url);
+      if (CheckIf.isNotionUrl(url)) return this.fetchNotion(url);
       if (CheckIf.isHackerNewsUrl(url)) return this.fetchHackerNews(url);
       if (CheckIf.isBlueskyUrl(url)) return this.fetchBluesky(url);
 
@@ -166,6 +167,11 @@ export class LinkMetadataFetcher {
       // nothing here can recognise as Substack. Half is what is available, and the half it
       // misses loses only the label on a markdown link.
       "substack.com": "Substack",
+      // Notion does declare a name, but it declares the workspace's: a page on the "notion"
+      // workspace says og:site_name "notion on Notion". fetchNotion drops that, so this is
+      // what every Notion card ends up labelled with.
+      "notion.so": "Notion",
+      "notion.site": "Notion",
    };
 
    /**
@@ -2948,12 +2954,12 @@ export class LinkMetadataFetcher {
     *     comment count is noise that is stale the day after it is written into a note, and
     *     the author belongs in the card's author field, not in its title.
     */
-   private static readonly LINKEDIN_CRAWLER_UA =
+   private static readonly CRAWLER_UA =
       "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
 
    private async fetchLinkedIn(url: string): Promise<LinkMetadata | undefined> {
       let res = await this.request(url, {
-         "User-Agent": LinkMetadataFetcher.LINKEDIN_CRAWLER_UA,
+         "User-Agent": LinkMetadataFetcher.CRAWLER_UA,
          "Referer": "https://www.google.com/",
       });
 
@@ -3033,6 +3039,105 @@ export class LinkMetadataFetcher {
       const slug = named?.[1]?.replace(/-[0-9a-z]*\d[0-9a-z]*$/i, "") || named?.[1];
       const name = LinkMetadataFetcher.deslug(slug, "title");
       return { ...base, title: name ?? "LinkedIn" };
+   }
+
+   /**
+    * Notion.
+    *
+    * A published page is rendered in the browser, so an anonymous request gets the same
+    * client-side shell whatever it asks for: a real page, an invented one and a workspace
+    * that never existed all come back 200 with og:title "Notion | Where teams and agents
+    * work together" and Notion's own marketing blurb. That is the Thingiverse failure - every
+    * card would carry the same confident, wrong text - and it is why the generic path cannot
+    * have this domain. It also rules out Microlink as a fallback: a headless browser would
+    * render the page properly, but fetchGeneric never reaches it, because parsing the shell
+    * *succeeds*.
+    *
+    * Notion serves the real thing to a crawler UA, checked 2026-09-08 on both URL forms:
+    *
+    *   - `www.notion.so/<Slug>-<id>` and `<workspace>.notion.site/<Slug>-<id>` return the
+    *     page's own og:title, description and image
+    *   - a page id that does not exist returns a bare **404**, on either host - proof of
+    *     absence, so the card is built from the URL and no Microlink request is spent
+    *   - a workspace that does not exist is the one case that still answers 200 with the
+    *     shell, so the shell has to be recognised as well as the 404
+    *
+    * This is UA sniffing, not a documented API - the fragile category, next to LinkedIn and
+    * Twitch. What limits the damage is that failure is one-way: if Notion stops trusting the
+    * crawler UA, every request becomes a non-200 and every card falls back to the URL, which
+    * is worse than today but still honest. It never goes back to serving the marketing blurb.
+    */
+   private async fetchNotion(url: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(url, {
+         "User-Agent": LinkMetadataFetcher.CRAWLER_UA,
+      });
+
+      // Anything that is not a readable page ends at the URL, exactly as LinkedIn does, and
+      // for the same reason: the two fallbacks both lead back to the shell.
+      if (!res || res.status !== 200) return this.buildNotionFallback(url);
+
+      const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+      if (LinkMetadataFetcher.isNotionShell(decodedText)) {
+         console.debug(`Notion served its generic shell for ${url}.`);
+         return this.buildNotionFallback(url);
+      }
+
+      const metadata = await new LinkMetadataParser(url, decodedText).parse();
+      if (!metadata) return this.buildNotionFallback(url);
+
+      return {
+         ...metadata,
+         title: LinkMetadataFetcher.trimNotionSuffix(metadata.title),
+         // Dropped rather than trimmed: what Notion declares is "<workspace> on Notion", and
+         // the workspace's own name is not the site's. SITE_NAMES supplies "Notion" once this
+         // is empty - see withSiteName.
+         siteName: undefined,
+      };
+   }
+
+   /**
+    * The shell declares somebody else's address - og:url is a bare `https://app.notion.com`,
+    * where a real page echoes its own `*.notion.site` URL and a marketing page its
+    * `notion.com` one. Same tell as isLinkedInAuthWall, and steadier than the title, which is
+    * localised and rewritten whenever the marketing does. (The shell's og:image, the
+    * `app.notion.com/images/meta/default.png` default, says the same thing.)
+    */
+   private static isNotionShell(html: string): boolean {
+      const declared = html.match(/property="og:url"\s+content="([^"]*)"/i)
+         ?? html.match(/content="([^"]*)"\s+property="og:url"/i);
+      return /^https?:\/\/app\.notion\.com\/?$/i.test(declared?.[1]?.trim() ?? "");
+   }
+
+   /**
+    * Every Notion page title ends " | Notion", including the marketing ones. The host is
+    * already on the card and SITE_NAMES labels the markdown link, so the suffix is repetition.
+    */
+   private static trimNotionSuffix(title: string): string {
+      return title.replace(/\s*\|\s*Notion\s*$/i, "").trim() || title;
+   }
+
+   /**
+    * A Notion URL is `<Page-Title>-<32 hex id>`, so the slug is real words and the id is
+    * noise. Title case: it is a page name, not a sentence.
+    */
+   private buildNotionFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      // Read the last segment off the parsed pathname, not the raw string: a workspace root
+      // has no path at all, and splitting the URL text there hands back the hostname.
+      let last: string | undefined;
+      try {
+         last = new URL(url).pathname.split("/").filter(Boolean).pop();
+      } catch {
+         return card;
+      }
+      const id = "[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}";
+      const slug = last?.replace(new RegExp(`-?(?:${id})$`, "i"), "");
+      const title = LinkMetadataFetcher.deslug(slug, "title");
+      if (title) return { ...card, title };
+
+      // The URL was nothing but the id (`notion.so/83715d77...`). buildUrlCard would read the
+      // id itself as the title, and a page named "83715d77…" tells a reader nothing.
+      return { ...card, title: (card.host && LinkMetadataFetcher.siteNameFor(card.host)) || card.title };
    }
 
    private static deslug(segment?: string, casing: "sentence" | "title" = "sentence"): string | undefined {
