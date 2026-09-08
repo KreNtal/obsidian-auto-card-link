@@ -100,6 +100,17 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?notion\.so(\/|$|[?#])/i.test(url);
   }
 
+  public static isDiscordUrl(url: string): boolean {
+    // Only the two forms that break on the generic path. An invite (`discord.gg/<code>`, or
+    // its `discord.com/invite/<code>` long form) and a link into a server
+    // (`discord.com/channels/…`) both answer 200 with Discord's marketing shell when they
+    // cannot be shown, which is a card that says the wrong thing rather than nothing.
+    // Everything else on discord.com - /download, /blog, /nitro - is an ordinary page with
+    // its own og tags and stays generic.
+    return /^https?:\/\/(www\.)?discord\.gg\/[^/?#]/i.test(url)
+      || /^https?:\/\/(www\.)?(discord|discordapp)\.com\/(invite\/[^/?#]|channels\/)/i.test(url);
+  }
+
   public static isSpotifyUrl(url: string): boolean {
     return /^https?:\/\/open\.spotify\.com\/(intl-[a-z]+\/)?(track|album|playlist|artist|episode)\//.test(url);
   }

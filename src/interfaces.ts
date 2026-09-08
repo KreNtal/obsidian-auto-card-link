@@ -78,6 +78,19 @@ export interface NpmPackageResponse {
   author?: { name?: string; } | string;
 }
 
+export interface DiscordInviteResponse {
+  code?: string;
+  approximate_member_count?: number;
+  guild?: {
+    id?: string;
+    name?: string;
+    description?: string;
+    icon?: string;
+    splash?: string;
+    banner?: string;
+  };
+}
+
 export interface MicrolinkResponse {
   status?: string;
   data?: {

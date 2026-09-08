@@ -4,7 +4,7 @@ import {
    BlueskyProfile,
    HackerNewsItem,
    HackerNewsUser,
-   DailymotionVideoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   DailymotionVideoResponse, DiscordInviteResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    PrintablesGraphQLResponse, StackExchangeSite, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
@@ -113,6 +113,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isStackExchangeUrl(url)) return this.fetchStackExchange(url);
       if (CheckIf.isLinkedInUrl(url)) return this.fetchLinkedIn(url);
       if (CheckIf.isNotionUrl(url)) return this.fetchNotion(url);
+      if (CheckIf.isDiscordUrl(url)) return this.fetchDiscord(url);
       if (CheckIf.isHackerNewsUrl(url)) return this.fetchHackerNews(url);
       if (CheckIf.isBlueskyUrl(url)) return this.fetchBluesky(url);
 
@@ -172,6 +173,11 @@ export class LinkMetadataFetcher {
       // what every Notion card ends up labelled with.
       "notion.so": "Notion",
       "notion.site": "Notion",
+      // Both invite hosts, and a floor for the generic path as well: discord.com's own
+      // marketing pages (/download, /blog) declare no og:site_name at all.
+      "discord.com": "Discord",
+      "discord.gg": "Discord",
+      "discordapp.com": "Discord",
    };
 
    /**
@@ -330,6 +336,16 @@ export class LinkMetadataFetcher {
     * removed Medium article lost the real `miro.medium.com` icon the page had just handed us.
     * Same reasoning as the other two - the site told us, so it is not ours to throw away.
     */
+   /**
+    * The same thing when the page is still HTML rather than an already-parsed card: parse it
+    * only for its furniture and keep our own title. Used wherever a fetcher has a page in
+    * hand that it has decided not to believe - Notion's shell, LinkedIn's sign-in wall,
+    * Discord's front page - which is exactly when the title is a lie and the artwork is not.
+    */
+   private async withParsedFurniture(card: LinkMetadata, url: string, html: string): Promise<LinkMetadata> {
+      return this.withPageFurniture(card, await new LinkMetadataParser(url, html).parse());
+   }
+
    private withPageFurniture(card: LinkMetadata, parsed?: LinkMetadata): LinkMetadata {
       if (!parsed) return card;
       return {
@@ -2977,9 +2993,9 @@ export class LinkMetadataFetcher {
       // the page. The title is localised - it came back in Italian on one run and English on
       // the next - so the reliable tell is that the page declares someone else's address:
       // every real page echoes its own URL in og:url, the wall says /login.
-      if (LinkMetadataFetcher.isLinkedInAuthWall(decodedText)) {
+      if (LinkMetadataFetcher.isLinkedInAuthWall(decodedText, url)) {
          console.debug(`LinkedIn served the sign-in page for ${url}.`);
-         return this.buildLinkedInFallback(url);
+         return this.withParsedFurniture(this.buildLinkedInFallback(url), url, decodedText);
       }
 
       const metadata = await new LinkMetadataParser(url, decodedText).parse();
@@ -3073,13 +3089,18 @@ export class LinkMetadataFetcher {
       });
 
       // Anything that is not a readable page ends at the URL, exactly as LinkedIn does, and
-      // for the same reason: the two fallbacks both lead back to the shell.
-      if (!res || res.status !== 200) return this.buildNotionFallback(url);
-
+      // for the same reason: the two fallbacks both lead back to the shell. Whatever the page
+      // did say for itself still rides along - a missing page id answers with nine bytes and
+      // has nothing to give, but the shell has its artwork and blurb.
+      if (!res) return this.buildNotionFallback(url);
       const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+      if (res.status !== 200) {
+         return this.withParsedFurniture(this.buildNotionFallback(url), url, decodedText);
+      }
+
       if (LinkMetadataFetcher.isNotionShell(decodedText)) {
          console.debug(`Notion served its generic shell for ${url}.`);
-         return this.buildNotionFallback(url);
+         return this.withParsedFurniture(this.buildNotionFallback(url), url, decodedText);
       }
 
       const metadata = await new LinkMetadataParser(url, decodedText).parse();
@@ -3140,6 +3161,154 @@ export class LinkMetadataFetcher {
       return { ...card, title: (card.host && LinkMetadataFetcher.siteNameFor(card.host)) || card.title };
    }
 
+   /**
+    * Discord.
+    *
+    * Two forms of Discord link, and both fail on the generic path the way Notion does -
+    * not by being unreadable, but by reading as something else. An invite that has expired,
+    * been revoked or never existed answers **200** with Discord's front-page shell
+    * ("Discord - Group Chat That's All Fun & Games"), and so does every
+    * `discord.com/channels/…` link, which is a pointer into a server nobody can open without
+    * being a member. Left generic, those become confident cards advertising Discord.
+    *
+    * A live invite does read on the generic path, but the invites endpoint is better and
+    * costs nothing extra: `discord.com/api/v10/invites/<code>` is documented, versioned and
+    * needs no auth, it gives the server's own name instead of Discord's "Join the … Discord
+    * Server!" phrasing, and - the part that matters - it answers a dead invite with a clean
+    * **404 `{"message":"Unknown Invite"}`**, which is the proof the page refuses to give.
+    * Checked 2026-09-08.
+    */
+   private static readonly discordCache = new Map<string, LinkMetadata>();
+
+   private async fetchDiscord(url: string): Promise<LinkMetadata | undefined> {
+      const code = url.match(/^https?:\/\/(?:www\.)?(?:discord\.gg|(?:discord|discordapp)\.com\/invite)\/([^/?#]+)/i)?.[1];
+      // A /channels/ link is private by definition: reading it would need a bot token in that
+      // very server, so there is nothing to request and the card is named from the URL shape.
+      if (!code) return this.discordChannelCard(url);
+
+      const cached = LinkMetadataFetcher.discordCache.get(code.toLowerCase());
+      if (cached) return { ...cached, url };
+
+      const res = await this.request(
+         `https://discord.com/api/v10/invites/${encodeURIComponent(code)}?with_counts=true`
+      );
+      // Only a 404 is proof. A 429, a 5xx or a dead network says nothing about the invite -
+      // but the generic path would answer all three with the marketing shell, so every one
+      // of them still ends at the URL rather than there.
+      if (!res || res.status !== 200) return this.discordInviteFallback(url, code);
+
+      const card = this.discordInviteCard(url, code, res.text);
+      if (!card) return this.discordInviteFallback(url, code);
+      LinkMetadataFetcher.discordCache.set(code.toLowerCase(), card);
+      return card;
+   }
+
+   private discordInviteCard(url: string, code: string, body: string): LinkMetadata | undefined {
+      let data: DiscordInviteResponse;
+      try {
+         data = JSON.parse(body) as DiscordInviteResponse;
+      } catch {
+         return undefined;
+      }
+      const guild = data.guild;
+      if (!guild?.name) return undefined;
+
+      const parts: string[] = [];
+      if (guild.description) parts.push(guild.description);
+      // Members only. The endpoint also returns how many are online right now, and that is
+      // the LinkedIn comment-count mistake: a number that is wrong within the hour, written
+      // into a note that keeps it for years. A member count moves slowly enough to be worth
+      // reading months later.
+      if (typeof data.approximate_member_count === "number") {
+         parts.push(this.countLabel(data.approximate_member_count, "member"));
+      }
+
+      return {
+         url,
+         title: guild.name,
+         description: LinkMetadataParser.sanitizeText(parts.join(" · ")),
+         host: "discord.com",
+         favicon: LinkMetadataFetcher.DISCORD_FAVICON,
+         image: LinkMetadataFetcher.discordGuildImage(guild),
+         indent: 0,
+      };
+   }
+
+   /**
+    * Splash first, then banner, then the server icon - the same order Discord's own og:image
+    * follows. The icon is the fallback because it is the one every server has, and a square
+    * mark in a wide thumbnail slot is still better than an empty one.
+    */
+   private static discordGuildImage(guild: NonNullable<DiscordInviteResponse["guild"]>): string | undefined {
+      const id = guild.id;
+      if (!id) return undefined;
+      if (guild.splash) return `https://cdn.discordapp.com/splashes/${id}/${guild.splash}.jpg?size=512`;
+      if (guild.banner) return `https://cdn.discordapp.com/banners/${id}/${guild.banner}.jpg?size=512`;
+      // An `a_` prefix marks an animated icon; it is served as a still PNG at this path too.
+      if (guild.icon) return `https://cdn.discordapp.com/icons/${id}/${guild.icon}.png?size=512`;
+      return undefined;
+   }
+
+   /**
+    * `discord.com/favicon.ico` is a 404 and `discord.gg/favicon.ico` answers with the SPA's
+    * HTML, so the guess buildUrlCard makes is wrong on both hosts. The real icon is here.
+    */
+   private static readonly DISCORD_FAVICON = "https://discord.com/assets/favicon.ico";
+
+   /**
+    * A dead invite. A vanity code is words a server chose for itself and reads as a name
+    * ("discord-developers"); a generated one is seven random characters and reads as nothing,
+    * so that case says only what the link is.
+    */
+   private discordInviteFallback(url: string, code: string): Promise<LinkMetadata> {
+      const vanity = code.includes("-") ? LinkMetadataFetcher.deslug(code, "title") : undefined;
+      return this.withDiscordShellFurniture(url, {
+         url,
+         title: vanity ?? "Discord invite",
+         // discord.com on both hosts, matching the live card and the og:url a real invite
+         // page declares - discord.gg is Discord's own shortener, not a separate site.
+         host: "discord.com",
+         favicon: LinkMetadataFetcher.DISCORD_FAVICON,
+         indent: 0,
+      });
+   }
+
+   /**
+    * `/channels/<guild>/<channel>/<message>`, one segment shorter for a channel and shorter
+    * again for a server. `@me` in the guild slot is a direct message. All of them are ids, so
+    * there is nothing to name the card after but the shape of the link itself.
+    */
+   private discordChannelCard(url: string): Promise<LinkMetadata> {
+      const segments = url.replace(/^https?:\/\/[^/]+/i, "").split(/[?#]/)[0]!.split("/").filter(Boolean);
+      const depth = segments.length - 1;
+      const title = depth >= 3 ? "Discord message" : depth === 2 ? "Discord channel" : "Discord server";
+      return this.withDiscordShellFurniture(url, {
+         url,
+         title,
+         host: "discord.com",
+         favicon: LinkMetadataFetcher.DISCORD_FAVICON,
+         indent: 0,
+      });
+   }
+
+   /**
+    * What is wrong with the shell is its **title**, which presents Discord's front page as if
+    * it were the link. Its description and artwork are not wrong in the same way - they are
+    * the site's own furniture on a page we have established we cannot read, which is exactly
+    * the case `errorPageCard` covers, and Roberto's call (2026-09-03) is that a card carrying
+    * the site's graphic reads better than a bare one. The first version of this fetcher threw
+    * that away and produced a two-line card; he asked for the furniture back on 2026-09-08.
+    *
+    * One request, the same one the generic path used to make, and never Microlink. If it
+    * fails there is simply no furniture to add and the bare card stands.
+    */
+   private async withDiscordShellFurniture(url: string, card: LinkMetadata): Promise<LinkMetadata> {
+      const res = await this.request(url);
+      if (!res || res.status !== 200) return card;
+      const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+      return this.withParsedFurniture(card, url, html);
+   }
+
    private static deslug(segment?: string, casing: "sentence" | "title" = "sentence"): string | undefined {
       if (!segment) return undefined;
       let words: string;
@@ -3156,10 +3325,27 @@ export class LinkMetadataFetcher {
       return words.charAt(0).toUpperCase() + words.slice(1);
    }
 
-   private static isLinkedInAuthWall(html: string): boolean {
-      const declared = html.match(/property="og:url"\s+content="([^"]*)"/i)
-         ?? html.match(/content="([^"]*)"\s+property="og:url"/i);
-      return /linkedin\.com\/(login|signup|uas\/login|authwall)/i.test(declared?.[1] ?? "");
+   private static isLinkedInAuthWall(html: string, url: string): boolean {
+      const declared = (html.match(/property="og:url"\s+content="([^"]*)"/i)
+         ?? html.match(/content="([^"]*)"\s+property="og:url"/i))?.[1]?.trim() ?? "";
+      if (/linkedin\.com\/(login|signup|uas\/login|authwall)/i.test(declared)) return true;
+
+      // The **sign-up** page - the one a dead post actually lands on - declares the bare
+      // homepage as its address rather than /signup, so it walked straight past the check
+      // above and was parsed as if it were the post: a card titled “Iscriviti” carrying
+      // LinkedIn's own sign-up blurb, which is the exact card this guard exists to prevent
+      // (found 2026-09-08). A real page always echoes its own address, so the homepage is
+      // only ever the truth for the homepage itself.
+      return /^https?:\/\/(www\.)?linkedin\.com\/?$/i.test(declared)
+         && !LinkMetadataFetcher.isLinkedInHome(url);
+   }
+
+   private static isLinkedInHome(url: string): boolean {
+      try {
+         return new URL(url).pathname.replace(/\/+$/, "") === "";
+      } catch {
+         return false;
+      }
    }
 
    private parseLinkedInTitle(title: string, url: string): { title: string; author?: string; } {
