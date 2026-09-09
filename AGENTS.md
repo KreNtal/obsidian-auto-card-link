@@ -1,5 +1,114 @@
 # Obsidian community plugin
 
+## This repository in particular — read before anything else
+
+Everything from "Project overview" down is Obsidian's sample-plugin boilerplate, kept
+because it is a decent reference. **Where it conflicts with this section, this section
+wins.** One conflict is live: the boilerplate says to split any file over 200-300 lines.
+`src/link_metadata_fetcher.ts` is deliberately several thousand lines long, one method per
+site, each with the evidence for its design in a comment above it. Do not refactor it into
+modules unless asked.
+
+**`docs/domain-coverage.md` is the source of truth for site handling.** It records every
+site checked, what it returns, what was tried and rejected, and why. Read it before
+touching anything to do with fetching metadata, and update it in the same commit as the
+code. It also carries the release backlog. Nothing there should be re-derived from scratch.
+
+### Working agreement
+
+- **One site, or one problem, at a time.** Probe, implement, verify, hand over test links,
+  wait for approval, commit. Then the next.
+- **Ask before each commit, and separately before each push.** Approving an approach is not
+  approving to ship it.
+- **Never attribute yourself in a commit.** No `Co-Authored-By`, no "Generated with". The
+  author is the maintainer.
+- Commit messages are long and explanatory, in English: what was wrong, why this is the
+  fix, and what was tried and rejected. The log is the project's record — match it.
+- **Hand over test links after every fetcher change, unasked.** Bare URLs, one per line,
+  **no bullet points and no backticks**, so a whole group can be copy-pasted at once. A
+  comment on the same line is fine. Group them by case (live / dead / must not regress), and
+  verify they are live at the moment of handing them over.
+- `main.js` is gitignored and the maintainer copies it into the test vault by hand. Remind
+  them to, every time.
+- **Only a paste into Obsidian settles whether something works.** You cannot test the
+  plugin yourself.
+
+### Rules for link metadata
+
+1. **A dedicated fetcher needs either a documented API or a provably wrong generic path.**
+   Not "a fetcher per big domain". Every fetcher is perpetual maintenance: a documented,
+   versioned API is cheap, scraping or User-Agent sniffing is expensive and must be
+   declared as fragile in the docs.
+2. **When an endpoint proves a link is dead, build the card from the URL — never hand it to
+   `fetchGeneric`**, which cannot tell "gone" from "blocked" and would spend a Microlink
+   request (quota ~25/day) rendering a page that says nothing. An API's *empty answer* is
+   proof; an API's *failure to answer* (429, 5xx, dead network) proves nothing and stays on
+   the normal path. Both look identical in a `!result` check — that is exactly how the bug
+   got in the first time.
+3. **A page we refuse to believe still keeps its furniture.** What is wrong with a shell is
+   its *title*, which presents the site's homepage as if it were the link. Its description,
+   image and favicon are the site's own furniture on a page we have established we cannot
+   read, and they ride along. Do not spend an extra request to fetch furniture from a page
+   already known to be empty.
+4. **A 403 from a scripted probe is not evidence that the plugin is blocked.** `requestUrl`
+   runs inside Electron and presents a real browser's TLS/HTTP2 fingerprint, which is what
+   bot protection actually profiles. Scripted probes are a **lower bound**: if the probe
+   gets through the plugin will; if it is refused, nothing follows. This has been got wrong
+   six times. When re-checking, the test is **whether Microlink was called**, not whether a
+   card appeared.
+5. **Never modify the URL the user pasted.** No stripping parameters on a hunch.
+
+**The failure to look for first is not "does this site block us".** It is a site that
+*answers, with something else* — a marketing shell, a sign-in wall, its own homepage —
+because parsing that *succeeds*, so nothing downstream, Microlink included, ever gets a
+chance to notice. So test a new domain with two pastes: the live thing, and a URL that
+cannot exist. If the dead one comes back with a title, read it carefully.
+
+**A check on one domain that uncovers a general parser or dispatch bug takes precedence
+over the domain.** That happened three times during 1.6, and each time it fixed more sites
+than the one being looked at.
+
+### Reuse before writing
+
+In `src/link_metadata_fetcher.ts` unless noted: `buildUrlCard`, `errorPageCard`,
+`withPageFurniture` (parsed card) and `withParsedFurniture` (raw HTML), `deslug(segment,
+"sentence" | "title")`, `siteNameFor`, `SITE_NAMES`, `countLabel`, `compactCount`,
+`request(url, headers, timeout)` (already passes `throw: false`, so statuses are visible),
+`decodeHtmlContent`, `CRAWLER_UA`, and `fetchGeneric(url, { isUnusable, goneCard })` —
+`isUnusable` means *we could not read the page* and leads to Microlink, `goneCard` means
+*the page says it is not there*, which is proof, and leads to a URL-built card.
+Domain matchers live in `src/checkif.ts`, response shapes in `src/interfaces.ts`, and
+HTML parsing in `src/link_metadata_parser.ts`.
+
+### Repository traps
+
+- **Line endings.** Git blobs are LF; some working-tree files are CRLF. `git checkout --
+  <path>` produces doubled CRs and corrupts them. To restore a file, write the blob's bytes
+  directly (`git cat-file blob HEAD:<path>`). Check a file's endings before editing it with
+  a script.
+- Git sometimes reports a file as modified when it is byte-identical to HEAD (a stale index
+  entry). Confirm with `git diff --stat` before concluding anything changed.
+- `docs/domain-coverage.md` is full of wide tables. After editing one, count the unescaped
+  pipes per row against its header — a broken row has been shipped before.
+- Watch for invisible non-ASCII characters in regexes; a literal nbsp has already failed
+  ESLint with "Irregular whitespace".
+- Before handing anything over: `npx tsc --noEmit`, `npx eslint src/`, `npm run build`, all
+  three clean.
+
+### Release discipline
+
+- **No version bump mid-release.** `manifest.json` stays put until the release is finished
+  and the maintainer says so.
+- Cutting a release: `npm version <x.y.z>` updates `manifest.json`, `package.json` and
+  `versions.json`, commits, and creates the annotated tag. Pushing the tag triggers the
+  workflow, which builds from source and creates a **draft** GitHub release with
+  `main.js`, `manifest.json` and `styles.css`.
+- Release notes follow the shape of the previous ones: `## Additions` and `## Fixes`,
+  short user-facing bullets, no preamble and no tables. The reasoning belongs in the commit
+  log and in `docs/domain-coverage.md`, not there.
+
+---
+
 ## Project overview
 
 - Target: Obsidian Community Plugin (TypeScript → bundled JavaScript).
