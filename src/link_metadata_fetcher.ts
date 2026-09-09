@@ -2171,7 +2171,16 @@ export class LinkMetadataFetcher {
       // region-locked out of existence, or never real. Proof, and the only source of it.
       if (!entry?.success || !entry.data) {
          console.debug(`Steam has no app ${appid}; building a card from the URL.`);
-         return this.buildSteamFallback(url);
+         const card = this.buildSteamFallback(url);
+         // The `/app/<id>/` URL 302s to the storefront - a real page whose blurb and share
+         // image are the site's own furniture on a page we have established says nothing
+         // about the link. Keep them, replace only the title, exactly as the generic path
+         // did before this fetcher existed. One direct request, the one that path made, and
+         // never Microlink.
+         const page = await this.request(url, { "Referer": "https://www.google.com/" });
+         return page?.status === 200
+            ? this.withParsedFurniture(card, url, await this.decodeHtmlContent(page.arrayBuffer, page.text))
+            : card;
       }
 
       const d = entry.data;
