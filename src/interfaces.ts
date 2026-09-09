@@ -78,6 +78,22 @@ export interface NpmPackageResponse {
   author?: { name?: string; } | string;
 }
 
+/** One `appids=<id>` entry of `store.steampowered.com/api/appdetails`. */
+export interface SteamAppDetailsResponse {
+  [appid: string]: {
+    success?: boolean;
+    data?: {
+      name?: string;
+      type?: string;
+      short_description?: string;
+      header_image?: string;
+      capsule_image?: string;
+      developers?: string[];
+      publishers?: string[];
+    };
+  } | undefined;
+}
+
 export interface DiscordInviteResponse {
   code?: string;
   approximate_member_count?: number;

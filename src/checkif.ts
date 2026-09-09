@@ -111,6 +111,15 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?(discord|discordapp)\.com\/(invite\/[^/?#]|channels\/)/i.test(url);
   }
 
+  public static isSteamUrl(url: string): boolean {
+    // A store app page only: `/app/<id>` and the `/agecheck/app/<id>` form a mature title
+    // redirects to. A live app reads fine on the generic path; this exists so a *missing*
+    // app id, which Steam answers with a 302 to its own storefront (og:title "Steam Store"),
+    // does not become a confident card advertising the store. Bundles, subs, community
+    // profiles, news and search carry their own og tags and stay generic.
+    return /^https?:\/\/store\.steampowered\.com\/(agecheck\/)?app\/\d+/i.test(url);
+  }
+
   public static isSpotifyUrl(url: string): boolean {
     return /^https?:\/\/open\.spotify\.com\/(intl-[a-z]+\/)?(track|album|playlist|artist|episode)\//.test(url);
   }

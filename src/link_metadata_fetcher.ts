@@ -5,7 +5,7 @@ import {
    HackerNewsItem,
    HackerNewsUser,
    DailymotionVideoResponse, DiscordInviteResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
-   PrintablesGraphQLResponse, StackExchangeSite, WikipediaSummaryResponse, XSyndicationResponse
+   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
@@ -106,6 +106,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGitLabUrl(url)) return this.fetchGitLab(url, refresh);
       if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
+      if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
       if (CheckIf.isMediumUrl(url)) return this.fetchMedium(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
@@ -143,6 +144,7 @@ export class LinkMetadataFetcher {
       "github.com": "GitHub",
       "gitlab.com": "GitLab",
       "npmjs.com": "npm",
+      "steampowered.com": "Steam",
       "spotify.com": "Spotify",
       "x.com": "X",
       "twitter.com": "X",
@@ -2110,6 +2112,92 @@ export class LinkMetadataFetcher {
       } catch {
          return undefined;
       }
+   }
+
+   /* --- STEAM --- */
+
+   private static readonly steamCache = new Map<string, LinkMetadata>();
+
+   /**
+    * Steam store app pages, through the store's own unauthenticated `appdetails` endpoint.
+    *
+    * A live app reads fine on the generic path - real `og:title` ("<name> on Steam"),
+    * `og:description` and the capsule image. What it cannot survive is a **missing** app id:
+    * Steam answers one with a 302 to the storefront, itself a 200 declaring `og:title`
+    * "Steam Store" and `og:url` `https://store.steampowered.com/`. Left generic, every dead
+    * Steam link becomes the identical confident card advertising the store - the Notion and
+    * Discord failure again.
+    *
+    * `store.steampowered.com/api/appdetails?appids=<id>` needs no auth or key and answers
+    * `{"<id>":{"success":false}}` for an id that is not a store app - the proof the page
+    * refuses to give. It also sidesteps the age gate, which redirects a browser from
+    * `/app/<id>/` to `/agecheck/` for a mature title while the API returns the data outright.
+    * Only `success:false` on a 200 is proof; a non-200, a network failure or unparseable
+    * JSON say nothing and fall through to the generic path.
+    *
+    * The documented-endpoint category, like GitLab and npm: one call, no scraping. Fields
+    * taken: `name` verbatim (no " on Steam" suffix here), the developer(s) as the author,
+    * `short_description`, and `header_image` (460x215, sharper than the og:image capsule).
+    * Session cache per app id, successes only.
+    */
+   private async fetchSteam(url: string, refresh = false): Promise<LinkMetadata | undefined> {
+      const appid = url.match(/\/app\/(\d+)/i)?.[1];
+      if (!appid) return this.fetchGeneric(url);
+
+      const cached = LinkMetadataFetcher.steamCache.get(appid);
+      if (cached && !refresh) return { ...cached, url };
+
+      const base = {
+         url,
+         host: "store.steampowered.com",
+         favicon: "https://store.steampowered.com/favicon.ico",
+         indent: 0,
+      };
+
+      const res = await this.request(
+         `https://store.steampowered.com/api/appdetails?appids=${appid}`,
+         { "Accept": "application/json" }
+      );
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      let entry: SteamAppDetailsResponse[string];
+      try {
+         entry = (JSON.parse(res.text) as SteamAppDetailsResponse)[appid];
+      } catch {
+         return this.fetchGeneric(url);
+      }
+
+      // `success:false` on a 200 is Steam stating this id is not a store app - delisted,
+      // region-locked out of existence, or never real. Proof, and the only source of it.
+      if (!entry?.success || !entry.data) {
+         console.debug(`Steam has no app ${appid}; building a card from the URL.`);
+         return this.buildSteamFallback(url);
+      }
+
+      const d = entry.data;
+      const name = LinkMetadataParser.sanitizeText(d.name, 300);
+      const card: LinkMetadata = {
+         ...base,
+         title: name || this.buildSteamFallback(url).title,
+         author: d.developers?.filter(Boolean).join(", ") || undefined,
+         description: LinkMetadataParser.sanitizeText(d.short_description),
+         image: d.header_image || d.capsule_image || undefined,
+      };
+      LinkMetadataFetcher.steamCache.set(appid, card);
+      return card;
+   }
+
+   /**
+    * A Steam URL carries the app id and usually a name slug: `/app/570/Dota_2/`. Steam builds
+    * that slug with underscores for spaces and keeps the title's own casing, so it needs no
+    * deslugging - only the underscores turned back to spaces. A URL with just the id
+    * (`/app/570/`) gets a bare "Steam app" label; the number alone tells a reader nothing.
+    */
+   private buildSteamFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      const slug = url.match(/\/app\/\d+\/([^/?#]+)/i)?.[1];
+      const name = slug ? slug.replace(/_+/g, " ").trim() : "";
+      return { ...card, title: name || "Steam app" };
    }
 
    /* --- SPOTIFY --- */
