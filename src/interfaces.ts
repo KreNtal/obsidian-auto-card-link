@@ -78,6 +78,14 @@ export interface NpmPackageResponse {
   author?: { name?: string; } | string;
 }
 
+/** `www.tiktok.com/oembed?url=...` - a profile or a video. */
+export interface TikTokOEmbedResponse {
+  title?: string;
+  author_name?: string;
+  author_unique_id?: string;
+  thumbnail_url?: string;
+}
+
 /** One `appids=<id>` entry of `store.steampowered.com/api/appdetails`. */
 export interface SteamAppDetailsResponse {
   [appid: string]: {

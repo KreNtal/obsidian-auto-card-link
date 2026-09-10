@@ -111,6 +111,14 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?(discord|discordapp)\.com\/(invite\/[^/?#]|channels\/)/i.test(url);
   }
 
+  public static isTikTokUrl(url: string): boolean {
+    // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
+    // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,
+    // discover, search) is deliberately left unmatched rather than half-handled: it still
+    // hits the same login wall on the generic path, a separate gap.
+    return /^https?:\/\/(www\.)?tiktok\.com\/@[^/?#]+(\/video\/\d+)?\/?([?#]|$)/i.test(url);
+  }
+
   public static isSteamUrl(url: string): boolean {
     // A store app page only: `/app/<id>` and the `/agecheck/app/<id>` form a mature title
     // redirects to. A live app reads fine on the generic path; this exists so a *missing*

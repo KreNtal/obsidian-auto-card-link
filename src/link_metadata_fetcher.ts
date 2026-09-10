@@ -5,7 +5,7 @@ import {
    HackerNewsItem,
    HackerNewsUser,
    DailymotionVideoResponse, DiscordInviteResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
-   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, WikipediaSummaryResponse, XSyndicationResponse
+   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
@@ -106,6 +106,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGitLabUrl(url)) return this.fetchGitLab(url, refresh);
       if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
+      if (CheckIf.isTikTokUrl(url)) return this.fetchTikTok(url);
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
       if (CheckIf.isMediumUrl(url)) return this.fetchMedium(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
@@ -144,6 +145,7 @@ export class LinkMetadataFetcher {
       "github.com": "GitHub",
       "gitlab.com": "GitLab",
       "npmjs.com": "npm",
+      "tiktok.com": "TikTok",
       "steampowered.com": "Steam",
       "spotify.com": "Spotify",
       "x.com": "X",
@@ -2112,6 +2114,102 @@ export class LinkMetadataFetcher {
       } catch {
          return undefined;
       }
+   }
+
+   /* --- TIKTOK --- */
+
+   private static readonly tiktokCache = new Map<string, LinkMetadata>();
+
+   /**
+    * A profile or a video, through TikTok's own oEmbed endpoint - documented, unauthenticated,
+    * the GitLab/npm/Steam category.
+    *
+    * Every unauthenticated TikTok page answers the identical wall: a profile or a video both
+    * read generically as "Log in | TikTok" with a blurb about signing up, because the real
+    * page is entirely client-rendered behind a mandatory login redirect. Confirmed in
+    * Obsidian 2026-09-08. oEmbed is the one endpoint TikTok still serves for embedding, and
+    * it answers a real profile with the display name and, for a video, the actual caption and
+    * thumbnail - none of which the generic path can reach at all. A crawler UA (the LinkedIn/
+    * Notion trick) does get a real page for a *profile*, with a richer description and an
+    * avatar - but for a *video* it returns a generic placeholder ("TikTok · <name>", no real
+    * caption), so it would need two different treatments for the two routes it has to cover.
+    * oEmbed covers both from one source and is the documented one, so that fragility was not
+    * worth taking on.
+    *
+    * A profile or video that does not exist (or cannot be embedded - suspended, private)
+    * answers **400** with a generic `{"message":"Something went wrong"}` body. Not the 404 the
+    * oEmbed spec calls for, but the only signal TikTok gives either way, and consistent for a
+    * made-up handle and a made-up video id alike - proof, so the card is built from the URL's
+    * own `@handle` and never from the login wall. A non-400/200 response or unparseable JSON
+    * prove nothing and fall through to generic.
+    *
+    * No furniture rides along on that fallback, unlike Steam's dead-app storefront: a plain
+    * request here lands on the login wall itself, which carries no image at all and a
+    * description about signing in, not about the missing profile or video - keeping it would
+    * read as wrong in a different way than a bare card does, not better.
+    *
+    * Session cache per handle (and video id), successes only.
+    */
+   private async fetchTikTok(url: string): Promise<LinkMetadata | undefined> {
+      const m = url.match(/tiktok\.com\/@([^/?#]+)(?:\/video\/(\d+))?/i);
+      const handle = m?.[1];
+      if (!handle) return this.fetchGeneric(url);
+      const videoId = m?.[2];
+      const key = videoId ? `${handle}/${videoId}` : handle;
+
+      const cached = LinkMetadataFetcher.tiktokCache.get(key);
+      if (cached) return { ...cached, url };
+
+      const clean = videoId
+         ? `https://www.tiktok.com/@${handle}/video/${videoId}`
+         : `https://www.tiktok.com/@${handle}`;
+      const res = await this.request(
+         `https://www.tiktok.com/oembed?url=${encodeURIComponent(clean)}`,
+         { "Accept": "application/json" }
+      );
+
+      if (res?.status === 400) {
+         console.debug(`TikTok has no oEmbed for ${clean}; building a card from the URL.`);
+         return this.buildTikTokFallback(url, handle, videoId);
+      }
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      let data: TikTokOEmbedResponse;
+      try {
+         data = JSON.parse(res.text) as TikTokOEmbedResponse;
+      } catch {
+         return this.fetchGeneric(url);
+      }
+
+      const base = { url, host: "tiktok.com", favicon: "https://www.tiktok.com/favicon.ico", indent: 0 };
+      const card: LinkMetadata = videoId
+         ? {
+              ...base,
+              title: LinkMetadataParser.sanitizeText(data.title, 300)
+                 ?? data.title
+                 ?? this.buildTikTokFallback(url, handle, videoId).title,
+              author: data.author_name,
+              image: data.thumbnail_url,
+           }
+         // oEmbed's own title is the fixed phrase "<name>'s Creator Profile" - not a good
+         // card title. The shape every other profile card here uses ("<name> (@<handle>)",
+         // X and Bluesky) needs no site suffix and reads better.
+         : {
+              ...base,
+              title: data.author_name ? `${data.author_name} (@${data.author_unique_id ?? handle})` : `@${handle}`,
+           };
+      LinkMetadataFetcher.tiktokCache.set(key, card);
+      return card;
+   }
+
+   /**
+    * A handle is an identifier, not prose - kept verbatim, the same call npm makes for a
+    * package name. A dead video gets the handle folded into a label, since the video's own
+    * words (its caption) are exactly what oEmbed just refused to give.
+    */
+   private buildTikTokFallback(url: string, handle: string, videoId?: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      return { ...card, title: videoId ? `TikTok video by @${handle}` : `@${handle}` };
    }
 
    /* --- STEAM --- */
