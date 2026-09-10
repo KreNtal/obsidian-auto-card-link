@@ -110,6 +110,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
       if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
+      if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isMediumUrl(url)) return this.fetchMedium(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
@@ -2386,6 +2387,116 @@ export class LinkMetadataFetcher {
       };
       LinkMetadataFetcher.trelloCache.set(shortLink, card);
       return card;
+   }
+
+   /* --- GOOGLE DOCS / DRIVE --- */
+
+   /**
+    * Not a fetcher either, by the same rule as Maps: a public Doc, Sheet, Slide deck or
+    * Drive file already reads perfectly on the generic path - real `og:title` (the
+    * document's own name), `og:description` and a rendered thumbnail for the three Editor
+    * types; a file gets its real filename and `og:site_name` "Google Docs", no thumbnail.
+    * Confirmed 2026-09-10 against live public examples of all four. A missing id is a
+    * clean, real 404 either way - Google does not distinguish "not there" from "no
+    * permission" that way, which is the safe answer regardless of which it is - and the
+    * existing 404 rule already builds an honest card from it.
+    *
+    * What the generic path gets wrong is a file or folder shared with **specific people**
+    * rather than "anyone with the link": an anonymous request lands on Google's own
+    * sign-in page, and - unlike LinkedIn's wall - `requestUrl` cannot see that as a
+    * redirect (Obsidian exposes no final URL), and the wall carries no `og:*` tags at all
+    * to give it away by content either; its title is also localised ("Accedi", "Sign in").
+    * The one constant is structural: every real docs.google.com/drive.google.com page
+    * omits `<base href>` entirely, while the sign-in page declares one pointing at
+    * `accounts.google.com`. Two folders that looked identically "shared" answered
+    * differently this way in testing - the honest confirmation that this is a real,
+    * unpredictable case and not a hypothetical one.
+    *
+    * A folder or file's own URL carries no name, only an opaque id - there is nothing to
+    * recover the way a Steam or TikTok URL's slug can, so the fallback is a plain label by
+    * URL shape ("Google Docs document", "Google Drive folder", ...). The wall's own
+    * (generic, identical every time) description rides along as furniture, same call as
+    * Steam and Maps; its title does not, since "Sign in" is not the file's name.
+    */
+   private async fetchGoogleDocs(url: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(url, { "Referer": "https://www.google.com/" });
+
+      // Measured directly (2026-09-10): a restricted file or folder answers a **raw 302**
+      // to accounts.google.com, empty body, which `requestUrl` hands back exactly as sent
+      // rather than following - unlike GitLab's redirect, which lands on a same-site
+      // Cloudflare challenge. Checked before the 200 case below, since there is no body
+      // here for `isGoogleSignInWall` to find anything in.
+      const location = res && LinkMetadataFetcher.headerValue(res.headers, "location");
+      if (res && res.status >= 300 && res.status < 400 && location && /^https:\/\/accounts\.google\.com\//i.test(location)) {
+         console.debug(`Google redirected ${url} to its sign-in page.`);
+         const card = this.buildGoogleDocsFallback(url);
+         const wall = await this.request(location);
+         return wall?.status === 200
+            ? this.withParsedFurniture(card, url, await this.decodeHtmlContent(wall.arrayBuffer, wall.text))
+            : card;
+      }
+
+      // Measured a second way in Obsidian itself (2026-09-10): the same restricted folder
+      // that a scripted request outside Electron sees as a raw 302 came back as a bare
+      // **401** here instead - `requestUrl` collapsing the redirect-to-a-login-wall chain
+      // to a status rather than a body, one layer further than the 302 case above already
+      // covers. Nothing else in this family legitimately 401s or 403s (a missing id is a
+      // clean 404, checked below), so either status is read the same way: restricted, not
+      // gone. Whatever body came with it is tried for furniture with no extra request -
+      // `withParsedFurniture` is a safe no-op if it turns out to carry nothing.
+      if (res && (res.status === 401 || res.status === 403)) {
+         console.debug(`Google refused ${url} without authentication; treating it as restricted.`);
+         const card = this.buildGoogleDocsFallback(url);
+         const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+         return html ? this.withParsedFurniture(card, url, html) : card;
+      }
+
+      if (!res || res.status !== 200) {
+         // Mirrors fetchGeneric's own non-200 handling rather than delegating to it, since
+         // that would re-request the same url a second time - res is already the answer.
+         console.debug(`Fetch failed for ${url}. Status: ${res?.status}`);
+         if (res && (res.status === 404 || res.status === 410)) {
+            return this.errorPageCard(url, await this.decodeHtmlContent(res.arrayBuffer, res.text));
+         }
+         return this.fetchFallback(url);
+      }
+
+      const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+      // Belt and braces: if requestUrl ever does follow the redirect itself, the page it
+      // lands on is this same sign-in page, recognisable by the one thing every real
+      // docs.google.com/drive.google.com page omits - a <base href> - since the wall
+      // carries no og:* tags and a localised title ("Accedi", "Sign in") to check instead.
+      if (LinkMetadataFetcher.isGoogleSignInWall(html)) {
+         console.debug(`Google served the sign-in page for ${url}.`);
+         return this.withParsedFurniture(this.buildGoogleDocsFallback(url), url, html);
+      }
+
+      const metadata = await new LinkMetadataParser(url, html).parse();
+      return metadata ?? this.buildGoogleDocsFallback(url);
+   }
+
+   private static isGoogleSignInWall(html: string): boolean {
+      return /<base[^>]+href="https:\/\/accounts\.google\.com\//i.test(html);
+   }
+
+   private static headerValue(headers: Record<string, string>, name: string): string | undefined {
+      const key = Object.keys(headers).find(k => k.toLowerCase() === name);
+      return key ? headers[key] : undefined;
+   }
+
+   private static readonly GOOGLE_DOCS_LABELS: Record<string, string> = {
+      document: "Google Docs document",
+      spreadsheets: "Google Sheets spreadsheet",
+      presentation: "Google Slides presentation",
+      folder: "Google Drive folder",
+      file: "Google Drive file",
+   };
+
+   private buildGoogleDocsFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      const kind = url.match(/docs\.google\.com\/(document|spreadsheets|presentation)\//i)?.[1]
+         ?? (/\/drive\/folders\//i.test(url) ? "folder" : "file");
+      return { ...card, title: LinkMetadataFetcher.GOOGLE_DOCS_LABELS[kind] ?? card.title };
    }
 
    /* --- GOOGLE MAPS --- */

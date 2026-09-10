@@ -111,6 +111,15 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?(discord|discordapp)\.com\/(invite\/[^/?#]|channels\/)/i.test(url);
   }
 
+  public static isGoogleDocsUrl(url: string): boolean {
+    // Docs, Sheets, Slides and Drive files/folders. A public one reads fine generically -
+    // real og:title, description, thumbnail - so this exists only for the other case: a
+    // file or folder shared with specific people rather than "anyone with the link"
+    // redirects an anonymous request to Google's own sign-in page. Checked 2026-09-10.
+    return /^https?:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/[^/?#]+/i.test(url)
+      || /^https?:\/\/drive\.google\.com\/(file\/d\/[^/?#]+|drive\/folders\/[^/?#]+)/i.test(url);
+  }
+
   public static isGoogleMapsUrl(url: string): boolean {
     // Every Maps page - a real place, a search, or one that cannot exist - declares
     // og:title "Google Maps" and nothing else names what was pasted; only the URL does.
