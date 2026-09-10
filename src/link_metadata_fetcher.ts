@@ -5,7 +5,7 @@ import {
    HackerNewsItem,
    HackerNewsUser,
    DailymotionVideoResponse, DiscordInviteResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
-   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, WikipediaSummaryResponse, XSyndicationResponse
+   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
@@ -108,6 +108,8 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
       if (CheckIf.isTikTokUrl(url)) return this.fetchTikTok(url);
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
+      if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
+      if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isMediumUrl(url)) return this.fetchMedium(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
@@ -147,6 +149,7 @@ export class LinkMetadataFetcher {
       "npmjs.com": "npm",
       "tiktok.com": "TikTok",
       "steampowered.com": "Steam",
+      "trello.com": "Trello",
       "spotify.com": "Spotify",
       "x.com": "X",
       "twitter.com": "X",
@@ -2305,6 +2308,145 @@ export class LinkMetadataFetcher {
       const slug = url.match(/\/app\/\d+\/([^/?#]+)/i)?.[1];
       const name = slug ? slug.replace(/_+/g, " ").trim() : "";
       return { ...card, title: name || "Steam app" };
+   }
+
+   /* --- TRELLO --- */
+
+   private static readonly trelloCache = new Map<string, LinkMetadata>();
+
+   /**
+    * A Trello board, through the public JSON export any board's own URL answers to.
+    *
+    * Every Trello route - a board, a card, `/templates` - serves a non-browser request the
+    * identical client-rendered shell: `<title>Trello</title>`, a generic "Organize anything,
+    * together" meta description, no og tags at all. A live board and a dead one are
+    * indistinguishable that way, exactly the Trello row this backlog item was opened for.
+    *
+    * Appending `.json` to a board's own URL (`trello.com/b/<shortLink>[.json]`) is a
+    * long-standing, widely-used Trello behaviour: an anonymous read of the board's data for
+    * any board whose visibility is public, no API key or auth needed. `?fields=name,desc,
+    * url,prefs` trims the answer to a few KB - the unfiltered export carries every list and
+    * card on the board (2.4 MB on a mid-sized one measured 2026-09-10). A board id that does
+    * not exist answers a clean **404** `Board not found` - proof, so the card is built from
+    * the URL rather than the shell's bare "Trello". A private board likely answers the same
+    * way a missing one does (untested - nothing to probe it with), which is the right
+    * fallback either way: nothing here is ours to read.
+    *
+    * Image = the board's own background photo when it has one (`prefs.backgroundImage`);
+    * most boards use a flat colour instead and get no image, same as npm. Only a 404 is
+    * proof; a non-200 or unparseable JSON fall through to generic. Only board URLs get this
+    * - `/c/` cards answer `.json` with the same HTML shell, not real data, so they and every
+    * other Trello route are a separate, unfixed gap. Session cache per board id, successes
+    * only.
+    */
+   private async fetchTrello(url: string, refresh = false): Promise<LinkMetadata | undefined> {
+      const shortLink = url.match(/trello\.com\/b\/([^/?#]+)/i)?.[1];
+      if (!shortLink) return this.fetchGeneric(url);
+
+      const cached = LinkMetadataFetcher.trelloCache.get(shortLink);
+      if (cached && !refresh) return { ...cached, url };
+
+      const res = await this.request(
+         `https://trello.com/b/${shortLink}.json?fields=name,desc,url,prefs`,
+         { "Accept": "application/json" }
+      );
+
+      if (res?.status === 404) {
+         console.debug(`Trello has no board ${shortLink}; building a card from the URL.`);
+         const card = this.buildUrlCard(url);
+         // The shell every Trello route serves (title "Trello", a generic "Organize
+         // anything, together" blurb) is furniture worth keeping even here - the same call
+         // made for Steam's dead-app storefront. One direct request, never Microlink.
+         const page = await this.request(url, { "Referer": "https://www.google.com/" });
+         return page?.status === 200
+            ? this.withParsedFurniture(card, url, await this.decodeHtmlContent(page.arrayBuffer, page.text))
+            : card;
+      }
+      if (!res || res.status !== 200) return this.fetchGeneric(url);
+
+      let data: TrelloBoardResponse;
+      try {
+         data = JSON.parse(res.text) as TrelloBoardResponse;
+      } catch {
+         return this.fetchGeneric(url);
+      }
+      // The `.json` route answers 200 with the app shell's HTML for anything it doesn't
+      // recognise as a board (see the /c/ card case above); guard against ever trusting that
+      // as data.
+      if (!data.name) return this.fetchGeneric(url);
+
+      const card: LinkMetadata = {
+         url,
+         host: "trello.com",
+         favicon: "https://trello.com/favicon.ico",
+         indent: 0,
+         title: LinkMetadataParser.sanitizeText(data.name, 300) ?? data.name,
+         description: LinkMetadataParser.sanitizeText(data.desc, 300),
+         image: data.prefs?.backgroundImage ?? undefined,
+      };
+      LinkMetadataFetcher.trelloCache.set(shortLink, card);
+      return card;
+   }
+
+   /* --- GOOGLE MAPS --- */
+
+   /**
+    * Not a fetcher in the usual sense - there is no public endpoint for place data, and this
+    * stays on the generic path. What it needs is the one correction the backlog already
+    * named: every Maps page, a real place or one that cannot exist, declares `og:title`
+    * "Google Maps" - nothing on the page ever names what was pasted, only the URL does.
+    *
+    * That is not proof of anything gone - a fake place answers exactly like a real one - so
+    * this is an unconditional tell rather than a `goneCard` in the usual sense: this site's
+    * title is simply never worth keeping, live or not. `og:image` is, though, and it is
+    * better than most furniture: Maps renders a **Static Maps API** thumbnail centred on the
+    * URL's own coordinates, so it is specific to this place, not generic chrome. The
+    * `og:description` ("Find local businesses, view maps and get driving directions...") is
+    * generic - identical for every Maps link - and rides along anyway, the same call Roberto
+    * made for Steam's storefront blurb: what is wrong with a shell is its title, not its
+    * furniture.
+    */
+   private fetchGoogleMaps(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, {
+         goneCard: (metadata) => {
+            if (metadata.title.trim().toLowerCase() !== "google maps") return undefined;
+            return this.withPageFurniture(this.buildGoogleMapsFallback(url), metadata);
+         },
+      });
+   }
+
+   private buildGoogleMapsFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      const name = LinkMetadataFetcher.googleMapsPlaceName(url);
+      // The page declares no og:site_name, and google.com hosts too many other things
+      // (Docs, Drive, Search) to earn a host-wide SITE_NAMES floor - that would mislabel
+      // every one of them as Maps. Set here instead, precise to a URL already known to be
+      // a Maps link, so a markdown-link label still gets "- Google Maps" appended.
+      return { ...card, siteName: "Google Maps", title: name ?? card.title };
+   }
+
+   /**
+    * The page never names the place, so the URL is the only source: `/maps/place/<name>/…`
+    * and `/maps/search/<query>/…` carry it as a path segment, a bare `?q=` as a query
+    * param. Google keeps the place's own capitalisation in both, so this only turns `+` back
+    * into spaces and decodes - no deslugging, unlike a URL where the site invented the slug.
+    */
+   private static googleMapsPlaceName(url: string): string | undefined {
+      const segment = url.match(/\/maps\/(?:place|search)\/([^/?#]+)/i)?.[1];
+      let raw = segment;
+      if (!raw) {
+         try {
+            raw = new URL(url).searchParams.get("q") ?? undefined;
+         } catch {
+            raw = undefined;
+         }
+      }
+      if (!raw) return undefined;
+      try {
+         return decodeURIComponent(raw.replace(/\+/g, " ")).trim() || undefined;
+      } catch {
+         return raw.replace(/\+/g, " ").trim() || undefined;
+      }
    }
 
    /* --- SPOTIFY --- */

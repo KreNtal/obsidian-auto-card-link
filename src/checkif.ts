@@ -111,6 +111,27 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?(discord|discordapp)\.com\/(invite\/[^/?#]|channels\/)/i.test(url);
   }
 
+  public static isGoogleMapsUrl(url: string): boolean {
+    // Every Maps page - a real place, a search, or one that cannot exist - declares
+    // og:title "Google Maps" and nothing else names what was pasted; only the URL does.
+    // Scoped to the shapes that carry a name or query there: /maps/place/<name>/…,
+    // /maps/search/<query>/…, and a bare ?q=<query> on either host Maps answers to. A
+    // goo.gl / maps.app.goo.gl share link carries no name at all - a separate, unresolved
+    // gap - and stays generic.
+    return /^https?:\/\/(www\.|maps\.)?google\.[a-z.]{2,}\/maps\/(place|search)\/[^/?#]+/i.test(url)
+      || /^https?:\/\/(www\.)?google\.[a-z.]{2,}\/maps\/?\?[^#]*\bq=/i.test(url)
+      || /^https?:\/\/maps\.google\.[a-z.]{2,}\/(maps\/?)?\?[^#]*\bq=/i.test(url);
+  }
+
+  public static isTrelloBoardUrl(url: string): boolean {
+    // A board only. Every Trello route - a board, a card, the marketing pages - serves the
+    // identical client-rendered shell to a non-browser request (title "Trello", a generic
+    // "Organize anything, together" blurb, no og tags at all), but a board alone has a
+    // public, unauthenticated JSON export (`.json` on its own URL) that a card's `/c/`
+    // route does not share - checked 2026-09-10.
+    return /^https?:\/\/trello\.com\/b\/[^/?#]+/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,

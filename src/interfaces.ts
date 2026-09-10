@@ -86,6 +86,14 @@ export interface TikTokOEmbedResponse {
   thumbnail_url?: string;
 }
 
+/** `trello.com/b/<shortLink>.json?fields=name,desc,url,prefs` - a public board's export. */
+export interface TrelloBoardResponse {
+  name?: string;
+  desc?: string;
+  url?: string;
+  prefs?: { backgroundImage?: string | null; };
+}
+
 /** One `appids=<id>` entry of `store.steampowered.com/api/appdetails`. */
 export interface SteamAppDetailsResponse {
   [appid: string]: {
