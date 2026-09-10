@@ -111,6 +111,33 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?(discord|discordapp)\.com\/(invite\/[^/?#]|channels\/)/i.test(url);
   }
 
+  public static isBandcampUrl(url: string): boolean {
+    // An album or track on any artist's own subdomain. A live one already reads fine
+    // generically - this exists only so Cloudflare's interstitial, when it shows up, is
+    // recognised rather than accepted as the page. Checked 2026-09-10.
+    return /^https?:\/\/[a-z0-9-]+\.bandcamp\.com\/(track|album)\//i.test(url);
+  }
+
+  public static isSoundCloudResourceUrl(url: string): boolean {
+    // A track, set or repost - any two-segment soundcloud.com path. A profile page (one
+    // segment) already reads fine generically and is left alone. Not scoped further than
+    // that: a two-segment path that isn't a real resource is exactly the case this exists
+    // for, and one that happens to be a reserved route (rare, and already broken the same
+    // way if it 200s the shell) only gets an honest URL-built title instead of a wrong one.
+    // `on.soundcloud.com/<code>` - the share-sheet's short link - 302s straight to one of
+    // these; matched here too so it gets the same author extraction, not just the generic
+    // path's og:* read of wherever it lands.
+    return /^https?:\/\/(www\.|m\.)?soundcloud\.com\/[^/?#]+\/[^/?#]+/i.test(url)
+      || /^https?:\/\/on\.soundcloud\.com\/[^/?#]+/i.test(url);
+  }
+
+  public static isApplePodcastsUrl(url: string): boolean {
+    // The whole host: a show or episode already reads fine generically, and this only adds
+    // the show's own name to an episode as `author` - a no-op everywhere else. Checked
+    // 2026-09-10.
+    return /^https?:\/\/podcasts\.apple\.com\//i.test(url);
+  }
+
   public static isGoogleDocsUrl(url: string): boolean {
     // Docs, Sheets, Slides and Drive files/folders. A public one reads fine generically -
     // real og:title, description, thumbnail - so this exists only for the other case: a

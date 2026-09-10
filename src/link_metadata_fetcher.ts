@@ -111,6 +111,9 @@ export class LinkMetadataFetcher {
       if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
+      if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
+      if (CheckIf.isBandcampUrl(url)) return this.fetchBandcamp(url);
+      if (CheckIf.isApplePodcastsUrl(url)) return this.fetchApplePodcasts(url);
       if (CheckIf.isMediumUrl(url)) return this.fetchMedium(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
@@ -176,6 +179,10 @@ export class LinkMetadataFetcher {
       // nothing here can recognise as Substack. Half is what is available, and the half it
       // misses loses only the label on a markdown link.
       "substack.com": "Substack",
+      // Generic path too - real pages already declare this themselves, but the fallback
+      // card built from a dead track's URL doesn't read the page at all, so this is what
+      // its markdown-link label falls back to.
+      "soundcloud.com": "SoundCloud",
       // Notion does declare a name, but it declares the workspace's: a page on the "notion"
       // workspace says og:site_name "notion on Notion". fetchNotion drops that, so this is
       // what every Notion card ends up labelled with.
@@ -201,7 +208,7 @@ export class LinkMetadataFetcher {
     * without being listed here would quietly lose that label on conversion.
     */
    static buildsRicherInlineLabel(url: string): boolean {
-      return CheckIf.isTwitchUrl(url) || CheckIf.isSpotifyUrl(url);
+      return CheckIf.isTwitchUrl(url) || CheckIf.isSpotifyUrl(url) || CheckIf.isApplePodcastsUrl(url);
    }
 
    /**
@@ -2021,6 +2028,135 @@ export class LinkMetadataFetcher {
       const slug = url.match(/\/book\/show\/\d+[-.]([^/?#]+)/i)?.[1];
       const title = LinkMetadataFetcher.deslug(slug, "title");
       return title ? { ...card, title } : card;
+   }
+
+   /* --- APPLE PODCASTS --- */
+
+   /**
+    * Not a fetcher in the usual sense: a show or an episode already reads perfectly on the
+    * generic path (real `og:title`, `og:description`, artwork), and a dead show id is a
+    * real 404 - see the `titleFromUrlPath` fix above for the one thing that was wrong with
+    * it. What the generic path leaves on the table is the show's own name on an **episode**
+    * page: `og:title` is only ever the episode's own title ("Ep.176 ..."), and nothing in
+    * `og:*` says which show it belongs to - except `og:description`, which Apple writes as
+    * "Podcast Episode · \<show> · \<date> · \<duration>" (sometimes with an extra segment,
+    * "Subscribers Only", between the date and the duration). The show name is reliably the
+    * second segment regardless, so it becomes `author` - the Spotify/Twitch shape, an
+    * inline label a card's own stored fields can't already rebuild, hence
+    * `buildsRicherInlineLabel` re-fetching for it on conversion too. A show-level page's own
+    * description never starts with "Podcast Episode", so this is a no-op there.
+    */
+   private async fetchApplePodcasts(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      if (!metadata?.description) return metadata;
+      const show = metadata.description.match(/^Podcast Episode\s*·\s*([^·]+)·/)?.[1]?.trim();
+      return show ? { ...metadata, author: show, linkTitle: `${metadata.title} - ${show}` } : metadata;
+   }
+
+   /* --- SOUNDCLOUD --- */
+
+   /**
+    * Not a fetcher: a real track, set or profile already reads perfectly on the generic
+    * path - real `og:title`, `og:type` ("music.song"), description and the artwork, `og:
+    * site_name` "SoundCloud". Confirmed 2026-09-10 with a live track and a live profile.
+    *
+    * What the generic path gets wrong is narrower than Goodreads' or Medium's version of
+    * the same bug, and easy to miss because of it: a track/set URL that does **not** exist
+    * answers **200** with SoundCloud's own homepage shell - `<title>SoundCloud - Hear the
+    * world's sounds</title>`, a generic "Explore the largest community..." blurb, no `og:*`
+    * tags at all (`robots: noindex, follow`) - while a **profile** URL for a made-up handle
+    * still reads fine (SoundCloud's own 404 handling differs by route). The shell's fixed
+    * opening words are the tell, the same shape as Goodreads' bare "Goodreads" title; unlike
+    * that case there is a real description to keep, so it rides along as furniture rather
+    * than the check depending on its absence.
+    *
+    * The URL is the only source for a name once the shell fires: `<user>/<slug>` becomes
+    * the track title (deslugged, title case) and the user segment its author - the same
+    * split GitHub's rate-limited fallback and HN's story-domain labelling make elsewhere.
+    */
+   private async fetchSoundCloud(url: string): Promise<LinkMetadata | undefined> {
+      // A custom request+parse, like LinkedIn's, rather than a fetchGeneric goneCard: the
+      // shell check alone would have covered the dead case, but the live one is worth more
+      // than the generic path reads on its own - see the author note below - so both are
+      // handled from the one page fetch here instead of two different code paths.
+      const res = await this.request(url, { "Referer": "https://www.google.com/" });
+      if (!res || res.status !== 200) {
+         console.debug(`Fetch failed for ${url}. Status: ${res?.status}`);
+         if (res && (res.status === 404 || res.status === 410)) {
+            return this.errorPageCard(url, await this.decodeHtmlContent(res.arrayBuffer, res.text));
+         }
+         return this.fetchFallback(url);
+      }
+
+      const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+      const metadata = await new LinkMetadataParser(url, html).parse();
+
+      if (metadata?.title.trim().toLowerCase().startsWith("soundcloud - hear the world")) {
+         console.debug(`SoundCloud has no resource at ${url}; building a card from the URL.`);
+         return this.withPageFurniture(this.buildSoundCloudFallback(url), metadata);
+      }
+      if (!metadata) return this.buildSoundCloudFallback(url);
+
+      // og:title is only ever the track's own name ("Deadmau5 Strobe") - unlike Spotify,
+      // which reads the artist out of the page itself, nothing in og:* says who uploaded
+      // it. SoundCloud declares it anyway, in a property of its own: `soundcloud:user`,
+      // the uploader's profile URL, present on every track and set page. Kept verbatim,
+      // the npm call: a username is an identifier, not prose, and deslugging one that's
+      // mostly digits ("user2727940") produces "User2727940" - worse than the handle, not
+      // better, since capitalising one letter of a string that is not a sentence reads as
+      // a mistake rather than a name.
+      const author = LinkMetadataFetcher.soundCloudAuthor(html);
+      return author ? { ...metadata, author: metadata.author ?? author } : metadata;
+   }
+
+   private static soundCloudAuthor(html: string): string | undefined {
+      return (html.match(/property="soundcloud:user"\s+content="https?:\/\/soundcloud\.com\/([^"/?#]+)/i)
+         ?? html.match(/content="https?:\/\/soundcloud\.com\/([^"/?#]+)"\s+property="soundcloud:user"/i))?.[1];
+   }
+
+   private buildSoundCloudFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      const m = url.match(/soundcloud\.com\/([^/?#]+)\/([^/?#]+)/i);
+      if (!m) return card;
+      const title = LinkMetadataFetcher.deslug(m[2], "title");
+      return title ? { ...card, title, author: m[1] } : card;
+   }
+
+   /* --- BANDCAMP --- */
+
+   /**
+    * Not a fetcher: a live album or track reads perfectly on the generic path (checked
+    * 2026-09-10 against a real album and a real track - full og:title, tracklist or lyrics
+    * in the description, cover art, even og:video for the embedded player), and a dead
+    * track is a real 404. What showed up in Obsidian instead, on the very same live album
+    * URL that read fine here, was Cloudflare's own interstitial - title "Client Challenge",
+    * no og:* tags at all - accepted as if it were the page, since nothing before this
+    * flagged it as anything other than a successful parse.
+    *
+    * This is Goodreads' 202 throttle and DataDome's scoring again, not a fixed block: which
+    * request gets challenged depends on the requester (IP, session history), not the link,
+    * so the *content* stays unpredictable regardless of anything this plugin does. What is
+    * fixable is not trusting that page: `isUnusable` sends it to Microlink instead of
+    * writing "Client Challenge" into a note as if it were the album's name.
+    */
+   private static readonly bandcampCache = new Map<string, LinkMetadata>();
+
+   private async fetchBandcamp(url: string): Promise<LinkMetadata | undefined> {
+      const cached = LinkMetadataFetcher.bandcampCache.get(url);
+      if (cached) return cached;
+
+      const result = await this.fetchGeneric(url, {
+         isUnusable: (metadata) => metadata.title.trim().toLowerCase() === "client challenge",
+      });
+      if (!result) return result;
+
+      // og:site_name here is the artist's own subdomain "site" ("Kishi Bashi"), not the
+      // platform - Notion's "<workspace> on Notion" trick again - so it is discarded rather
+      // than kept; a card that came back via Microlink after a Cloudflare challenge has no
+      // siteName at all to discard, and needs the same floor for the same reason.
+      const card = { ...result, siteName: "Bandcamp" };
+      LinkMetadataFetcher.bandcampCache.set(url, card);
+      return card;
    }
 
    /* --- NPM --- */
@@ -3859,9 +3995,14 @@ export class LinkMetadataFetcher {
    private static titleFromUrlPath(parsed: URL): string | undefined {
       const segments = parsed.pathname.split("/").filter(Boolean);
       // Last segment first, skipping any that carries no letters: an id, a date, a page
-      // number. "763622" tells a reader nothing.
+      // number. "763622" tells a reader nothing. Apple's own convention - podcasts, apps -
+      // adds a trailing `id<digits>` segment that technically has letters (the "id") but
+      // means no more than a bare number would ("Id9999999999", found on a dead Apple
+      // Podcasts link 2026-09-10); skipped the same way so the real slug before it wins.
       for (let i = segments.length - 1; i >= 0; i--) {
-         const words = LinkMetadataFetcher.deslug(segments[i]!.replace(/\.\w{2,5}$/, ""));
+         const raw = segments[i]!.replace(/\.\w{2,5}$/, "");
+         if (/^id\d+$/i.test(raw)) continue;
+         const words = LinkMetadataFetcher.deslug(raw);
          if (words) return words;
       }
       return undefined;
