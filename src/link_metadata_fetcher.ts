@@ -951,21 +951,22 @@ export class LinkMetadataFetcher {
       const isPost = LinkMetadataFetcher.REDDIT_POST_URL.test(url);
       const result = await this.fetchRedditCard(url, refresh, isPost);
 
-      // A text or link post, a profile and a subreddit all have no image of their own, and
-      // Reddit answers share.redd.it/preview/… with one static branded graphic (Snoo +
-      // wordmark) - the same tile Notion shows.
+      // A text or link post and a profile have no image of their own, and Reddit answers
+      // share.redd.it/preview/… with one static branded graphic (Snoo + wordmark) - the same
+      // tile Notion shows. It is what Reddit itself declares as their og:image (seen through a
+      // crawler UA, 2026-09-11), so it is the page's declared image, generic as it is (rule
+      // D1). The endpoint ignores what it is asked for: /post/<id>, /user/<name>, a made-up id
+      // and a nonexistent user all returned the identical 54014-byte file (sha1 a9f3283…) on
+      // 2026-09-02. Should that ever start 404ing, the card simply drops the thumbnail.
       //
-      // The endpoint ignores what it is asked for: /post/<id>, /user/<name>, a made-up id and
-      // a nonexistent user all returned the identical 54014-byte file (sha1 a9f3283…) when
-      // checked on 2026-09-02. Posts and profiles use the form Reddit declares as their own
-      // og:image, so they follow along if it ever becomes a real per-item preview; subreddits,
-      // for which Reddit declares only the 192px favicon, borrow the post form. Should that
-      // ever start 404ing, the card simply drops the thumbnail.
+      // A subreddit gets none: what Reddit declares for it is the 192px favicon, which rule
+      // D3 discards rather than replaces - it used to borrow the post tile. Its feed's
+      // <logo> was considered and is not an image either: a 140x40 old-Reddit wordmark banner
+      // the thumbnail slot would crop to a fragment.
       if (result && !result.image) {
-         const key = url.match(/\/comments\/(\w+)/)?.[1]
-            ?? (isPost ? undefined : url.match(/reddit\.com\/r\/([^/?#]+)/i)?.[1]);
+         const postId = url.match(/\/comments\/(\w+)/)?.[1];
          const user = url.match(/reddit\.com\/(?:u|user)\/([^/?#]+)/i)?.[1];
-         if (key) result.image = `https://share.redd.it/preview/post/${encodeURIComponent(key)}`;
+         if (postId) result.image = `https://share.redd.it/preview/post/${encodeURIComponent(postId)}`;
          else if (user) result.image = `https://share.redd.it/preview/user/${encodeURIComponent(user)}`;
       }
       return result;
@@ -997,9 +998,11 @@ export class LinkMetadataFetcher {
       // That chain ends in fetchTitleOnly, which reads the page <title> without any such
       // guard — so a blocked subreddit/profile still comes back titled just "Reddit". The
       // name in the URL is both accurate and more useful than that, so prefer it.
+      // A profile or a subreddit is its owner's own page, so the name is its author too
+      // (field rule F4).
       if (metadata && this.isGenericRedditPage(metadata.title)) {
          const name = this.redditNameFromUrl(url);
-         if (name) return { ...metadata, title: name, host: "reddit.com" };
+         if (name) return { ...metadata, title: name, author: name, host: "reddit.com" };
       }
 
       return metadata;
@@ -1070,29 +1073,21 @@ export class LinkMetadataFetcher {
       if (!title) return undefined;
 
       // A post's feed title is suffixed with the subreddit, which the author field already
-      // carries - strip it. A subreddit's reads the other way round: the handle leads, being
-      // the canonical name, and the feed's own <title> follows. That second half is kept even
-      // when it only respells the handle ("r/OfficeChairs - Office Chairs"), deliberately -
-      // deduplicating it was tried and judged not worth the special case.
+      // carries - strip it. A subreddit is titled "r/<name>", which is what Reddit declares as
+      // its og:title (seen through a crawler UA, 2026-09-11); the feed's own <title> is the
+      // page's <title>, a line the mods write freely ("/r/buildapc - Planning on building a
+      // computer...", "Office Chairs"). Composing the two ("r/buildapc - Planning on…") was
+      // how subreddit cards read until that day - a shape no Reddit source declares (rule B4),
+      // and nothing is lost: where the line says something, the description opens with it.
       const sub = name.slice(2);
-      let cleanTitle: string;
-      if (isPost) {
-         cleanTitle = title.replace(new RegExp(`\\s*:\\s*${sub}$`, "i"), "").trim();
-      } else {
-         // Mods write a subreddit's <title> freely, and plenty of them open it with the handle
-         // over again ("/r/buildapc - Planning on building a computer..."), which would leave
-         // the card saying it twice. Only *this* sub's handle is stripped, and `\b` keeps
-         // r/foo from eating the start of "/r/foobar - ..." - a title naming a different sub
-         // keeps it. `sub` comes from a `(\w+)` URL capture, so it needs no regex escaping.
-         const feedTitle = title
-            .replace(new RegExp(`^/?r/${sub}\\b\\s*[-–—:|•·]*\\s*`, "i"), "")
-            .trim();
-         cleanTitle = feedTitle ? `${name} - ${feedTitle}` : name;
-      }
+      const cleanTitle = isPost ? title.replace(new RegExp(`\\s*:\\s*${sub}$`, "i"), "").trim() : name;
 
       const metadata: LinkMetadata = {
          url,
          title: LinkMetadataParser.sanitizeText(cleanTitle, 300) ?? cleanTitle,
+         // A subreddit's own page: its name is its author too (field rule F4). A post's
+         // author, its subreddit, is set by the caller.
+         author: isPost ? undefined : name,
          // A post's <subtitle> is the subreddit's own description, not the post's - using it
          // here would describe the wrong thing. The post's actual self-text instead sits
          // inside its entry's <content>, extracted separately below.
@@ -1275,8 +1270,10 @@ export class LinkMetadataFetcher {
 
          // Prefer permanent i.redd.it uploads, then a signed preview.redd.it URL at a
          // sensible width. Link posts carry neither — their image lives on the linked site,
-         // which the embed page doesn't reference at all.
-         const iReddit = res.text.match(/https:\/\/i\.redd\.it\/[\w-]+\.\w+/)?.[0];
+         // which the embed page doesn't reference at all. Either host may carry a prefix:
+         // by 2026-09-11 the embed page served `cf.preview.redd.it`, and a pattern for the
+         // bare host found no image at all, leaving every post on the generic tile.
+         const iReddit = res.text.match(/https:\/\/(?:[\w-]+\.)?i\.redd\.it\/[\w-]+\.\w+/)?.[0];
          return {
             image: iReddit ?? this.pickRedditPreview(res.text),
             description: this.extractRedditEmbedBody(res.text),
@@ -1322,7 +1319,7 @@ export class LinkMetadataFetcher {
       //                     card but a fraction of the file size); largest if none reach it.
       // Filenames are slug-prefixed ("post-title-words-v0-<id>.png"), hence [\w-] not \w.
       const TARGET = 640;
-      const matches = html.match(/https:\/\/preview\.redd\.it\/[\w-]+\.\w+\?[^"'\s<>]*/g);
+      const matches = html.match(/https:\/\/(?:[\w-]+\.)?preview\.redd\.it\/[\w-]+\.\w+\?[^"'\s<>]*/g);
       if (!matches?.length) return undefined;
 
       const candidates = matches
