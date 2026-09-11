@@ -86,6 +86,15 @@ export interface TikTokOEmbedResponse {
   thumbnail_url?: string;
 }
 
+/** `api.openstreetmap.org/api/0.6/<node|way|relation>/<id>.json` - one map object. */
+export interface OsmElementResponse {
+  elements?: Array<{
+    type?: string;
+    id?: number;
+    tags?: Record<string, string>;
+  }>;
+}
+
 /** `trello.com/b/<shortLink>.json?fields=name,desc,url,prefs` - a public board's export. */
 export interface TrelloBoardResponse {
   name?: string;

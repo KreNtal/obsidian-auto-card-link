@@ -5,6 +5,7 @@ import {
    HackerNewsItem,
    HackerNewsUser,
    DailymotionVideoResponse, DiscordInviteResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
@@ -114,6 +115,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
       if (CheckIf.isBandcampUrl(url)) return this.fetchBandcamp(url);
       if (CheckIf.isApplePodcastsUrl(url)) return this.fetchApplePodcasts(url);
+      if (CheckIf.isOpenStreetMapUrl(url)) return this.fetchOpenStreetMap(url, refresh);
       if (CheckIf.isMediumUrl(url)) return this.fetchMedium(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
@@ -154,6 +156,8 @@ export class LinkMetadataFetcher {
       "tiktok.com": "TikTok",
       "steampowered.com": "Steam",
       "trello.com": "Trello",
+      "openstreetmap.org": "OpenStreetMap",
+      "osm.org": "OpenStreetMap",
       "spotify.com": "Spotify",
       "x.com": "X",
       "twitter.com": "X",
@@ -2051,6 +2055,106 @@ export class LinkMetadataFetcher {
       if (!metadata?.description) return metadata;
       const show = metadata.description.match(/^Podcast Episode\s*·\s*([^·]+)·/)?.[1]?.trim();
       return show ? { ...metadata, author: show, linkTitle: `${metadata.title} - ${show}` } : metadata;
+   }
+
+   /* --- OPENSTREETMAP --- */
+
+   private static readonly osmCache = new Map<string, LinkMetadata>();
+
+   // Tag keys that name what a place *is*, roughly best-first. `building` is last and only
+   // counts when it's not the near-useless "yes". `boundary`, `landuse`, `highway` and the
+   // like are deliberately absent - their values ("administrative", "residential") read as
+   // jargon, not a description, so an object with only those gets a clean title and no
+   // description rather than a bad one.
+   private static readonly OSM_TYPE_KEYS = [
+      "place", "tourism", "historic", "amenity", "leisure", "shop",
+      "natural", "man_made", "aeroway", "office", "craft", "building",
+   ];
+
+   /**
+    * A node, way or relation. Justified by field rule A1(d): the page's `og:description`
+    * ("OpenStreetMap is a map of the world…") and `og:image` (the OSM logo) are the same for
+    * every object, live or dead, so the generic card says nothing about the place beyond
+    * its title - while the public API (the documented v0.6 read endpoint, no auth) has the
+    * tags that do. Two reads, run together: the **page** for everything it gets right -
+    * title, image, favicon, site name - and the **API** only for the description.
+    *
+    * The title is the page's own, already in the reader's language (OSM picks
+    * `name:<lang>` itself from Accept-Language: "Percorso: Torre Eiffel (5013364)"). It is
+    * a site template, "<type>: <name> (<id>)", so the one thing dropped is the " (<id>)"
+    * (field rule B6), and only when the id in it is this object's. The type prefix stays,
+    * and so do the directional-embedding characters OSM wraps the name in. An unnamed
+    * object is titled "<type>: <id>" and is left as it is - the id is all it has.
+    *
+    * The description, in field rule C1's order: the object's own `description` tag
+    * verbatim, else a composition of its type and city ("Attraction · Paris"), else the
+    * page's generic blurb. A missing id is a **404**, a deleted one a **410**, both proof:
+    * the title becomes a label by object type, and the page's furniture rides along.
+    * Session cache per object.
+    */
+   private async fetchOpenStreetMap(url: string, refresh = false): Promise<LinkMetadata | undefined> {
+      const m = url.match(/(?:openstreetmap\.org|osm\.org)\/(node|way|relation)\/(\d+)/i);
+      if (!m) return this.fetchGeneric(url);
+      const kind = m[1]!.toLowerCase();
+      const id = m[2]!;
+      const key = `${kind}/${id}`;
+
+      const cached = LinkMetadataFetcher.osmCache.get(key);
+      if (cached && !refresh) return { ...cached, url };
+
+      const [page, api] = await Promise.all([
+         this.fetchGeneric(url),
+         this.request(`https://api.openstreetmap.org/api/0.6/${key}.json`, { "Accept": "application/json" }),
+      ]);
+      const furniture = page ?? { url, host: "openstreetmap.org", favicon: "https://www.openstreetmap.org/favicon.ico", indent: 0 };
+
+      if (api && (api.status === 404 || api.status === 410)) {
+         console.debug(`OpenStreetMap has no ${key}; keeping the page's furniture, labelling by type.`);
+         return { ...furniture, url, title: `OpenStreetMap ${kind}` };
+      }
+
+      let tags: Record<string, string> = {};
+      if (api?.status === 200) {
+         try {
+            tags = (JSON.parse(api.text) as OsmElementResponse).elements?.[0]?.tags ?? {};
+         } catch { /* leave tags empty - the page's blurb stays as the description */ }
+      }
+
+      const typeKey = LinkMetadataFetcher.OSM_TYPE_KEYS.find(k => tags[k] && tags[k] !== "yes");
+      const typeLabel = typeKey ? LinkMetadataFetcher.deslug(tags[typeKey]) : undefined;
+      const place = tags["addr:city"] ?? tags["addr:place"] ?? tags["is_in:city"];
+      const composed = [typeLabel, place].filter(Boolean).join(" · ") || undefined;
+      const description = tags["description"] ?? composed;
+
+      // The page's title when the page was really read - OSM's own notation, recognisable by
+      // the id it carries. When it wasn't (a URL-built fallback, say), the API's plain `name`
+      // is the next best thing (field rule B4), then a label by object type.
+      const title = LinkMetadataFetcher.osmPageTitle(page?.title, id)
+         || (tags["name"] && LinkMetadataParser.sanitizeText(tags["name"], 300))
+         || `OpenStreetMap ${kind}`;
+
+      const card: LinkMetadata = {
+         ...furniture,
+         url,
+         title,
+         description: description ? LinkMetadataParser.sanitizeText(description) : page?.description,
+      };
+      LinkMetadataFetcher.osmCache.set(key, card);
+      return card;
+   }
+
+   /**
+    * The page's own title with OSM's trailing " (<id>)" dropped, or undefined when the
+    * title is not OSM's "<type>: …" notation carrying this object's id - i.e. the page was
+    * not what answered. OSM wraps both the name and the id in directional-embedding
+    * characters (U+202A ... U+202C: "Way: <LRE>Tour Eiffel<PDF> (<LRE>5013364<PDF>)"), so those are allowed
+    * around the id; the ones around the name are left alone.
+    */
+   private static osmPageTitle(title: string | undefined, id: string): string | undefined {
+      if (!title) return undefined;
+      const bare = title.replace(/\p{Cf}/gu, "");
+      if (!/^[^:]+:\s/.test(bare) || !new RegExp(`\\b${id}\\b`).test(bare)) return undefined;
+      return title.replace(new RegExp(`\\s*\\(\\p{Cf}*${id}\\p{Cf}*\\)\\s*$`, "u"), "").trim() || undefined;
    }
 
    /* --- SOUNDCLOUD --- */

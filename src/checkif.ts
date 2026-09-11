@@ -131,6 +131,14 @@ export class CheckIf {
       || /^https?:\/\/on\.soundcloud\.com\/[^/?#]+/i.test(url);
   }
 
+  public static isOpenStreetMapUrl(url: string): boolean {
+    // A specific map object - a node, way or relation. Its og:description and og:image are
+    // the same for every object, so the public API supplies a description (field rule
+    // A1(d)); everything else is the page's. A bare map view (`/#map=…`) carries no
+    // server-visible location and stays generic.
+    return /^https?:\/\/(www\.)?(openstreetmap\.org|osm\.org)\/(node|way|relation)\/\d+/i.test(url);
+  }
+
   public static isApplePodcastsUrl(url: string): boolean {
     // The whole host: a show or episode already reads fine generically, and this only adds
     // the show's own name to an episode as `author` - a no-op everywhere else. Checked
