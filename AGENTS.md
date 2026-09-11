@@ -28,17 +28,15 @@ code. It also carries the release backlog. Nothing there should be re-derived fr
   **no bullet points and no backticks**, so a whole group can be copy-pasted at once. A
   comment on the same line is fine. Group them by case (live / dead / must not regress), and
   verify they are live at the moment of handing them over.
-- `main.js` is gitignored and the maintainer copies it into the test vault by hand. Remind
-  them to, every time.
+- `main.js` is gitignored and the maintainer copies it into the test vault by hand.
 - **Only a paste into Obsidian settles whether something works.** You cannot test the
   plugin yourself.
 
 ### Rules for link metadata
 
-1. **A dedicated fetcher needs either a documented API or a provably wrong generic path.**
-   Not "a fetcher per big domain". Every fetcher is perpetual maintenance: a documented,
-   versioned API is cheap, scraping or User-Agent sniffing is expensive and must be
-   declared as fragile in the docs.
+1. **Site-specific code is the exception, not the rule.** Whether a site gets any code of
+   its own, and what that code may do to each field, is decided by the field rules below —
+   section A first.
 2. **When an endpoint proves a link is dead, build the card from the URL — never hand it to
    `fetchGeneric`**, which cannot tell "gone" from "blocked" and would spend a Microlink
    request (quota ~25/day) rendering a page that says nothing. An API's *empty answer* is
@@ -67,6 +65,149 @@ cannot exist. If the dead one comes back with a title, read it carefully.
 **A check on one domain that uncovers a general parser or dispatch bug takes precedence
 over the domain.** That happened three times during 1.6, and each time it fixed more sites
 than the one being looked at.
+
+### Field rules
+
+Agreed with the maintainer on 2026-09-11, after an OpenStreetMap fetcher threw away data the
+site had declared without a firm reason. They apply to every site the same way. An
+exception exists only if it is written here, or recorded with its evidence in
+`docs/domain-coverage.md`.
+
+**Terms.**
+- *Generic*: the same title, text or image comes back for two different links of the same
+  kind, one of which cannot exist. Proven by a recorded two-paste test, never by impression.
+- *Specific*: about this item and supplied by the site — a tag on the page, an endpoint
+  field that is the item's own name, description or image, or a composition of the site's
+  own data for this item (C3).
+- *Attribute* vs *audience metric*: an attribute describes the thing (version, licence,
+  duration, date, language, closed/archived); an audience metric counts people's reaction
+  to it (likes, points, votes, comments, answers, stars, downloads, members, followers,
+  views, "online now").
+- *Furniture*: the description, image and favicon of a page we have decided not to believe.
+
+**A. When a site gets code of its own** (a dedicated fetcher, or a hook in or after
+`fetchGeneric` — both count)
+
+- **A1.** Only with recorded evidence (the URLs used and what they returned) of at least one of:
+  - (a) a live link answers with a page that is not about the link: a shell, a sign-in
+    wall, a challenge, the site's homepage;
+  - (b) a dead link's page does not prove it is dead (a 200, or a redirect to something that
+    parses as a confident card), and an endpoint does;
+  - (c) the plugin cannot read the page — confirmed in Obsidian, not by a script — and an
+    endpoint answers;
+  - (d) the generic read's description and image are both generic or absent, and a
+    documented endpoint has data specific to the item.
+
+  Not reasons: an ugly or verbose title, an API existing, extra data (version, licence,
+  counts, duration), a bigger image, removing audience metrics.
+- **A2.** The code covers only the URL shapes and cases where the failure was shown. The
+  rest of the site stays generic.
+- **A3.** Page first. An endpoint is asked only when the generic result is suspect (a
+  shell, an empty page, an invariant title) or when the A1 reason is the endpoint's data.
+- **A4.** A failure with a shape not tied to the site ("Client Challenge", `name=` og tags)
+  is fixed in the parser or in `fetchGeneric`, not in a site's branch.
+- **A5.** One declared exception to A1: a site template (B6), or a site-specific author
+  property (`soundcloud:user`), may justify code with no failure — if it costs no extra
+  request and its purpose is filling `author`. Removing audience metrics never justifies
+  code on its own; if proposing it for a site anyway, say so to the maintainer explicitly.
+- **A6.** A documented, versioned API is cheap to keep. Scraping and User-Agent sniffing are
+  expensive and must be declared as fragile in the docs.
+
+**B. Title**
+
+- **B1.** The declared title is kept. The chain `og:title` → `twitter:title` → `<title>` →
+  URL slug is parsing, not rewriting.
+- **B2.** Universal cleanups, in the parser only, closed list: decoding entities and
+  normalising whitespace; a separator left dangling at the end; the site's name as a
+  **suffix** after a separator — only when the name is known (`og:site_name` or
+  `SITE_NAMES`, never guessed from the host), matched by the same logic as
+  `appendSiteName`, and never when nothing would be left. Not on the list: "on \<Site\>"
+  ("Why I write on Medium" is a real title), ids in brackets, Unicode format and
+  directional characters (they keep mixed-direction names readable).
+- **B3.** A declared title is replaced only with proof that it names the site, not the
+  link: (i) it is generic; (ii) `og:url` or a redirect points to a sign-in page or the
+  homepage; (iii) an error status or a challenge page.
+- **B4.** The replacement, in order: a name from an endpoint → the URL's own words
+  (identifiers verbatim, prose through `deslug`) → a label from the URL's shape
+  ("Discord channel").
+- **B5.** Code that is justified does not rewrite a readable page's title — not with an
+  endpoint's cleaner name, not translated (no `name:<lang>`). Only B2 and B6 apply.
+- **B6.** A *site template* is a fixed shape a site builds its title or description with,
+  shown on at least three links and recorded with the examples. On sites that have code,
+  it allows exactly four operations: move the author segment into `author`; drop the
+  site-name segment; drop an audience-metric segment; drop a technical id
+  (OSM "Way: Tour Eiffel (5013364)" → "Way: Tour Eiffel" — the type prefix stays). Text
+  that does not match the template exactly is left alone. When the URL carries a handle,
+  the author segment must match it; otherwise the separator must occur exactly as often as
+  the template says.
+
+**C. Description**
+
+- **C1.** Specific over generic: specific verbatim (page, then endpoint) → composed from the
+  site's own data → generic declared → none.
+- **C2.** Between two specific ones the page wins, unless it is a strict prefix of the
+  endpoint's — i.e. truncated — in which case the full one is used.
+- **C3.** A composition uses only this item's data from the same site, values joined by
+  " · " and humanised at most as `deslug` does. No prose of our own, attributes only, and
+  never appended to a declared specific description.
+- **C4.** Audience metrics go wherever we control them: always from compositions, and from
+  declared text via B6 on sites that have code. A site without code keeps what it declares.
+  A card is a snapshot written into a note that lives for years, and it carries no date.
+- **C5.** On a dead link, a shell or a sign-in wall, the page's description rides along as
+  furniture — always, TikTok's "Log in or sign up…" included.
+
+**D. Image**
+
+- **D1.** Specific over generic: the page's → the endpoint's → generic declared → none.
+- **D2.** A resolution variant of the same asset (same id, same CDN) is the same image. A
+  different artwork is not: Steam's `header.jpg` does not replace the page's
+  `capsule_616x353.jpg`.
+- **D3.** Never the favicon or the apple-touch-icon as an image. An `og:image` that *is* the
+  favicon is discarded, not replaced.
+- **D4.** On a dead link or a shell the page's image rides along as furniture.
+
+**E. Site name**
+
+- **E1.** `og:site_name` is kept, cleaned universally: the first segment before a spaced
+  separator, discarded if over 40 characters. When absent, `SITE_NAMES` is the floor, by
+  host or by host and path.
+- **E2.** `SITE_NAMES` overrides a declared name only when the host is a user subdomain of
+  a platform it lists (`*.bandcamp.com`, `*.notion.site`). A structural test in the general
+  mechanism, not a per-site hook.
+
+**F. Author**
+
+- **F1.** The generic parser should read an author universally (`meta name="author"`,
+  `article:author` when it is not a URL, JSON-LD `author.name`). Not designed yet.
+- **F2.** Sources allowed: a field declared as the author, an endpoint field, a site-specific
+  property, a template segment (B6). Nothing guessed.
+- **F3.** `linkTitle` is composed only from fields already held.
+
+**G. Favicon**
+
+- **G1.** The icon the page declares wins, else the `/favicon.ico` guess.
+- **G2.** Hardcoded only when the code does not read the page and the guess was measured to
+  fail (Discord, Bluesky).
+- **G3.** Always rides along on dead-link and shell cards.
+
+**H. Markdown-link label**
+
+- **H1.** The label is the title (or `linkTitle`), then " - " and the site name from E.
+- **H2.** Nothing is appended when the title already carries the name: equal to it; last
+  segment after a separator ending in it or a whole-word prefix of it; opening with it plus
+  a separator; ending in "on \<Site\>". Presentation only — the stored title is untouched.
+- **H3.** No known site name, no suffix — never the host.
+- **H4.** The separator is always " - ": a site's own "| Steam", dropped by B2, comes back
+  as " - Steam", so every link in a note reads the same way.
+- **H5.** The same link gets the same label whichever way it was made — pasted as a link or
+  converted from a card. Not true yet: a card block stores neither `siteName` nor
+  `linkTitle`, so conversion falls back to `SITE_NAMES` alone.
+
+**I. Across all fields**
+
+- **I1.** Microlink's answer counts as a read of the page; the same rules apply to it.
+- **I2.** A refresh never clears a field.
+- **I3.** Every exception is recorded with its evidence. Without it, it does not exist.
 
 ### Reuse before writing
 
