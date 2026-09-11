@@ -760,11 +760,34 @@ export class LinkMetadataFetcher {
       return m[1].trim().length > 0 && !/^twitch\.?(tv)?$/i.test(m[1].trim());
    }
 
+   /**
+    * Twitch. Justified by field rule A1(a): Twitch serves real og tags server-side, but
+    * answers roughly one request in four - live pages included - with the SPA shell, a bare
+    * `<title>Twitch</title>` and nothing else (measured 2026-09-11). So the page is retried
+    * with rotated user agents, and then read as it is, with only Twitch's templates undone
+    * (rule B6). The request asks for English on purpose: the templates are then fixed and
+    * proven, where other languages reword them ("Live su Twitch", "shroud - Twitch" for
+    * "shroud on Twitch", a different dash in German). What that costs is Twitch's own stock
+    * phrases in the descriptions; titles, bios and stream titles are the creator's text in
+    * any language.
+    *
+    * - A VOD or a clip, "<title> - <channel> on Twitch": the channel moves to `author` and
+    *   "on Twitch" goes. On a `/<channel>/clip/` URL the segment must match the URL's
+    *   channel, and anything off the template is left whole.
+    * - Every other page - a channel, offline ("shroud - Twitch") or live ("shroud - Live on
+    *   Twitch"), or anything else ("All Categories - Twitch") - loses only that trailing
+    *   site-name segment, "Live" being the instant state rule C4 keeps out of a card. A
+    *   channel also carries its name as the author (rule F4).
+    *
+    * Descriptions, images and the favicon are the page's. Before 2026-09-11 every channel
+    * page was treated as live: the title was replaced by the description (for an offline
+    * channel, its bio), the description by a sentence of ours ("Watch shroud live on
+    * Twitch"), and the duration set to "Live" even when it was not; a clip's description was
+    * replaced by a sentence of ours too.
+    */
    private async fetchTwitch(url: string): Promise<LinkMetadata | undefined> {
-      // Twitch serves og: meta tags server-side, but sometimes returns the SPA shell
-      // (bot detection or CDN miss). Retry up to 3 times with increasing delays and
-      // rotated user agents to improve the hit rate.
       const retryDelays = [0, 1500, 3000];
+      let shell: string | undefined;
 
       for (let attempt = 0; attempt < retryDelays.length; attempt++) {
          if (attempt > 0) await new Promise(r => window.setTimeout(r, retryDelays[attempt]));
@@ -777,55 +800,70 @@ export class LinkMetadataFetcher {
          }, 9000);
 
          if (!res || res.status !== 200) continue;
-         if (!this.isTwitchResponseUsable(res.text)) continue;
+         if (!this.isTwitchResponseUsable(res.text)) {
+            shell = res.text;
+            continue;
+         }
 
          const parser = new LinkMetadataParser(url, res.text);
          const metadata = await parser.parse();
          if (!metadata) continue;
+         // Read off the parsed document, not with a regex: Twitch writes `content` before
+         // `property` on some tags and after it on others (`<meta content="profile"
+         // property="og:type"/>`), and a pattern for one order missed the channel entirely.
+         const og = (property: string) =>
+            parser.htmlDoc.querySelector(`meta[property='${property}']`)?.getAttribute("content") ?? undefined;
 
-         const duration = this.extractTwitchDuration(res.text);
          const isClip = /\/clip\//.test(url) || url.includes("clips.twitch.tv");
          const isVod = /\/videos\//.test(url);
-         const host = url.includes("clips.twitch.tv") ? "clips.twitch.tv" : "www.twitch.tv";
 
-         if (isVod) {
-            // "VideoTitle - ChannelName on Twitch"
-            const { title, author: titleAuthor } = this.parseTwitchTitle(metadata.title);
-            const author = this.extractTwitchChannel(url) ?? titleAuthor;
-            const linkTitle = author && title ? `${title} - ${author}` : title;
-            return { ...metadata, title, author, host, favicon: "https://www.twitch.tv/favicon.ico", duration, linkTitle };
-         }
-
-         if (isClip) {
-            // Same shape as a VOD: "ClipTitle - ChannelName on Twitch". (Twitch used to put
-            // the channel first here; the code kept assuming that long after it stopped being
-            // true, which swapped the title and the author of every clip.)
-            const { title: parsedTitle, author: titleAuthor } = this.parseTwitchTitle(metadata.title);
-            const author = titleAuthor ?? this.extractTwitchChannel(url);
-
-            let title = parsedTitle;
-            if (!title || title === author) {
-               // og:title carried only the channel: the clip name is in og:description, as
-               // Watch <channel>'s clip titled "<name>". The quotes reach us escaped for the
-               // card's YAML, hence the optional backslash.
-               const m = metadata.description?.match(/clip titled\s+\\?"([^"\\]+)/i);
-               title = m?.[1]?.trim() || parsedTitle;
+         if (isVod || isClip) {
+            // A VOD or clip that does not exist is not the shell but a real page with a stock
+            // title - "VOD - Twitch" (the same on four dead ids), "Clip - Twitch", "Clip of
+            // shroud - Twitch" - which names no video at all (rule B3): the URL's label, and
+            // the page's own blurb and logo along with it.
+            if (/^(?:VOD|Clip)(?: of \S+)? - Twitch$/.test(metadata.title)) {
+               return this.withPageFurniture(this.buildTwitchFallback(url), metadata);
             }
-
-            const description = author ? `Watch a ${author} clip on Twitch` : undefined;
-            const linkTitle = author && title ? `${title} - ${author}` : title;
-            return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration, linkTitle };
+            const parsed = LinkMetadataFetcher.parseTwitchVideoTitle(metadata.title, this.extractTwitchChannel(url));
+            const duration = this.extractTwitchDuration(res.text, og("og:video:duration"));
+            if (!parsed) return { ...metadata, duration };
+            return { ...metadata, ...parsed, duration, linkTitle: `${parsed.title} - ${parsed.author}` };
          }
 
-         // Live: og:title = "ChannelName - Twitch", og:description = stream title
-         const author = metadata.title?.replace(/\s*-\s*Twitch\s*$/i, "").trim() || undefined;
-         const title = metadata.description ?? metadata.title ?? "";
-         const description = author ? `Watch ${author} live on Twitch` : undefined;
-         return { ...metadata, title, author, description, host, favicon: "https://www.twitch.tv/favicon.ico", duration: "Live", linkTitle: author };
+         const title = metadata.title.replace(/\s+[-–]\s+(?:Live on )?Twitch$/i, "").trim() || metadata.title;
+         // A channel - `og:type` "profile" offline, "video.other" live; every other page
+         // declares "website" - carries its own name as the author too, the way a YouTube
+         // channel card does (field rule F4).
+         const ogType = og("og:type");
+         const isChannel = ogType === "profile" || ogType === "video.other";
+         return { ...metadata, title, author: isChannel ? title : undefined };
       }
 
-      // All attempts returned the SPA shell — fall back to generic
+      // The shell every time. A channel that does not exist answers with it on every request
+      // (8 of 8, measured 2026-09-11), where a live one gets past it within three tries
+      // nearly always - so this is almost certainly a missing channel, and in any case a
+      // page read that is not about the link: the title comes from the URL rather than the
+      // shell's "Twitch" (rule B3), and the shell's own blurb and logo ride along (rule C5).
+      // No Microlink - it would render the same shell. Its tags are single-quoted
+      // (`property='og:title'`), which is why isTwitchResponseUsable, looking for double
+      // quotes, never mistakes it for a page.
+      if (shell) return this.withParsedFurniture(this.buildTwitchFallback(url), url, shell);
+
+      // No answer at all - a dead network, a 5xx. That proves nothing, so the normal path.
       return this.fetchGeneric(url);
+   }
+
+   /**
+    * A Twitch URL names its channel, when it carries one at all, and otherwise only says
+    * what kind of thing it points at. The channel is an identifier and stays verbatim.
+    */
+   private buildTwitchFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      const isClip = /\/clip\//.test(url) || url.includes("clips.twitch.tv");
+      if (isClip) return { ...card, title: "Twitch clip" };
+      if (/\/videos\//.test(url)) return { ...card, title: "Twitch video" };
+      return { ...card, title: this.extractTwitchChannel(url) ?? card.title };
    }
 
    private extractTwitchChannel(url: string): string | undefined {
@@ -839,27 +877,26 @@ export class LinkMetadataFetcher {
       return parts[0] ?? undefined;
    }
 
-   private parseTwitchTitle(raw: string): { title: string; author: string | undefined; } {
-      // Twitch titles follow "VideoTitle - ChannelName on Twitch"
-      const withoutSuffix = raw.replace(/\s+on\s+Twitch\s*$/i, "").trim();
-      const lastDash = withoutSuffix.lastIndexOf(" - ");
-      if (lastDash >= 0) {
-         return {
-            title: withoutSuffix.slice(0, lastDash).trim(),
-            author: withoutSuffix.slice(lastDash + 3).trim() || undefined,
-         };
-      }
-      return { title: withoutSuffix, author: undefined };
+   /**
+    * "<title> - <channel> on Twitch", the template of a VOD and a clip. A channel name holds
+    * no spaces, so the last " - " before it is unambiguous whatever the title itself
+    * contains. When the URL names the channel, the segment has to be that channel (case
+    * aside); anything else - another shape, a display name the URL does not match - leaves
+    * the title whole (rule B6).
+    */
+   private static parseTwitchVideoTitle(raw: string, urlChannel?: string): { title: string; author: string; } | undefined {
+      const m = raw.match(/^(.+) - (\S+) on Twitch$/);
+      if (!m) return undefined;
+      const title = m[1]!.trim();
+      const author = m[2]!;
+      if (urlChannel && author.toLowerCase() !== urlChannel.toLowerCase()) return undefined;
+      return title ? { title, author } : undefined;
    }
 
-   private extractTwitchDuration(html: string): string | undefined {
+   private extractTwitchDuration(html: string, ogDuration?: string): string | undefined {
       const secMatch = html.match(/"durationSeconds"\s*:\s*(\d+)/);
       if (secMatch) return this.formatDuration(parseInt(secMatch[1]!, 10));
-
-      const ogMatch = html.match(/property="og:video:duration"\s+content="(\d+)"/);
-      if (ogMatch) return this.formatDuration(parseInt(ogMatch[1]!, 10));
-
-      return undefined;
+      return ogDuration && /^\d+$/.test(ogDuration) ? this.formatDuration(parseInt(ogDuration, 10)) : undefined;
    }
 
    /* --- TED --- */

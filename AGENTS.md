@@ -187,6 +187,10 @@ exception exists only if it is written here, or recorded with its evidence in
 - **F2.** Sources allowed: a field declared as the author, an endpoint field, a site-specific
   property, a template segment (B6). Nothing guessed.
 - **F3.** `linkTitle` is composed only from fields already held.
+- **F4.** On a creator's own channel or profile page, their name may be both the title and
+  the author — the convention readers know from YouTube's channel cards, and the one case
+  where the author repeats the title. Not for what the creator did not make: a Discord
+  invite's server is its destination, not its author.
 
 **G. Favicon**
 
