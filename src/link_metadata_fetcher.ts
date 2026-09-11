@@ -4,7 +4,7 @@ import {
    BlueskyProfile,
    HackerNewsItem,
    HackerNewsUser,
-   DailymotionVideoResponse, DiscordInviteResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   DailymotionVideoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
@@ -3883,12 +3883,15 @@ export class LinkMetadataFetcher {
     * `discord.com/channels/…` link, which is a pointer into a server nobody can open without
     * being a member. Left generic, those become confident cards advertising Discord.
     *
-    * A live invite does read on the generic path, but the invites endpoint is better and
-    * costs nothing extra: `discord.com/api/v10/invites/<code>` is documented, versioned and
-    * needs no auth, it gives the server's own name instead of Discord's "Join the … Discord
-    * Server!" phrasing, and - the part that matters - it answers a dead invite with a clean
-    * **404 `{"message":"Unknown Invite"}`**, which is the proof the page refuses to give.
-    * Checked 2026-09-08.
+    * The page itself says everything else, so there is no API call (reworked 2026-09-11
+    * against the field rules - it used to go through `discord.com/api/v10/invites/`). A live
+    * invite page declares "Join the <name> Discord Server!" as `og:title` (the bare name as
+    * its `<title>`), the server's description plus " | <n> members" as
+    * `og:description`, the splash as `og:image`, and echoes its own `/invite/<code>` address
+    * as `og:url`. The shell declares no `og:url` at all - that is the tell, the one LinkedIn
+    * and Notion use too - so a dead invite needs no endpoint to be recognised, and its card
+    * (title from the URL, the shell's furniture) is the same either way. One request, live or
+    * dead. Checked on ten live servers and two dead invites.
     */
    private static readonly discordCache = new Map<string, LinkMetadata>();
 
@@ -3901,88 +3904,78 @@ export class LinkMetadataFetcher {
       const cached = LinkMetadataFetcher.discordCache.get(code.toLowerCase());
       if (cached) return { ...cached, url };
 
-      const res = await this.request(
-         `https://discord.com/api/v10/invites/${encodeURIComponent(code)}?with_counts=true`
-      );
-      // Only a 404 is proof. A 429, a 5xx or a dead network says nothing about the invite -
-      // but the generic path would answer all three with the marketing shell, so every one
-      // of them still ends at the URL rather than there.
+      const res = await this.request(url);
+      // No page at all - a 5xx, a dead network. Nothing to read and nothing proven, but the
+      // generic path would only reach the same shell, so the card is built from the URL.
       if (!res || res.status !== 200) return this.discordInviteFallback(url, code);
 
-      const card = this.discordInviteCard(url, code, res.text);
-      if (!card) return this.discordInviteFallback(url, code);
+      const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+      // Parsed against the page's canonical address, not the pasted one: the favicon is
+      // declared as a relative `/assets/favicon.ico`, which on `discord.gg` resolves to the
+      // SPA's HTML rather than an icon.
+      const parser = new LinkMetadataParser(`https://discord.com/invite/${code}`, html);
+      const parsed = await parser.parse();
+      const declaredUrl = parser.htmlDoc.querySelector("meta[property='og:url']")?.getAttribute("content") ?? "";
+      if (!parsed || !/\/invite\//i.test(declaredUrl)) {
+         console.debug(`Discord answered ${url} with its front-page shell; building from the URL.`);
+         return this.discordInviteFallback(url, code, html);
+      }
+
+      const card = this.discordInviteCard(url, parsed);
       LinkMetadataFetcher.discordCache.set(code.toLowerCase(), card);
       return card;
    }
 
-   private discordInviteCard(url: string, code: string, body: string): LinkMetadata | undefined {
-      let data: DiscordInviteResponse;
-      try {
-         data = JSON.parse(body) as DiscordInviteResponse;
-      } catch {
-         return undefined;
-      }
-      const guild = data.guild;
-      if (!guild?.name) return undefined;
-
-      const parts: string[] = [];
-      if (guild.description) parts.push(guild.description);
-      // Members only. The endpoint also returns how many are online right now, and that is
-      // the LinkedIn comment-count mistake: a number that is wrong within the hour, written
-      // into a note that keeps it for years. A member count moves slowly enough to be worth
-      // reading months later.
-      if (typeof data.approximate_member_count === "number") {
-         parts.push(this.countLabel(data.approximate_member_count, "member"));
-      }
-
+   /**
+    * A live invite, from its own page. The title is the page's `og:title` as declared -
+    * "Join the Python Discord Server!", which says what the link is: an invitation. Turning
+    * it into the bare name the `<title>` carries was tried and rejected on 2026-09-11: no
+    * field-rule operation covers it (B6 drops a site-name segment, and this is a phrase
+    * wrapped around the name), so it would have been a rule written for one site. The
+    * " | <n> members" segment Discord appends to the server's description is dropped, an
+    * audience metric (rule C4). A server with no description of its own gets Discord's stock
+    * sentence instead ("Check out the <name> community on Discord - hang out with <n> other
+    * members…"): the count is inside a sentence there, not a segment, so that text is kept
+    * verbatim rather than rewritten.
+    */
+   private discordInviteCard(url: string, parsed: LinkMetadata): LinkMetadata {
+      const description = parsed.description?.replace(/\s*\|\s*\d[\d.,\s]*members?$/i, "").trim() || parsed.description;
       return {
+         ...parsed,
          url,
-         title: guild.name,
-         description: LinkMetadataParser.sanitizeText(parts.join(" · ")),
+         description,
+         // discord.com on both hosts, matching the og:url the page declares - discord.gg is
+         // Discord's own shortener, not a separate site.
          host: "discord.com",
-         favicon: LinkMetadataFetcher.DISCORD_FAVICON,
-         image: LinkMetadataFetcher.discordGuildImage(guild),
-         indent: 0,
+         favicon: parsed.favicon || LinkMetadataFetcher.DISCORD_FAVICON,
       };
    }
 
    /**
-    * Splash first, then banner, then the server icon - the same order Discord's own og:image
-    * follows. The icon is the fallback because it is the one every server has, and a square
-    * mark in a wide thumbnail slot is still better than an empty one.
-    */
-   private static discordGuildImage(guild: NonNullable<DiscordInviteResponse["guild"]>): string | undefined {
-      const id = guild.id;
-      if (!id) return undefined;
-      if (guild.splash) return `https://cdn.discordapp.com/splashes/${id}/${guild.splash}.jpg?size=512`;
-      if (guild.banner) return `https://cdn.discordapp.com/banners/${id}/${guild.banner}.jpg?size=512`;
-      // An `a_` prefix marks an animated icon; it is served as a still PNG at this path too.
-      if (guild.icon) return `https://cdn.discordapp.com/icons/${id}/${guild.icon}.png?size=512`;
-      return undefined;
-   }
-
-   /**
     * `discord.com/favicon.ico` is a 404 and `discord.gg/favicon.ico` answers with the SPA's
-    * HTML, so the guess buildUrlCard makes is wrong on both hosts. The real icon is here.
+    * HTML, so the guess buildUrlCard makes is wrong on both hosts. The page declares the real
+    * one; this is only for a card built without a page to read (field rule G2).
     */
    private static readonly DISCORD_FAVICON = "https://discord.com/assets/favicon.ico";
 
    /**
     * A dead invite. A vanity code is words a server chose for itself and reads as a name
     * ("discord-developers"); a generated one is seven random characters and reads as nothing,
-    * so that case says only what the link is.
+    * so that case says only what the link is. The shell's own furniture rides along when the
+    * page was read (rule C5); without a page the bare card stands.
     */
-   private discordInviteFallback(url: string, code: string): Promise<LinkMetadata> {
+   private async discordInviteFallback(url: string, code: string, html?: string): Promise<LinkMetadata> {
       const vanity = code.includes("-") ? LinkMetadataFetcher.deslug(code, "title") : undefined;
-      return this.withDiscordShellFurniture(url, {
+      const card: LinkMetadata = {
          url,
          title: vanity ?? "Discord invite",
-         // discord.com on both hosts, matching the live card and the og:url a real invite
-         // page declares - discord.gg is Discord's own shortener, not a separate site.
          host: "discord.com",
          favicon: LinkMetadataFetcher.DISCORD_FAVICON,
          indent: 0,
-      });
+      };
+      // Parsed against discord.com for the same reason as a live page: the shell's favicon is
+      // relative too, and on discord.gg it would resolve to something that is not an icon.
+      return html ? this.withParsedFurniture(card, `https://discord.com/invite/${code}`, html) : card;
    }
 
    /**
