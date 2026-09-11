@@ -79,10 +79,10 @@ exception exists only if it is written here, or recorded with its evidence in
 - *Specific*: about this item and supplied by the site — a tag on the page, an endpoint
   field that is the item's own name, description or image, or a composition of the site's
   own data for this item (C3).
-- *Attribute* vs *audience metric*: an attribute describes the thing (version, licence,
-  duration, date, language, closed/archived); an audience metric counts people's reaction
-  to it (likes, points, votes, comments, answers, stars, downloads, members, followers,
-  views, "online now").
+- *Count* vs *instant state*: a count is how many people did something with the thing
+  (likes, points, votes, comments, answers, stars, downloads, members, followers, views) -
+  it ages, but it is data like any other; instant state is what is true only right now
+  ("online now", live viewers, "Live") and is wrong within minutes.
 - *Furniture*: the description, image and favicon of a page we have decided not to believe.
 
 **A. When a site gets code of its own** (a dedicated fetcher, or a hook in or after
@@ -99,7 +99,7 @@ exception exists only if it is written here, or recorded with its evidence in
     documented endpoint has data specific to the item.
 
   Not reasons: an ugly or verbose title, an API existing, extra data (version, licence,
-  counts, duration), a bigger image, removing audience metrics.
+  counts, duration), a bigger image, removing a count from a title.
 - **A2.** The code covers only the URL shapes and cases where the failure was shown. The
   rest of the site stays generic.
 - **A3.** Page first. An endpoint is asked only when the generic result is suspect (a
@@ -112,8 +112,8 @@ exception exists only if it is written here, or recorded with its evidence in
   property (`soundcloud:user`), may justify code with no failure — if it costs no extra
   request and its purpose is filling `author`. The no-extra-request condition applies only
   to code that exists *because of* this exception; a site A1 already justifies may spend a
-  request on the author (A3). Removing audience metrics never justifies
-  code on its own; if proposing it for a site anyway, say so to the maintainer explicitly.
+  request on the author (A3). Removing a count from a title never justifies code on its
+  own; if proposing it for a site anyway, say so to the maintainer explicitly.
 - **A6.** A documented, versioned API is cheap to keep. Scraping and User-Agent sniffing are
   expensive and must be declared as fragile in the docs.
 
@@ -140,7 +140,8 @@ exception exists only if it is written here, or recorded with its evidence in
 - **B6.** A *site template* is a fixed shape a site builds its title or description with,
   shown on at least three links and recorded with the examples. On sites that have code,
   it allows exactly four operations: move the author segment into `author`; drop the
-  site-name segment; drop an audience-metric segment; drop a technical id
+  site-name segment; drop a count segment **from a title** (never from a description, C4);
+  drop a technical id
   (OSM "Way: Tour Eiffel (5013364)" → "Way: Tour Eiffel" — the type prefix stays). Text
   that does not match the template exactly is left alone. When the URL carries a handle,
   the author segment must match it; otherwise the separator must occur exactly as often as
@@ -153,11 +154,17 @@ exception exists only if it is written here, or recorded with its evidence in
 - **C2.** Between two specific ones the page wins, unless it is a strict prefix of the
   endpoint's — i.e. truncated — in which case the full one is used.
 - **C3.** A composition uses only this item's data from the same site, values joined by
-  " · " and humanised at most as `deslug` does. No prose of our own, attributes only, and
+  " · " and humanised at most as `deslug` does. No prose of our own, no instant state, and
   never appended to a declared specific description.
-- **C4.** Audience metrics go wherever we control them: always from compositions, and from
-  declared text via B6 on sites that have code. A site without code keeps what it declares.
-  A card is a snapshot written into a note that lives for years, and it carries no date.
+- **C4.** Counts are data like any other: the site chose to show them, and that choice is
+  respected. Declared counts stay, wherever they are (" | 430961 members", "33 membri"
+  inside a sentence), and a composition may include the counts an endpoint gives (points,
+  stars, members, downloads). Two limits: never instant state in what we compose ("online
+  now", live viewers, a "Live" duration - wrong within minutes, and not what a site puts in
+  its own preview); and in a **title** a count segment is dropped via B6 on a site with
+  code, because a title is a name. Decided 2026-09-11, reversing a first version that
+  stripped counts wherever we could - which could only ever be some of them, since a count
+  inside a sentence or on a site without code cannot go.
 - **C5.** On a dead link, a shell or a sign-in wall, the page's description rides along as
   furniture — always, TikTok's "Log in or sign up…" included. Furniture goes with a card
   built from the URL, when there is no content: it is not added on top of content an
@@ -187,12 +194,15 @@ exception exists only if it is written here, or recorded with its evidence in
 - **F1.** The generic parser should read an author universally (`meta name="author"`,
   `article:author` when it is not a URL, JSON-LD `author.name`). Not designed yet.
 - **F2.** Sources allowed: a field declared as the author, an endpoint field, a site-specific
-  property, a template segment (B6). Nothing guessed.
+  property, a template segment (B6). Nothing guessed. The author is the byline the site
+  itself gives the item — the person, or the channel, community or show it appears under —
+  as its own title template or page presents it: Reddit titles a post "<title> : r/<sub>",
+  so a post's author is its subreddit, not the user who posted it.
 - **F3.** `linkTitle` is composed only from fields already held.
-- **F4.** On a creator's own channel or profile page, their name may be both the title and
-  the author — the convention readers know from YouTube's channel cards, and the one case
-  where the author repeats the title. Not for what the creator did not make: a Discord
-  invite's server is its destination, not its author.
+- **F4.** On a creator's or a community's own page — a channel, a profile, a subreddit, a
+  Discord server's invite — its name may be both the title (or part of it) and the author:
+  the convention readers know from YouTube's channel cards, and the one case where the
+  author repeats the title.
 
 **G. Favicon**
 

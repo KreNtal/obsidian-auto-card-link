@@ -3964,7 +3964,7 @@ export class LinkMetadataFetcher {
          return this.discordInviteFallback(url, code, html);
       }
 
-      const card = this.discordInviteCard(url, parsed);
+      const card = this.discordInviteCard(url, parsed, parser.htmlDoc.querySelector("title")?.textContent);
       LinkMetadataFetcher.discordCache.set(code.toLowerCase(), card);
       return card;
    }
@@ -3975,18 +3975,22 @@ export class LinkMetadataFetcher {
     * it into the bare name the `<title>` carries was tried and rejected on 2026-09-11: no
     * field-rule operation covers it (B6 drops a site-name segment, and this is a phrase
     * wrapped around the name), so it would have been a rule written for one site. The
-    * " | <n> members" segment Discord appends to the server's description is dropped, an
-    * audience metric (rule C4). A server with no description of its own gets Discord's stock
+    * description is the page's as declared, " | <n> members" included: a count the site chose
+    * to show is kept (rule C4). A server with no description of its own gets Discord's stock
     * sentence instead ("Check out the <name> community on Discord - hang out with <n> other
-    * members…"): the count is inside a sentence there, not a segment, so that text is kept
-    * verbatim rather than rewritten.
+    * members…"), kept the same way.
+    *
+    * The server is the invite's byline, so its name is the author (field rules F2/F4) - taken
+    * from the page's `<title>`, which Discord sets to the bare name ("Python") in every
+    * language, where `og:title` is a sentence that some servers get translated ("Unisciti al
+    * server di Discord The Baka Boys!").
     */
-   private discordInviteCard(url: string, parsed: LinkMetadata): LinkMetadata {
-      const description = parsed.description?.replace(/\s*\|\s*\d[\d.,\s]*members?$/i, "").trim() || parsed.description;
+   private discordInviteCard(url: string, parsed: LinkMetadata, pageTitle: string | null | undefined): LinkMetadata {
+      const name = LinkMetadataParser.sanitizeText(pageTitle?.trim(), 300);
       return {
          ...parsed,
          url,
-         description,
+         author: name && name !== "Discord" ? name : undefined,
          // discord.com on both hosts, matching the og:url the page declares - discord.gg is
          // Discord's own shortener, not a separate site.
          host: "discord.com",
