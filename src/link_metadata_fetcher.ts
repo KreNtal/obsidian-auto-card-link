@@ -2461,26 +2461,25 @@ export class LinkMetadataFetcher {
    private static readonly steamCache = new Map<string, LinkMetadata>();
 
    /**
-    * Steam store app pages, through the store's own unauthenticated `appdetails` endpoint.
+    * Steam store app pages: the page, read together with the store's own unauthenticated
+    * `appdetails` endpoint.
     *
-    * A live app reads fine on the generic path - real `og:title` ("<name> on Steam"),
-    * `og:description` and the capsule image. What it cannot survive is a **missing** app id:
-    * Steam answers one with a 302 to the storefront, itself a 200 declaring `og:title`
-    * "Steam Store" and `og:url` `https://store.steampowered.com/`. Left generic, every dead
-    * Steam link becomes the identical confident card advertising the store - the Notion and
-    * Discord failure again.
+    * A live app reads fine on the generic path - real `og:title` ("<name> su Steam", in the
+    * reader's language), `og:description` and a share image - and so does a mature title:
+    * the `/agecheck/` page a browser is redirected to declares the same complete og tags.
+    * What the generic path cannot survive is a **missing** app id: Steam answers one with a
+    * 302 to the storefront, itself a 200 declaring `og:title` "Steam Store" and `og:url`
+    * `https://store.steampowered.com/`. Left generic, every dead Steam link becomes the
+    * identical confident card advertising the store - field rule A1(b), and the reason this
+    * fetcher exists. `appdetails?appids=<id>` answers `{"<id>":{"success":false}}` for an id
+    * that is not a store app - the proof the page refuses to give. Only `success:false` on a
+    * 200 is proof; a non-200, a network failure or unparseable JSON say nothing and fall
+    * through to the generic path.
     *
-    * `store.steampowered.com/api/appdetails?appids=<id>` needs no auth or key and answers
-    * `{"<id>":{"success":false}}` for an id that is not a store app - the proof the page
-    * refuses to give. It also sidesteps the age gate, which redirects a browser from
-    * `/app/<id>/` to `/agecheck/` for a mature title while the API returns the data outright.
-    * Only `success:false` on a 200 is proof; a non-200, a network failure or unparseable
-    * JSON say nothing and fall through to the generic path.
-    *
-    * The documented-endpoint category, like GitLab and npm: one call, no scraping. Fields
-    * taken: `name` verbatim (no " on Steam" suffix here), the developer(s) as the author,
-    * `short_description`, and `header_image` (460x215, sharper than the og:image capsule).
-    * Session cache per app id, successes only.
+    * Everything the page gives well comes from the page: its title (minus the
+    * "<word> Steam" suffix, see steamTitle), description and image. The API adds only what
+    * the page does not declare, the developer(s) as the author. Session cache per app id,
+    * successes only.
     */
    private async fetchSteam(url: string, refresh = false): Promise<LinkMetadata | undefined> {
       const appid = url.match(/\/app\/(\d+)/i)?.[1];
@@ -2496,10 +2495,19 @@ export class LinkMetadataFetcher {
          indent: 0,
       };
 
-      const res = await this.request(
-         `https://store.steampowered.com/api/appdetails?appids=${appid}`,
-         { "Accept": "application/json" }
-      );
+      // The page is read alongside the API: its og:image is the share image Steam itself
+      // chose (field rule D1 - the page's specific image wins), and on a dead id it is the
+      // storefront whose furniture rides along, so that case needs no second request.
+      const [res, page] = await Promise.all([
+         this.request(
+            `https://store.steampowered.com/api/appdetails?appids=${appid}`,
+            { "Accept": "application/json" }
+         ),
+         this.request(url, { "Referer": "https://www.google.com/" }),
+      ]);
+      const html = page?.status === 200
+         ? await this.decodeHtmlContent(page.arrayBuffer, page.text)
+         : undefined;
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
       let entry: SteamAppDetailsResponse[string];
@@ -2517,25 +2525,41 @@ export class LinkMetadataFetcher {
          // The `/app/<id>/` URL 302s to the storefront - a real page whose blurb and share
          // image are the site's own furniture on a page we have established says nothing
          // about the link. Keep them, replace only the title, exactly as the generic path
-         // did before this fetcher existed. One direct request, the one that path made, and
-         // never Microlink.
-         const page = await this.request(url, { "Referer": "https://www.google.com/" });
-         return page?.status === 200
-            ? this.withParsedFurniture(card, url, await this.decodeHtmlContent(page.arrayBuffer, page.text))
-            : card;
+         // did before this fetcher existed. Never Microlink.
+         return html ? this.withParsedFurniture(card, url, html) : card;
       }
 
       const d = entry.data;
       const name = LinkMetadataParser.sanitizeText(d.name, 300);
+      // The page's description, not the API's (field rule C2): the page honours the
+      // Accept-Language it is sent, while appdetails is cached at the CDN regardless of it and
+      // answers in whichever language was last asked for - measured 2026-09-11, an Italian
+      // request for Cyberpunk got English and an English one for Counter-Strike 2 got Italian.
+      const parsed = html ? await new LinkMetadataParser(url, html).parse() : undefined;
       const card: LinkMetadata = {
          ...base,
-         title: name || this.buildSteamFallback(url).title,
+         title: LinkMetadataFetcher.steamTitle(parsed?.title, name) || this.buildSteamFallback(url).title,
          author: d.developers?.filter(Boolean).join(", ") || undefined,
-         description: LinkMetadataParser.sanitizeText(d.short_description),
-         image: d.header_image || d.capsule_image || undefined,
+         description: parsed?.description || LinkMetadataParser.sanitizeText(d.short_description),
+         image: parsed?.image || d.header_image || d.capsule_image || undefined,
       };
       LinkMetadataFetcher.steamCache.set(appid, card);
       return card;
+   }
+
+   /**
+    * The page's title, with Steam's site template undone (field rule B6): an app page is
+    * titled "<name> <word> Steam" - "su Steam", "on Steam", "auf Steam" by the reader's
+    * language - and the site-name segment is dropped. The API's `name` is what proves the
+    * template matched, so this needs no list of languages: only when the page title is
+    * exactly that name followed by one word and "Steam" does it become the name. Anything
+    * else (another word order, a name the two sources spell differently) keeps the page's
+    * title untouched. Without a page title the API's name stands in (rule B4).
+    */
+   private static steamTitle(pageTitle: string | undefined, name: string | undefined): string | undefined {
+      if (!pageTitle) return name;
+      if (!name || !pageTitle.startsWith(name)) return pageTitle;
+      return /^\s+\S+\s+Steam$/i.test(pageTitle.slice(name.length)) ? name : pageTitle;
    }
 
    /**

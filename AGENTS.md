@@ -103,12 +103,16 @@ exception exists only if it is written here, or recorded with its evidence in
 - **A2.** The code covers only the URL shapes and cases where the failure was shown. The
   rest of the site stays generic.
 - **A3.** Page first. An endpoint is asked only when the generic result is suspect (a
-  shell, an empty page, an invariant title) or when the A1 reason is the endpoint's data.
+  shell, an empty page, an invariant title), when the A1 reason is the endpoint's data, or
+  — in code A1 already justifies — to add a field the page does not give (Steam's
+  developers as `author`). It adds; it does not replace what the page gives well.
 - **A4.** A failure with a shape not tied to the site ("Client Challenge", `name=` og tags)
   is fixed in the parser or in `fetchGeneric`, not in a site's branch.
 - **A5.** One declared exception to A1: a site template (B6), or a site-specific author
   property (`soundcloud:user`), may justify code with no failure — if it costs no extra
-  request and its purpose is filling `author`. Removing audience metrics never justifies
+  request and its purpose is filling `author`. The no-extra-request condition applies only
+  to code that exists *because of* this exception; a site A1 already justifies may spend a
+  request on the author (A3). Removing audience metrics never justifies
   code on its own; if proposing it for a site anyway, say so to the maintainer explicitly.
 - **A6.** A documented, versioned API is cheap to keep. Scraping and User-Agent sniffing are
   expensive and must be declared as fragile in the docs.
