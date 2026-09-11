@@ -159,7 +159,9 @@ exception exists only if it is written here, or recorded with its evidence in
   declared text via B6 on sites that have code. A site without code keeps what it declares.
   A card is a snapshot written into a note that lives for years, and it carries no date.
 - **C5.** On a dead link, a shell or a sign-in wall, the page's description rides along as
-  furniture — always, TikTok's "Log in or sign up…" included.
+  furniture — always, TikTok's "Log in or sign up…" included. Furniture goes with a card
+  built from the URL, when there is no content: it is not added on top of content an
+  endpoint supplied (a live TikTok video behind the same wall gets no "Log in…").
 
 **D. Image**
 

@@ -2424,10 +2424,17 @@ export class LinkMetadataFetcher {
     * own `@handle` and never from the login wall. A non-400/200 response or unparseable JSON
     * prove nothing and fall through to generic.
     *
-    * No furniture rides along on that fallback, unlike Steam's dead-app storefront: a plain
-    * request here lands on the login wall itself, which carries no image at all and a
-    * description about signing in, not about the missing profile or video - keeping it would
-    * read as wrong in a different way than a bare card does, not better.
+    * That fallback keeps the wall's own description ("Log in or sign up for an account on
+    * TikTok…") and favicon, one direct request to the page (field rule C5, which names this
+    * case; before 2026-09-11 it was dropped as "wrong in a different way"). A live card does
+    * not get it: furniture goes with a card built from the URL, not on top of content an
+    * endpoint supplied.
+    *
+    * A profile's title is the name oEmbed gives (`author_name`), which is also how TikTok
+    * titles the page itself ("NASA on TikTok", less the site-name segment), and the name is
+    * its author too (rule F4). The "<name> (@<handle>)" shape it had before was borrowed from
+    * X and Bluesky - a composition no TikTok source declares (rule B4). oEmbed's own `title`
+    * for a profile is the stock "NASA's Creator Profile".
     *
     * Session cache per handle (and video id), successes only.
     */
@@ -2451,7 +2458,11 @@ export class LinkMetadataFetcher {
 
       if (res?.status === 400) {
          console.debug(`TikTok has no oEmbed for ${clean}; building a card from the URL.`);
-         return this.buildTikTokFallback(url, handle, videoId);
+         const card = this.buildTikTokFallback(url, handle, videoId);
+         const page = await this.request(clean);
+         return page?.status === 200
+            ? this.withParsedFurniture(card, url, await this.decodeHtmlContent(page.arrayBuffer, page.text))
+            : card;
       }
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
@@ -2472,12 +2483,10 @@ export class LinkMetadataFetcher {
               author: data.author_name,
               image: data.thumbnail_url,
            }
-         // oEmbed's own title is the fixed phrase "<name>'s Creator Profile" - not a good
-         // card title. The shape every other profile card here uses ("<name> (@<handle>)",
-         // X and Bluesky) needs no site suffix and reads better.
          : {
               ...base,
-              title: data.author_name ? `${data.author_name} (@${data.author_unique_id ?? handle})` : `@${handle}`,
+              title: data.author_name || `@${handle}`,
+              author: data.author_name || undefined,
            };
       LinkMetadataFetcher.tiktokCache.set(key, card);
       return card;
