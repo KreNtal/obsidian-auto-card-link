@@ -122,12 +122,13 @@ exception exists only if it is written here, or recorded with its evidence in
 - **B1.** The declared title is kept. The chain `og:title` → `twitter:title` → `<title>` →
   URL slug is parsing, not rewriting.
 - **B2.** Universal cleanups, in the parser only, closed list: decoding entities and
-  normalising whitespace; a separator left dangling at the end; the site's name as a
-  **suffix** after a separator — only when the name is known (`og:site_name` or
-  `SITE_NAMES`, never guessed from the host), matched by the same logic as
-  `appendSiteName`, and never when nothing would be left. Not on the list: "on \<Site\>"
-  ("Why I write on Medium" is a real title), ids in brackets, Unicode format and
-  directional characters (they keep mixed-direction names readable).
+  normalising whitespace; a separator left dangling at the end. Not on the list, on
+  purpose: the site's own name as a suffix ("… | MDN" stays — measured 2026-09-11, it is
+  rare, since most sites keep `og:title` clean and suffix only `<title>`, and stripping it
+  can leave a title that means nothing: "Home - BBC News" → "Home"); "on \<Site\>" ("Why I
+  write on Medium" is a real title); ids in brackets; Unicode format and directional
+  characters (they keep mixed-direction names readable). A site's own suffix can still go
+  through B6, on a site that has code.
 - **B3.** A declared title is replaced only with proof that it names the site, not the
   link: (i) it is generic; (ii) `og:url` or a redirect points to a sign-in page or the
   homepage; (iii) an error status or a challenge page.
@@ -197,13 +198,16 @@ exception exists only if it is written here, or recorded with its evidence in
 **H. Markdown-link label**
 
 - **H1.** The label is the title (or `linkTitle`), then " - " and the site name from E.
-- **H2.** Nothing is appended when the title already carries the name: equal to it; last
-  segment after a separator ending in it or a whole-word prefix of it; opening with it plus
-  a separator; ending in "on \<Site\>". Presentation only — the stored title is untouched.
+- **H2.** Nothing is appended when the title already carries the name: as a whole word at
+  either end, with or without a separator ("The Verge", "Obsidian - Sharpen your
+  thinking", "Valve Complete Pack su Steam", "Steam app"), or as the last segment after a
+  separator in the short form a site titles itself with ("… | MDN" for "MDN Web Docs").
+  The site's own wording is then kept — what Auto Link Title writes in those cases too,
+  since it uses the page's `<title>` untouched. Accepted price: a title ending in the word
+  by coincidence ("How to use Spotify") gets no suffix. Presentation only — the stored
+  title is untouched.
 - **H3.** No known site name, no suffix — never the host.
-- **H4.** The separator is always " - ": a site's own "| Steam", dropped by B2, comes back
-  as " - Steam", so every link in a note reads the same way.
-- **H5.** The same link gets the same label whichever way it was made — pasted as a link or
+- **H4.** The same link gets the same label whichever way it was made — pasted as a link or
   converted from a card. Not true yet: a card block stores neither `siteName` nor
   `linkTitle`, so conversion falls back to `SITE_NAMES` alone.
 

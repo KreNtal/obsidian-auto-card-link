@@ -15,8 +15,6 @@ export class CodeBlockGenerator {
 
   /** What we put between title and site name, whatever separator the site itself uses. */
   private static readonly SEPARATOR = "-";
-  /** Separators sites are seen to use, for detecting a site name already in the title. */
-  private static readonly SEPARATORS = "-|·•:–—";
 
   constructor(editor: Editor, app?: App, settings?: ObsidianAutoCardLinkSettings) {
     this.editor = editor;
@@ -163,13 +161,20 @@ export class CodeBlockGenerator {
 
     const lower = trimmed.toLowerCase();
     const name = siteName.toLowerCase();
-    if (lower === name) return trimmed;
+    // The name as a whole word at either end of the title already names the site, with or
+    // without a separator: "The Verge", "owner/repo · GitHub", "Obsidian - Sharpen your
+    // thinking", "Valve Complete Pack on Steam", "Steam app". Appending would only repeat
+    // it - and leaving it is what Auto Link Title does there too, since it writes the
+    // page's own <title> untouched. The price, accepted on 2026-09-11: a title ending in the
+    // word by coincidence ("How to use Spotify") gets no suffix either.
+    const word = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`^${word}(?![\\p{L}\\p{N}])|(?<![\\p{L}\\p{N}])${word}$`, "u").test(lower)) {
+      return trimmed;
+    }
 
     // Many titles already carry the site name, each site with its own separator. When the
     // title is segmented, the site named itself in the last segment - either bare
     // ("owner/repo · GitHub") or inside a phrase ("Episode - Show | Podcast on Spotify").
-    // Requiring a separator is what keeps a title that merely ends with the word
-    // ("How to use Spotify") from losing its suffix.
     const segments = trimmed.split(/\s*[-|\u2013\u2014\u00b7\u2022:]\s*/);
     const last = (segments[segments.length - 1] ?? "").toLowerCase();
     // The last segment either carries the whole name, or is the short form a site titles
@@ -180,13 +185,6 @@ export class CodeBlockGenerator {
     // shape real titles take.
     if (segments.length > 1 && (last.endsWith(name) || name.startsWith(`${last} `))) {
       return trimmed;
-    }
-
-    // The site name can just as well open the title ("Obsidian - Sharpen your thinking"),
-    // in which case appending it again reads as a stutter.
-    if (lower.startsWith(name)) {
-      const tail = trimmed.slice(siteName.length).trimStart();
-      if (CodeBlockGenerator.SEPARATORS.includes(tail.charAt(0))) return trimmed;
     }
 
     return `${trimmed} ${CodeBlockGenerator.SEPARATOR} ${siteName}`;
@@ -200,7 +198,10 @@ export class CodeBlockGenerator {
       .replace(/\\(["\\])/g, "$1")
       .replace(/[\r\n\t]+/g, " ")
       .replace(/ {2,}/g, " ")
-      .replace(/([[\]])/g, "\\$1")
+      // Brackets would close the link early. A pipe is harmless in a paragraph but splits a
+      // table cell ("… | MDN"), and escaped it renders the same everywhere - Auto Link Title
+      // escapes it too.
+      .replace(/([[\]|])/g, "\\$1")
       .trim();
   }
 
