@@ -4,7 +4,7 @@ import {
    BlueskyProfile,
    HackerNewsItem,
    HackerNewsUser,
-   DailymotionVideoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
@@ -106,6 +106,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url, refresh);
       if (CheckIf.isGitLabUrl(url)) return this.fetchGitLab(url, refresh);
       if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
+      if (CheckIf.isDockerHubRepoUrl(url)) return this.fetchDockerHub(url);
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
       if (CheckIf.isTikTokUrl(url)) return this.fetchTikTok(url);
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
@@ -153,6 +154,11 @@ export class LinkMetadataFetcher {
       "github.com": "GitHub",
       "gitlab.com": "GitLab",
       "npmjs.com": "npm",
+      // Generic path for `/_/<name>`, this fetcher for `/r/`, and hub.docker.com declares
+      // no og:site_name on either - the official images name the site in their <title>
+      // instead. Scoped to the `hub.` subdomain: docs.docker.com and docker.com are the
+      // documentation and the product, not the registry.
+      "hub.docker.com": "Docker Hub",
       "tiktok.com": "TikTok",
       "steampowered.com": "Steam",
       "trello.com": "Trello",
@@ -2394,6 +2400,72 @@ export class LinkMetadataFetcher {
       }
    }
 
+   /* --- DOCKER HUB --- */
+
+   /**
+    * A `/r/<namespace>/<name>` repository page: read generically, then filled in.
+    *
+    * Field rule A1(d). Measured 2026-09-12 on grafana/grafana, bitnami/postgresql and
+    * homeassistant/home-assistant: the page declares no og:* at all and no
+    * `<meta name="description">` either, so the generic card is a bare title with no
+    * description and no image. The documented Hub API - `/v2/repositories/<ns>/<name>/`,
+    * no auth for a public repo - answers with the repo's own one-line description and its
+    * counts, which is exactly the missing field and nothing else.
+    *
+    * Official images (`/_/<name>`) are deliberately *not* here: they do declare a real
+    * description ("Official build of Nginx.") and name the site in their <title>, so A2
+    * leaves them, `/u/` profiles and every other route on the generic path. Nothing here
+    * needs a `goneCard` either - a missing repo, user or official image is a real 404, which
+    * `errorPageCard` already covers, and a dead link therefore never reaches the API.
+    *
+    * The page's title is Docker Hub's own template "<ns>/<name> - Docker Image", the same on
+    * `/tags` and the other tabs; B6 drops the segment the site names itself with, leaving
+    * "grafana/grafana" - the shape a GitHub or GitLab card already has, with " - Docker Hub"
+    * appended to the markdown label from SITE_NAMES. Requiring that title to match the URL's
+    * own path *exactly* is also what tells us the page is a live repo rather than a 404 page
+    * or the redirect `/r/library/<name>` makes to an official image: only then is the
+    * endpoint worth a request, and only then is there a segment to drop.
+    */
+   private async fetchDockerHub(url: string): Promise<LinkMetadata | undefined> {
+      const card = await this.fetchGeneric(url);
+      const repo = url.match(/^https?:\/\/hub\.docker\.com\/r\/([^/?#]+)\/([^/?#]+)/i);
+      if (!card || !repo) return card;
+
+      const path = `${repo[1]}/${repo[2]}`;
+      if (card.title.trim() !== `${path} - Docker Image`) return card;
+
+      const named = { ...card, title: path, author: repo[1] };
+      const res = await this.request(
+         `https://hub.docker.com/v2/repositories/${path}/`, { "Accept": "application/json" }
+      );
+      if (!res || res.status !== 200) {
+         console.debug(`Docker Hub API for ${path} returned ${res?.status}; keeping the page's card.`);
+         return named;
+      }
+
+      let data: DockerHubRepoResponse;
+      try {
+         data = JSON.parse(res.text) as DockerHubRepoResponse;
+      } catch {
+         return named;
+      }
+
+      // The repo's own line when it has one (C1, specific verbatim). A repo that set none -
+      // common on personal ones - gets the two counts it publishes instead, composed from
+      // this item's own data (C3) and no more stale than any other count (C4).
+      const description = data.description?.trim()
+         || [
+            `★ ${this.compactCount(data.star_count ?? 0)}`,
+            this.countLabel(data.pull_count ?? 0, "pull"),
+         ].join(" · ");
+
+      return {
+         ...named,
+         author: data.namespace?.trim() || named.author,
+         description: LinkMetadataParser.sanitizeText(description),
+      };
+   }
+
    /* --- TIKTOK --- */
 
    private static readonly tiktokCache = new Map<string, LinkMetadata>();
@@ -3317,11 +3389,13 @@ export class LinkMetadataFetcher {
       // it from "day"/"days".
       const plural = /[^aeiou]y$/i.test(noun) ? `${noun.slice(0, -1)}ies` : `${noun}s`;
       const label = abs === 1 ? noun : plural;
-      const value = abs >= 1_000_000
-         ? `${(n / 1_000_000).toFixed(1)}M`
-         : abs >= 1000
-            ? `${(n / 1000).toFixed(1)}k`
-            : String(n);
+      const value = abs >= 1_000_000_000
+         ? `${(n / 1_000_000_000).toFixed(1)}B`
+         : abs >= 1_000_000
+            ? `${(n / 1_000_000).toFixed(1)}M`
+            : abs >= 1000
+               ? `${(n / 1000).toFixed(1)}k`
+               : String(n);
       return `${value} ${label}`;
    }
 

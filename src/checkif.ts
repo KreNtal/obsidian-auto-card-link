@@ -92,6 +92,13 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?npmjs\.com\/package\/[^/?#]/i.test(url);
   }
 
+  public static isDockerHubRepoUrl(url: string): boolean {
+    // A `/r/<namespace>/<name>` repository page only, `/tags` and the other tabs included.
+    // Official images (`/_/<name>`) declare a real description and read fine, `/u/` profiles
+    // and everything else likewise, so they stay on the generic path.
+    return /^https?:\/\/hub\.docker\.com\/r\/[^/?#]+\/[^/?#]+/i.test(url);
+  }
+
   public static isNotionUrl(url: string): boolean {
     // A published Notion page: `notion.so` and every workspace's own `*.notion.site`.
     // `notion.com` - the marketing site, which `notion.so/product` and friends redirect to -

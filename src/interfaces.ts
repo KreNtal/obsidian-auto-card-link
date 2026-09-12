@@ -69,6 +69,14 @@ export interface GitLabProjectResponse {
   namespace?: { name?: string; };
 }
 
+export interface DockerHubRepoResponse {
+  namespace?: string;
+  name?: string;
+  description?: string;
+  star_count?: number;
+  pull_count?: number;
+}
+
 export interface NpmPackageResponse {
   name?: string;
   version?: string;
