@@ -5,7 +5,7 @@ Automatically generate beautiful <u>card-styled links</u> from URLs by fetching 
 It includes tailored handling for over twenty sites — YouTube, Vimeo, Reddit, X, GitHub, GitLab, npm, Wikipedia, arXiv, Spotify, Stack Exchange, LinkedIn, Hacker News, Bluesky, IMDb, Notion, Discord and more — plus options for thumbnail quality, local image saving and multiple card styles.
 
 <p align="center">
-    <img src="docs/demo2.gif">
+    <img src="docs/marketing/demo2.gif">
 </p>
 
 ## Features

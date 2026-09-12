@@ -7,6 +7,15 @@ Legend: ✅ works · 🟡 works, caveats · ⏳ not yet checked · ❌ unreachab
 
 ## Dedicated fetchers
 
+`docs/fetchers.md` indexes the same handlers, grouped by what the code actually does: **endpoint**
+(answers from an API, oEmbed or JSON feed and never reads the page HTML), **page + endpoint** (reads
+the page first, A3, and lets the endpoint add one field), **page** (our own request, with our own
+headers and parsing) and **hook** (`fetchGeneric` plus an `isUnusable` or `goneCard` check, which
+costs no extra request and has nothing to break). Each row carries the exact source, the requests
+the happy path costs, whether it caches, what proves a dead link, and how fragile it is under A6.
+Today: 17 endpoint, 4 page + endpoint, 7 page, 5 hook, with five at `high` - Twitch, X, Printables,
+LinkedIn and Notion. That file is the index; the evidence and the reasoning stay here.
+
 Sites with a handler in `link_metadata_fetcher.ts` (dispatched from `fetchForUrl`).
 They answer from an API / oEmbed / JSON endpoint and never read the page HTML, so the
 site name comes from `SITE_NAMES`, not `og:site_name`.
@@ -221,7 +230,7 @@ measured: these are candidates, not findings.
 - [ ] Hugging Face — models and datasets, increasingly pasted into research notes; public API, and a gated repo is a plausible auth-wall case.
 - [ ] doi.org, Zenodo, bioRxiv, PubMed — the citation side, after arXiv. `doi.org` is a redirector, so the interesting question is whether the card should describe the DOI or wherever it lands.
 - [x] OpenStreetMap — dedicated fetcher via the public API v0.6 read endpoint, justified by field rule A1(d): the page's description and image are the same for every object. The page keeps its title (only the trailing "(id)" is dropped) and everything else; the API supplies only the description. So for a maps link, an OSM node/way/relation URL is the one that reads well - Google Maps can only ever give the place name from the URL. Row added above. Needs an Obsidian render check.
-- [ ] Letterboxd, MyAnimeList, Rotten Tomatoes — the film and TV side, after IMDb.
+- [ ] Letterboxd, MyAnimeList, AniList, Rotten Tomatoes — the film and TV side, after IMDb.
 - [ ] itch.io, GOG, App Store, Google Play — the rest of the storefronts, after Steam.
 - [ ] Dev.to, Hashnode, Lobste.rs — the writing platforms, after Medium and Substack.
 
