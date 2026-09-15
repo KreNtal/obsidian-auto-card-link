@@ -176,8 +176,24 @@ exception exists only if it is written here, or recorded with its evidence in
 - **D2.** A resolution variant of the same asset (same id, same CDN) is the same image. A
   different artwork is not: Steam's `header.jpg` does not replace the page's
   `capsule_616x353.jpg`.
-- **D3.** Never the favicon or the apple-touch-icon as an image. An `og:image` that *is* the
-  favicon is discarded, not replaced.
+- **D3.** Never go *looking* for an icon to fill an empty slot. The favicon, the
+  apple-touch-icon and the `/favicon.ico` guess belong to the favicon field; a site that
+  declares no image gets a card with no image, and that is the finished answer, not a gap to
+  patch. A **declared** image is kept whatever it turns out to depict - including one that
+  points at the site's own icon, as MyAnimeList's 404 and profile pages do
+  (`og:image` = `apple-touch-icon-256.png`): the site chose it, D1 already ranks it below
+  anything more specific, and discarding it only ever leaves the card emptier than the site
+  meant it to be. A site's share graphic is not an icon and is not covered here - arXiv's
+  `arxiv-logo-fb.png` and Stack Exchange's `high_resolution_icon_url` are both deliberate,
+  both distinct from that site's favicon, and both stay.
+
+  Reworded 2026-09-15 (Roberto). The first version - “never the favicon or the
+  apple-touch-icon as an image; an `og:image` that *is* the favicon is discarded, not
+  replaced” - read as an instruction to throw declared images away, and was about to be
+  implemented that way. Audited the same day: nothing in the plugin has ever discarded an
+  image for being an icon, and nothing reaches for one either (`getImage` goes JSON-LD →
+  `og:`/`twitter:`/`itemprop` → `link rel=image_src` → the per-site DOM selectors → nothing,
+  with `isVideoUrl` its only filter). The rule now says what the code does.
 - **D4.** On a dead link or a shell the page's image rides along as furniture.
 
 **E. Site name**

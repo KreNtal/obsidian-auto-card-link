@@ -1,5 +1,6 @@
 import { Notice, requestUrl } from "obsidian";
 import {
+   AniListMediaResponse,
    BlueskyPost,
    BlueskyProfile,
    HackerNewsItem,
@@ -127,6 +128,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isDiscordUrl(url)) return this.fetchDiscord(url);
       if (CheckIf.isHackerNewsUrl(url)) return this.fetchHackerNews(url);
       if (CheckIf.isBlueskyUrl(url)) return this.fetchBluesky(url);
+      if (CheckIf.isAniListUrl(url)) return this.fetchAniList(url, refresh);
 
       return this.fetchGeneric(url);
    }
@@ -181,6 +183,16 @@ export class LinkMetadataFetcher {
       // article on bbc.co.uk declares "BBC News", and bbc.com's own sport articles declare
       // "BBC Sport". Those keep their specific names; this only fills the gap, so it is the
       // one form that is right for every section.
+      // Four film/TV/anime databases checked together on 2026-09-15. Letterboxd declares no
+      // og:site_name at all, so without this a film card gets no label suffix; MyAnimeList
+      // and Rotten Tomatoes do declare one ("MyAnimeList.net", "Rotten Tomatoes"), which
+      // still wins over this map - these two are here only for the card a dead link builds
+      // from its URL, which never reads a page and so has no declared name to use. AniList
+      // is a dedicated fetcher and never reads the page either way.
+      "letterboxd.com": "Letterboxd",
+      "myanimelist.net": "MyAnimeList",
+      "rottentomatoes.com": "Rotten Tomatoes",
+      "anilist.co": "AniList",
       "bbc.com": "BBC",
       "bbc.co.uk": "BBC",
       // Also the generic path, and Substack declares no og:site_name at all - the publication's
@@ -339,7 +351,7 @@ export class LinkMetadataFetcher {
          return gone;
       }
 
-      if (metadata && checks?.isUnusable?.(metadata)) {
+      if (metadata && (LinkMetadataFetcher.looksLikeInterstitial(metadata) || checks?.isUnusable?.(metadata))) {
          console.debug(`Fetch for ${url} returned a placeholder page rather than real content.`);
          return this.fetchFallback(url);
       }
@@ -379,6 +391,44 @@ export class LinkMetadataFetcher {
          image: parsed.image,
          favicon: parsed.favicon ?? card.favicon,
       };
+   }
+
+   /**
+    * The titles an anti-bot interstitial answers with, checked as whole titles.
+    *
+    * These pages are not a site's page at all - they are Cloudflare's, or DataDome's, served
+    * *instead of* the link, and they parse perfectly: valid HTML, a title of their own, no
+    * og:* tags. Nothing before this flagged one as anything but a successful read, so
+    * "Client Challenge" went into a note as if it were an album's name (Bandcamp, in
+    * Obsidian, on a live album URL that read fine from a script).
+    *
+    * This only ever fires on a **200**. An interstitial served with 403 already goes to
+    * `fetchFallback` on its status, and `looksLikePlaceholder` cannot help either way: the
+    * tell it looks for is a title that *is* the URL slug, and none of these are.
+    *
+    * It lives here rather than in a site's branch (field rule A4) because the page is not
+    * tied to a site: the same interstitial can sit in front of anything behind the same CDN,
+    * which is how it turned up on Letterboxd's profile pages (2026-09-15) after Bandcamp had
+    * already been patched for it alone. Which request gets challenged depends on the
+    * requester - IP, session history - not on the link, so no site is reliably "the" one.
+    *
+    * Whole-title equality, never a substring: "Access Denied" as a page's entire title is a
+    * refusal, but inside a real title it is a subject.
+    */
+   private static readonly INTERSTITIAL_TITLES = [
+      "just a moment...",
+      "just a moment",
+      "client challenge",
+      "attention required! | cloudflare",
+      "checking your browser before accessing",
+      "access denied",
+      "one moment, please",
+   ];
+
+   private static looksLikeInterstitial(metadata: LinkMetadata): boolean {
+      return LinkMetadataFetcher.INTERSTITIAL_TITLES.includes(
+         metadata.title.trim().toLowerCase().replace(/\s+/g, " ")
+      );
    }
 
    /**
@@ -436,7 +486,11 @@ export class LinkMetadataFetcher {
          // daily quota (as low as 25/day) for a bypass that isn't reliable anyway — a stale
          // cached placeholder and a freshly-blocked render look identical from here.
          if (result.metadata) {
-            if (!this.looksLikePlaceholder(result.metadata, url)) return result.metadata;
+            // Its headless browser can be handed the interstitial as readily as we are, and
+            // its answer counts as a read of the page (field rule I1), so it gets the same
+            // two tests rather than a blind accept.
+            if (!this.looksLikePlaceholder(result.metadata, url)
+               && !LinkMetadataFetcher.looksLikeInterstitial(result.metadata)) return result.metadata;
             console.debug(`Microlink result for ${url} looked like a placeholder title:`, result.metadata.title);
          }
          if (result.rateLimited) {
@@ -2280,8 +2334,14 @@ export class LinkMetadataFetcher {
     * This is Goodreads' 202 throttle and DataDome's scoring again, not a fixed block: which
     * request gets challenged depends on the requester (IP, session history), not the link,
     * so the *content* stays unpredictable regardless of anything this plugin does. What is
-    * fixable is not trusting that page: `isUnusable` sends it to Microlink instead of
-    * writing "Client Challenge" into a note as if it were the album's name.
+    * fixable is not trusting that page.
+    *
+    * That part no longer lives here. Bandcamp carried its own `isUnusable` for the one title
+    * it had been seen with until 2026-09-15, when Letterboxd's profile pages answered with
+    * Cloudflare's other one ("Just a moment...") and made the obvious point: the page belongs
+    * to the CDN, not to the site in front of it. `looksLikeInterstitial` is now checked for
+    * every link on the generic path (field rule A4), so all this hook still does is the
+    * `siteName` floor below.
     */
    private static readonly bandcampCache = new Map<string, LinkMetadata>();
 
@@ -2289,9 +2349,7 @@ export class LinkMetadataFetcher {
       const cached = LinkMetadataFetcher.bandcampCache.get(url);
       if (cached) return cached;
 
-      const result = await this.fetchGeneric(url, {
-         isUnusable: (metadata) => metadata.title.trim().toLowerCase() === "client challenge",
-      });
+      const result = await this.fetchGeneric(url);
       if (!result) return result;
 
       // og:site_name here is the artist's own subdomain "site" ("Kishi Bashi"), not the
@@ -3502,6 +3560,136 @@ export class LinkMetadataFetcher {
     * request entirely, instead of falling back to its default below - the way a caller opts
     * out of, say, the default Accept-Language rather than merely not overriding it.
     */
+   /* --- ANILIST --- */
+
+   private static readonly anilistCache = new Map<string, LinkMetadata>();
+
+   /**
+    * Everything AniList's own media page shows, in one POST. `userPreferred` is what the API
+    * returns to an *unauthenticated* caller, which is the romaji title - the same name
+    * anilist.co itself puts at the top of the page for a logged-out reader, so it is the
+    * site's own name for the thing rather than a translation we picked (field rule B5).
+    * `staff` is asked three deep because the first edge is not always the author: Berserk's
+    * are "Story & Art (vols 1-41)", "Supervisor (vols 41- )", "Story & Art (vols 41- )".
+    */
+   private static readonly ANILIST_MEDIA_QUERY =
+      "query($id:Int){Media(id:$id){type title{userPreferred romaji english native}"
+      + "description(asHtml:false)coverImage{extraLarge large}"
+      + "studios(isMain:true){nodes{name}}staff(perPage:3){edges{role node{name{full}}}}}}";
+
+   /**
+    * AniList, through its documented public GraphQL API - no key, no auth, no quota.
+    *
+    * Field rule A1(a), and about as plainly as the rule is ever met: **every** anilist.co URL
+    * answers the same 5 KB client-rendered shell. Measured 2026-09-15 on
+    * `/anime/5114/Fullmetal-Alchemist-Brotherhood/`, `/anime/999999999/Non-Esiste/`,
+    * `/manga/30002/Berserk/` and `/user/Josh/` - four links, one of which cannot exist, and
+    * all four came back byte-for-byte identical: HTTP 200, `<title>AniList</title>`,
+    * `og:site_name` AniList, and not one other og: or twitter: tag. The generic path would
+    * write "AniList" as the title of all of them, which is the failure this rule exists for,
+    * and `looksLikePlaceholder` cannot catch it: the tell it looks for is a title that
+    * *is* the URL slug, and "AniList" is not.
+    *
+    * `/anime/<id>` and `/manga/<id>` are what the endpoint covers (field rule A2). Every
+    * other route - `/character/`, `/staff/`, `/studio/`, `/user/`, a forum thread - gets a
+    * card built from the URL, and that is not a consolation prize: those URLs carry the name
+    * as their last segment ("/character/31/Hisoka-Morow/" -> "Hisoka Morow", "/user/Mocha/"
+    * -> "Mocha"), so the title is already right and only the portrait and the bio are
+    * missing. A query each would buy those; ask if it is worth it.
+    *
+    * **Microlink is not asked, ever**, not even when the API fails. Its headless browser
+    * could genuinely render this SPA, but `fetchFallback` ends at `fetchTitleOnly`, which
+    * re-reads the very `<title>` we refused - so a Microlink miss would come back as a card
+    * titled "AniList", the exact card this fetcher exists to prevent. The URL says more than
+    * that and costs nothing. Same call as Reddit's and LinkedIn's.
+    *
+    * A missing id answers **HTTP 404 with `{"data":{"Media":null}}`** - the API stating the
+    * thing is not there, which is proof (measured on id 999999999 for Media and on a made-up
+    * name for User). Anything else - a 5xx, a timeout, JSON that will not parse - proves
+    * nothing, but there is no page to fall back to either, so both ends land on the same
+    * card built from the URL. Session cache per item.
+    */
+   private async fetchAniList(url: string, refresh = false): Promise<LinkMetadata | undefined> {
+      const media = url.match(/anilist\.co\/(anime|manga)\/(\d+)/i);
+      if (!media) return this.buildUrlCard(url);
+
+      const key = `${media[1]!.toLowerCase()}/${media[2]}`;
+      if (!refresh) {
+         const cached = LinkMetadataFetcher.anilistCache.get(key);
+         // The pasted URL is kept as-is: the same item is reachable with and without its
+         // slug, and field rule 5 says we never rewrite what the user pasted.
+         if (cached) return { ...cached, url };
+      }
+
+      const res = await this.request(
+         "https://graphql.anilist.co",
+         { "Content-Type": "application/json", "Accept": "application/json" },
+         8000,
+         JSON.stringify({
+            query: LinkMetadataFetcher.ANILIST_MEDIA_QUERY,
+            variables: { id: Number(media[2]) },
+         })
+      );
+      if (!res || (res.status !== 200 && res.status !== 404)) {
+         console.debug(`AniList API for ${key} returned ${res?.status}; building from the URL.`);
+         return this.buildUrlCard(url);
+      }
+
+      let body: AniListMediaResponse;
+      try {
+         body = JSON.parse(res.text) as AniListMediaResponse;
+      } catch {
+         return this.buildUrlCard(url);
+      }
+
+      const item = body.data?.Media;
+      const title = item?.title?.userPreferred?.trim()
+         || item?.title?.romaji?.trim()
+         || item?.title?.english?.trim()
+         || item?.title?.native?.trim();
+      if (!title) return this.buildUrlCard(url);
+
+      // Field rule F2: an endpoint field declared as the byline. A manga's is its author,
+      // an anime's the studio that made it - the Steam `developers` case named in A3, and
+      // the line AniList's own page puts under the cover.
+      const author = item?.type === "MANGA"
+         ? item.staff?.edges?.find((edge) => /^story/i.test(edge?.role ?? ""))?.node?.name?.full?.trim()
+         : item?.studios?.nodes?.find((node) => node?.name?.trim())?.name?.trim();
+
+      const card: LinkMetadata = {
+         url,
+         title,
+         author: author || undefined,
+         // C1, specific verbatim: AniList's own synopsis. An entry that has none keeps the
+         // slot empty rather than getting a composed "TV · 2009 · 64 episodes" - nothing in
+         // C1 asks for one while the title and the cover already say what this is.
+         description: LinkMetadataParser.sanitizeText(this.aniListText(item?.description)),
+         host: "anilist.co",
+         favicon: "https://anilist.co/favicon.ico",
+         // D1: the endpoint's, since there is no page to prefer. `extraLarge` and `large` are
+         // the same artwork at two sizes (D2), so the larger one is simply the better copy.
+         image: item?.coverImage?.extraLarge?.trim() || item?.coverImage?.large?.trim(),
+         indent: 0,
+      };
+
+      LinkMetadataFetcher.anilistCache.set(key, card);
+      return card;
+   }
+
+   /**
+    * AniList's synopsis is markdown with `<br>` tags left in even at `asHtml:false`, plus its
+    * own `~!…!~` spoiler markers. Flattened to one line the way Hacker News' and Stack
+    * Exchange's bodies already are; `sanitizeText` then decodes and truncates.
+    */
+   private aniListText(text: string | undefined): string | undefined {
+      if (!text) return undefined;
+      const flat = this.decodeXmlText(text.replace(/<[^>]+>/g, " "))
+         ?.replace(/~!|!~/g, "")
+         .replace(/\s+/g, " ")
+         .trim();
+      return flat || undefined;
+   }
+
    /* --- BLUESKY --- */
 
    /**
@@ -4251,7 +4439,8 @@ export class LinkMetadataFetcher {
    }
 
    private async request(
-      url: string, customHeaders: Record<string, string | undefined> = {}, timeoutMs = 5000
+      url: string, customHeaders: Record<string, string | undefined> = {}, timeoutMs = 5000,
+      body?: string
    ) {
       const merged: Record<string, string | undefined> = {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -4271,7 +4460,10 @@ export class LinkMetadataFetcher {
          // 404 and a dead network looked identical, and every `res.status !== 200` test below
          // was in practice only ever testing `!res`.
          return await Promise.race([
-            requestUrl({ url, headers, throw: false }),
+            // A body means POST - the one thing a GraphQL endpoint needs that a GET cannot
+            // give (graphql.anilist.co answers a GET with "Use POST request"). Everything else
+            // about the call, `throw: false` included, is the same.
+            requestUrl({ url, method: body === undefined ? "GET" : "POST", body, headers, throw: false }),
             new Promise<never>((_, reject) =>
                window.setTimeout(() => reject(new Error("Timeout")), timeoutMs)
             ),

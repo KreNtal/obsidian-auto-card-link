@@ -153,6 +153,15 @@ export class CheckIf {
     return /^https?:\/\/podcasts\.apple\.com\//i.test(url);
   }
 
+  public static isAniListUrl(url: string): boolean {
+    // The whole host, not a route. Every anilist.co URL - a live anime, a manga, a user, an
+    // id that cannot exist - answers the identical 5 KB client-rendered shell:
+    // `<title>AniList</title>`, og:site_name, and no other og:* tag at all. So no page on
+    // this site can be read (field rule A1(a), measured 2026-09-15), and the generic path
+    // would write a card titled "AniList" for every one of them.
+    return /^https?:\/\/(www\.)?anilist\.co\//i.test(url);
+  }
+
   public static isGoogleDocsUrl(url: string): boolean {
     // Docs, Sheets, Slides and Drive files/folders. A public one reads fine generically -
     // real og:title, description, thumbnail - so this exists only for the other case: a

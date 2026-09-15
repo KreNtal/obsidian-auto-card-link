@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 17 endpoint, 4 page + endpoint, 7 page, 5 hook.
+the same commit. Counts today: 18 endpoint, 4 page + endpoint, 7 page, 5 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -38,6 +38,7 @@ the same commit. Counts today: 17 endpoint, 4 page + endpoint, 7 page, 5 hook.
 | Stack Exchange | `api.stackexchange.com/2.3/`, resolving an answer id to its question first | 1–2 | sticky | `items: []` | low — documented, 300 req/day anonymous |
 | Hacker News | Firebase `hacker-news.firebaseio.com/v0/item\|user`, walking a comment up to its story | 1–6 | — | a literal `null`, or the `deleted` / `dead` flags | low — official API, no quota |
 | Bluesky | XRPC `public.api.bsky.app/xrpc/` | 1 | — | error or missing handle → card from the URL | low — documented public AppView |
+| AniList | GraphQL `graphql.anilist.co`, the `Media` query — `/anime/` and `/manga/` only; every other route is built from the URL with no request at all | 0–1 | refresh | **404** with `data.Media` null | low — documented, versioned, no key |
 
 ## Page + endpoint — the page first (A3), the endpoint only adds a field
 
@@ -68,7 +69,7 @@ No extra request, nothing site-specific to break.
 | --- | --- | --- | --- | --- | --- |
 | Goodreads | `goneCard` | 1 | — | a 200 whose `og:title` is nothing but "Goodreads" | none |
 | Google Maps | `goneCard`; the place name comes from the URL, the map thumbnail rides along | 1 | — | `og:title` "Google Maps" — the product, not the place | none — no endpoint exists for place data |
-| Bandcamp | `isUnusable` + a `siteName` floor | 1 | sticky | a real **404** | none — the hook is for Cloudflare's "Client Challenge" title |
+| Bandcamp | a `siteName` floor, nothing else | 1 | sticky | a real **404** | none — the Cloudflare-interstitial check it used to carry now runs in `fetchGeneric` for every link |
 | Medium | `goneCard` | 1 | — | a title that is nothing but the site name | none |
 | Apple Podcasts | plain generic, then the show name read out of Apple's description template into `author` | 1 | — | a real **404** | none — a no-op on a show page |
 

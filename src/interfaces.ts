@@ -243,3 +243,23 @@ export interface WikipediaSummaryResponse {
   thumbnail?: { source?: string; };
   originalimage?: { source?: string; };
 }
+
+/**
+ * anilist.co GraphQL (`https://graphql.anilist.co`), the `Media` query. A missing id comes
+ * back as HTTP 404 with `data.Media` null and an `errors` array, which is the API stating
+ * the thing is not there - proof, unlike a 5xx or a dead network.
+ */
+export interface AniListMediaResponse {
+  data?: {
+    Media?: {
+      type?: string;
+      title?: { userPreferred?: string; romaji?: string; english?: string; native?: string; };
+      description?: string;
+      coverImage?: { extraLarge?: string; large?: string; };
+      /** Anime only: the animation studio, `isMain` filtered in the query. */
+      studios?: { nodes?: ({ name?: string; } | null)[]; };
+      /** Manga: the first `Story & Art` edge is the author. */
+      staff?: { edges?: ({ role?: string; node?: { name?: { full?: string; }; } | null; } | null)[]; };
+    } | null;
+  };
+}
