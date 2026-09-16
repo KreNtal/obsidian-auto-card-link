@@ -176,24 +176,10 @@ exception exists only if it is written here, or recorded with its evidence in
 - **D2.** A resolution variant of the same asset (same id, same CDN) is the same image. A
   different artwork is not: Steam's `header.jpg` does not replace the page's
   `capsule_616x353.jpg`.
-- **D3.** Never go *looking* for an icon to fill an empty slot. The favicon, the
-  apple-touch-icon and the `/favicon.ico` guess belong to the favicon field; a site that
-  declares no image gets a card with no image, and that is the finished answer, not a gap to
-  patch. A **declared** image is kept whatever it turns out to depict - including one that
-  points at the site's own icon, as MyAnimeList's 404 and profile pages do
-  (`og:image` = `apple-touch-icon-256.png`): the site chose it, D1 already ranks it below
-  anything more specific, and discarding it only ever leaves the card emptier than the site
-  meant it to be. A site's share graphic is not an icon and is not covered here - arXiv's
-  `arxiv-logo-fb.png` and Stack Exchange's `high_resolution_icon_url` are both deliberate,
-  both distinct from that site's favicon, and both stay.
-
-  Reworded 2026-09-15 (Roberto). The first version - “never the favicon or the
-  apple-touch-icon as an image; an `og:image` that *is* the favicon is discarded, not
-  replaced” - read as an instruction to throw declared images away, and was about to be
-  implemented that way. Audited the same day: nothing in the plugin has ever discarded an
-  image for being an icon, and nothing reaches for one either (`getImage` goes JSON-LD →
-  `og:`/`twitter:`/`itemprop` → `link rel=image_src` → the per-site DOM selectors → nothing,
-  with `isVideoUrl` its only filter). The rule now says what the code does.
+- **D3.** Never go looking for an icon to fill an empty image slot: the favicon, the
+  apple-touch-icon and `/favicon.ico` belong to the favicon field, and a site that declares
+  no image gets a card without one. A declared image is kept whatever it depicts, the site's
+  own icon included (MyAnimeList's 404 page), and so is a share graphic (arXiv's logo).
 - **D4.** On a dead link or a shell the page's image rides along as furniture.
 
 **E. Site name**
@@ -207,8 +193,11 @@ exception exists only if it is written here, or recorded with its evidence in
 
 **F. Author**
 
-- **F1.** The generic parser should read an author universally (`meta name="author"`,
-  `article:author` when it is not a URL, JSON-LD `author.name`). Not designed yet.
+- **F1.** The parser reads the author a page declares, for every site: `meta name="author"`,
+  then `article:author`, then JSON-LD `author` from a top-level object only (never a nested
+  one, such as a review's). Discarded: a URL, from any source, and a name that is the site's
+  own. Several authors read "A and B", three or more "A et al.". A fetcher's own author
+  still wins.
 - **F2.** Sources allowed: a field declared as the author, an endpoint field, a site-specific
   property, a template segment (B6). Nothing guessed. The author is the byline the site
   itself gives the item — the person, or the channel, community or show it appears under —

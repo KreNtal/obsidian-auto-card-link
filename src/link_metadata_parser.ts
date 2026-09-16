@@ -23,13 +23,15 @@ export class LinkMetadataParser {
     const { hostname } = new URL(this.url);
     const favicon = await this.getFavicon();
     const image = await this.getImage();
+    const siteName = this.getSiteName();
 
     return {
       url: this.url,
       title: title,
+      author: this.getAuthor(siteName, hostname),
       description: description,
       host: hostname,
-      siteName: this.getSiteName(),
+      siteName: siteName,
       favicon: favicon,
       image: image,
       indent: 0,
@@ -135,6 +137,70 @@ export class LinkMetadataParser {
     // Fallback: /favicon.ico always exists on well-behaved sites
     const { origin } = new URL(this.url);
     return `${origin}/favicon.ico`;
+  }
+
+  private getAuthor(siteName: string | undefined, host: string): string | undefined {
+    return LinkMetadataParser.pickAuthor(
+      [
+        this.htmlDoc.querySelector("meta[name='author']")?.getAttribute("content"),
+        this.ogContent("article:author"),
+      ],
+      Array.from(this.htmlDoc.querySelectorAll("script[type='application/ld+json']"), (s) => s.textContent ?? ""),
+      siteName,
+      host
+    );
+  }
+
+  /**
+   * The byline a page declares (field rule F1), in order: `<meta name="author">`,
+   * `article:author`, then JSON-LD. Measured 2026-09-16 on 38 pages: news and blogs declare
+   * one (Medium, The Verge, Wired, TechCrunch, GitHub Blog in a meta tag; BBC, Guardian, Ars
+   * Technica, Repubblica, Quanta, Substack only in JSON-LD), catalogues and databases do not.
+   *
+   * What is discarded, each seen on a real page:
+   * - a URL, from any source - `article:author` is usually a profile link (Guardian, Medium,
+   *   Smashing) and on BBC the Facebook page;
+   * - the site itself - Codeberg's organisation pages declare `author` "Codeberg";
+   * - JSON-LD below the top level - Apple Podcasts' only `author` belongs to a listener's
+   *   review nested inside the show.
+   *
+   * Several authors read as arXiv's already do: "A and B", then "A et al." - Goodreads lists
+   * a book's editors and illustrators after its writer.
+   */
+  static pickAuthor(
+    metaValues: (string | null | undefined)[], jsonLdTexts: string[], siteName: string | undefined, host: string
+  ): string | undefined {
+    const squash = (s: string) => s.toLowerCase().replace(/\.[a-z]{2,}$/, "").replace(/[^\p{L}\p{N}]/gu, "");
+    const site = [siteName, host.replace(/^www\./, "")].filter((s): s is string => !!s).map(squash);
+    const usable = (name: unknown): name is string =>
+      typeof name === "string" && !!name.trim()
+      && !/^(https?:)?\/\/|^www\./i.test(name.trim())
+      && !site.includes(squash(name));
+    const join = (names: string[]) => names.length <= 2 ? names.join(" and ") : `${names[0]!} et al.`;
+
+    for (const value of metaValues) {
+      if (usable(value)) return LinkMetadataParser.sanitizeText(value.trim());
+    }
+
+    for (const text of jsonLdTexts) {
+      let content: unknown;
+      try { content = JSON.parse(text); } catch { continue; }
+      const top: unknown[] = Array.isArray(content) ? (content as unknown[]) : [content];
+      const graph = top.flatMap((node): unknown[] => {
+        const inner = (node as { "@graph"?: unknown; } | null)?.["@graph"];
+        return Array.isArray(inner) ? (inner as unknown[]) : [node];
+      });
+      for (const node of graph) {
+        const author = (node as { author?: unknown; } | null)?.author;
+        if (!author) continue;
+        const names = (Array.isArray(author) ? author : [author])
+          .map((a) => typeof a === "string" ? a : (a as { name?: unknown; } | null)?.name)
+          .filter(usable)
+          .map((n) => n.trim());
+        if (names.length) return LinkMetadataParser.sanitizeText(join(names));
+      }
+    }
+    return undefined;
   }
 
   private getJsonLdData(): unknown {
