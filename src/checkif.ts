@@ -70,6 +70,15 @@ export class CheckIf {
     return !/^(-|help|explore|dashboard|groups|projects|users|api|admin|search|sitemap)(\/|$)/i.test(path);
   }
 
+  public static isBitbucketRepoUrl(url: string): boolean {
+    // A repository and every page under it: `/src/`, `/commits/`, `/pull-requests/<id>` all
+    // answer the identical client-rendered shell, `<title>Bitbucket</title>` and no og:* at
+    // all (measured 2026-09-16). A single segment is a workspace, which anonymously is a real
+    // 404 and stays generic, as do the product, account and blog routes.
+    const m = url.match(/^https?:\/\/(www\.)?bitbucket\.org\/([^/?#]+)\/[^/?#]+/i);
+    return !!m && !/^(product|account|dashboard|snippets|blog|site|repo|support|legal|socialauth|api|search|invitations)$/i.test(m[2]!);
+  }
+
   public static isGoodreadsUrl(url: string): boolean {
     // Book pages only, and not to fetch them differently — they read perfectly on the
     // generic path. It is the *missing* book that needs handling: Goodreads answers one

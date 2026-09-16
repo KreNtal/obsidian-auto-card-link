@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 18 endpoint, 4 page + endpoint, 7 page, 5 hook.
+the same commit. Counts today: 19 endpoint, 4 page + endpoint, 7 page, 5 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -30,6 +30,7 @@ the same commit. Counts today: 18 endpoint, 4 page + endpoint, 7 page, 5 hook.
 | Printables | GraphQL `api.printables.com/graphql/`, then the page with a Googlebot UA, then the slug | 1–2 | — | no model in the answer | **high** — Cloudflare plus UA sniffing |
 | GitHub | REST `api.github.com/repos/<owner>/<repo>`; the repo's HTML only when rate-limited | 1–2 | refresh | **404** from API or page | low — documented, 60 req/h anonymous |
 | GitLab | REST `/api/v4/projects/<path>`, then `/api/v4/groups/<path>` | 1–2 | refresh | **404** from both — a missing project 302s to the sign-in page | low — documented, versioned |
+| Bitbucket | REST `api.bitbucket.org/2.0/repositories/<workspace>/<repo>` — the repo root only; pages under a repo are built from the URL with no request | 0–1 | refresh | **404** → `<workspace>/<repo>` from the URL; an API failure lands on the same card, never generic | low — documented, versioned, 60 req/h anonymous |
 | npm | `registry.npmjs.org/<pkg>/latest` + `api.npmjs.org/downloads/point/last-week` | 2 | refresh | registry **404** | low — documented registry |
 | TikTok | oEmbed `tiktok.com/oembed`, profile and video alike | 1 | sticky | **400** | low — documented; its thumbnails are signed and expire |
 | Trello | the `.json` export any board URL answers to | 1 | refresh | **404** from the export | medium — boards only, no equivalent for `/c/` cards |

@@ -69,6 +69,13 @@ export interface GitLabProjectResponse {
   namespace?: { name?: string; };
 }
 
+export interface BitbucketRepoResponse {
+  full_name?: string;
+  description?: string;
+  workspace?: { name?: string; };
+  links?: { avatar?: { href?: string; }; };
+}
+
 export interface DockerHubRepoResponse {
   namespace?: string;
   name?: string;

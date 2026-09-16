@@ -5,7 +5,7 @@ import {
    BlueskyProfile,
    HackerNewsItem,
    HackerNewsUser,
-   DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   BitbucketRepoResponse, DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
@@ -106,6 +106,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isPrintablesUrl(url)) return this.fetchPrintables(url);
       if (CheckIf.isGitHubUrl(url)) return this.fetchGitHub(url, refresh);
       if (CheckIf.isGitLabUrl(url)) return this.fetchGitLab(url, refresh);
+      if (CheckIf.isBitbucketRepoUrl(url)) return this.fetchBitbucket(url, refresh);
       if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
       if (CheckIf.isDockerHubRepoUrl(url)) return this.fetchDockerHub(url);
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
@@ -155,6 +156,12 @@ export class LinkMetadataFetcher {
       "printables.com": "Printables",
       "github.com": "GitHub",
       "gitlab.com": "GitLab",
+      "bitbucket.org": "Bitbucket",
+      // Generic path, and both declare a name on a live page ("Codeberg.org", "SourceForge"),
+      // which wins. A dead repo or project is a real 404 whose body declares nothing, so these
+      // only label the card built from its URL - the MyAnimeList case.
+      "codeberg.org": "Codeberg",
+      "sourceforge.net": "SourceForge",
       "npmjs.com": "npm",
       // Generic path for `/_/<name>`, this fetcher for `/r/`, and hub.docker.com declares
       // no og:site_name on either - the official images name the site in their <title>
@@ -310,9 +317,23 @@ export class LinkMetadataFetcher {
          goneCard?: (metadata: LinkMetadata) => LinkMetadata | undefined;
       }
    ): Promise<LinkMetadata | undefined> {
-      const res = await this.request(url, {
+      let res = await this.request(url, {
          "Referer": "https://www.google.com/"
       });
+
+      // A browser User-Agent that arrives without the rest of a browser's headers is itself
+      // the tell some bot protection refuses. Measured in Obsidian's console 2026-09-16:
+      // codeberg.org answered our Chrome/124 UA with 403 "Access denied" and sourceforge.net
+      // answered it - and Obsidian's own real UA - with Cloudflare's 403 "Just a moment...",
+      // while the plugin naming itself got 200 and the real page on both. Both then went to
+      // Microlink for a page we could have read. One retry, only on a 403, so nothing that
+      // reads today changes; a 403 that stays a 403 goes on to the fallback as before. Any
+      // other answer is taken - a dead repo refused as a bot is a real 404 underneath, and
+      // that is the proof errorPageCard needs to keep Microlink out of it.
+      if (res?.status === 403) {
+         const retry = await this.request(url, { "User-Agent": LinkMetadataFetcher.PLUGIN_UA });
+         if (retry && retry.status !== 403) res = retry;
+      }
 
       if (!res || res.status !== 200) {
          console.debug(`Fetch failed for ${url}. Status: ${res?.status}`);
@@ -358,6 +379,10 @@ export class LinkMetadataFetcher {
 
       return metadata ?? this.fetchFallback(url);
    }
+
+   /** The plugin naming itself. Spotify's page and fetchGeneric's 403 retry use it. */
+   private static readonly PLUGIN_UA =
+      "Mozilla/5.0 (compatible; ObsidianAutoCardLink/1.0; +https://github.com/KreNtal/obsidian-auto-card-link)";
 
    private async errorPageCard(url: string, html: string): Promise<LinkMetadata> {
       const parsed = await new LinkMetadataParser(url, html).parse();
@@ -2047,6 +2072,78 @@ export class LinkMetadataFetcher {
       };
    }
 
+   /* --- BITBUCKET --- */
+
+   // The anonymous API allows 60 requests an hour per IP, so a repo built once is kept for
+   // the session, as GitHub's is. Successes only.
+   private static readonly bitbucketCache = new Map<string, LinkMetadata>();
+
+   /**
+    * bitbucket.org repositories, through the documented REST API 2.0 - no auth for a public one.
+    *
+    * Field rule A1(a): every repository page answers the same client-rendered shell, HTTP 200,
+    * `<title>Bitbucket</title>`, an empty meta description and no og:* tag at all. Measured
+    * 2026-09-16 on `atlassian/aui`, `atlassian/atlassian-rest` and `atlassian/atlassian-event`,
+    * and on `/src/`, `/commits/`, `/branches/`, `/pull-requests/` and `/pull-requests/1` under
+    * the first: the generic path would title every one "Bitbucket", and `looksLikePlaceholder`
+    * cannot catch it. A repository that does not exist is a real 404, page and API alike.
+    *
+    * The repo root goes to `/2.0/repositories/<workspace>/<repo>` (A2). Its `full_name` is the
+    * title, the shape a GitHub, GitLab or Docker Hub card has; the workspace's name the author
+    * (F2); the description verbatim (C1); `links.avatar` the image - the endpoint's declared
+    * avatar, which for a repo that never uploaded one is Bitbucket's per-language default (D3
+    * keeps a declared image whatever it depicts).
+    *
+    * Anything else - a 404, which is proof, or no usable answer, which is not - ends on the
+    * same card built from the URL: `<workspace>/<repo>` verbatim, the GitHub dead-repo shape.
+    * Never `fetchGeneric`, which would read the shell as a success, and so never Microlink.
+    * Pages under a repo get a card from the URL with no request at all, as AniList's other
+    * routes do.
+    */
+   private async fetchBitbucket(url: string, refresh = false): Promise<LinkMetadata> {
+      const m = url.match(/bitbucket\.org\/([^/?#]+)\/([^/?#]+)\/?([^?#]*)/i);
+      if (!m || m[3]) return this.buildUrlCard(url);
+      const path = `${m[1]!}/${m[2]!}`;
+      const key = path.toLowerCase();
+
+      const cached = LinkMetadataFetcher.bitbucketCache.get(key);
+      if (cached && !refresh) return { ...cached, url };
+
+      const fromUrl: LinkMetadata = {
+         url,
+         title: path,
+         author: m[1],
+         host: "bitbucket.org",
+         favicon: "https://bitbucket.org/favicon.ico",
+         indent: 0,
+      };
+
+      const res = await this.request(
+         `https://api.bitbucket.org/2.0/repositories/${path}`, { "Accept": "application/json" }
+      );
+      if (res?.status !== 200) {
+         console.debug(`Bitbucket API for ${path} returned ${res?.status}; building from the URL.`);
+         return fromUrl;
+      }
+
+      let data: BitbucketRepoResponse;
+      try {
+         data = JSON.parse(res.text) as BitbucketRepoResponse;
+      } catch {
+         return fromUrl;
+      }
+
+      const card: LinkMetadata = {
+         ...fromUrl,
+         title: data.full_name ?? path,
+         author: data.workspace?.name ?? m[1],
+         description: LinkMetadataParser.sanitizeText(data.description || undefined),
+         image: data.links?.avatar?.href,
+      };
+      LinkMetadataFetcher.bitbucketCache.set(key, card);
+      return card;
+   }
+
    /* --- MEDIUM --- */
 
    /**
@@ -3060,9 +3157,7 @@ export class LinkMetadataFetcher {
    private async fetchSpotifyPage(url: string): Promise<LinkMetadata | undefined> {
       // Requested as pasted, locale prefix included: the canonical /track/<id> form answers
       // 302 to the localised path, and the localised page is the one worth having.
-      const res = await this.request(url, {
-         "User-Agent": "Mozilla/5.0 (compatible; ObsidianAutoCardLink/1.0; +https://github.com/KreNtal/obsidian-auto-card-link)",
-      });
+      const res = await this.request(url, { "User-Agent": LinkMetadataFetcher.PLUGIN_UA });
       if (!res || res.status !== 200 || !res.text) return undefined;
 
       const doc = new DOMParser().parseFromString(res.text, "text/html");
