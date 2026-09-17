@@ -173,6 +173,12 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?etsy\.com(\/|$)/i.test(url);
   }
 
+  public static isEbayUrl(url: string): boolean {
+    // Every eBay marketplace (ebay.com, ebay.it, ebay.co.uk, …): Akamai refuses them all the
+    // same way, and the request that gets through works on items, search and the home page.
+    return /^https?:\/\/(www\.|m\.)?ebay\.[a-z]{2,3}(\.[a-z]{2})?(\/|$)/i.test(url);
+  }
+
   public static isAliExpressItemUrl(url: string): boolean {
     // `/item/<id>.html`, on www. or a country subdomain (it., es., …). Read generically; only
     // a *missing* item needs recognising, since AliExpress answers one with a 200.

@@ -1,4 +1,4 @@
-import { Notice, requestUrl } from "obsidian";
+import { Notice, Platform, requestUrl } from "obsidian";
 import {
    AniListMediaResponse,
    BlueskyPost,
@@ -113,6 +113,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
       if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
       if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
+      if (CheckIf.isEbayUrl(url)) return this.fetchEbay(url);
       if (CheckIf.isItchGameUrl(url)) return this.fetchItch(url);
       if (CheckIf.isEpicProductUrl(url)) return this.fetchEpic(url);
       if (CheckIf.isGooglePlayIdUrl(url)) return this.fetchGooglePlay(url);
@@ -346,12 +347,14 @@ export class LinkMetadataFetcher {
          emptyPage?: (html: string) => LinkMetadata | undefined;
          /** Headers for the first request, over the defaults - a User-Agent a site answers. */
          headers?: Record<string, string>;
+         /** Make the first request through Node's https on desktop - see requestViaNode. */
+         viaNode?: boolean;
       }
    ): Promise<LinkMetadata | undefined> {
-      let res = await this.request(url, {
-         "Referer": "https://www.google.com/",
-         ...checks?.headers,
-      });
+      const firstHeaders = { "Referer": "https://www.google.com/", ...checks?.headers };
+      let res = checks?.viaNode && Platform.isDesktopApp
+         ? await this.requestViaNode(url, firstHeaders)
+         : await this.request(url, firstHeaders);
 
       // A browser User-Agent that arrives without the rest of a browser's headers is itself
       // the tell some bot protection refuses. Measured in Obsidian's console 2026-09-16:
@@ -2372,6 +2375,54 @@ export class LinkMetadataFetcher {
       const author = shop?.slice(1).find(Boolean)
          ?? (shopName && title.toLowerCase() === shopName.toLowerCase() ? title : undefined);
       return { ...metadata, title, author: author ?? metadata.author };
+   }
+
+   /* --- EBAY --- */
+
+   /**
+    * eBay's Akamai answers a 1.8 KB 403 "Error Page | eBay" to every User-Agent, crawlers and
+    * chat apps included, and Microlink mostly reads that same page. What it checks is that a
+    * Chrome looks like one, measured 2026-09-17: a Chrome from the last year (136 refused, 140
+    * answered), the Client Hints that go with it - `sec-ch-ua` naming the same version,
+    * `sec-ch-ua-mobile`, `sec-ch-ua-platform`, `sec-fetch-dest` - plus `Accept-Language` and
+    * compression; drop any one and it is a 403 again. With them, items, search and the home
+    * page read, and a missing item is a real 404. requestUrl cannot send `sec-ch-ua` - Electron
+    * drops it - so the request goes through Node (requestViaNode), which works in Obsidian's
+    * console; on mobile it stays the ordinary request, refused, and falls back as before.
+    *
+    * Site template (B6): an item's title ends in " | eBay", dropped only when "|" occurs once.
+    * Search keeps its whole title. Header sniffing, the fragile category (A6).
+    */
+   private async fetchEbay(url: string): Promise<LinkMetadata | undefined> {
+      const v = LinkMetadataFetcher.chromeMajor();
+      const metadata = await this.fetchGeneric(url, {
+         viaNode: true,
+         headers: {
+            "User-Agent": `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${v}.0.0.0 Safari/537.36`,
+            "sec-ch-ua": `"Chromium";v="${v}", "Not?A_Brand";v="24", "Google Chrome";v="${v}"`,
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "sec-fetch-dest": "document",
+         },
+         // A bare `/itm/<id>` would be titled "Itm"; with a slug before the id, the slug wins.
+         urlCard: (u) => {
+            const card = this.buildUrlCard(u);
+            return /\/itm\/\d+([/?#]|$)/i.test(u) ? { ...card, title: "eBay item" } : card;
+         },
+      });
+      if (!metadata || !/\/itm\//i.test(url)) return metadata;
+      const tail = metadata.title.match(/\s+\|\s+eBay$/);
+      if (!tail || metadata.title.split("|").length !== 2) return metadata;
+      return { ...metadata, title: metadata.title.slice(0, tail.index) };
+   }
+
+   /**
+    * A current Chrome's major version, counted off the release calendar - 140 shipped
+    * 2025-09-02, and one follows every four weeks. eBay refuses a Chrome about a year old, so
+    * a fixed number would quietly stop working.
+    */
+   private static chromeMajor(): number {
+      return 140 + Math.floor((Date.now() - Date.UTC(2025, 8, 2)) / (28 * 864e5));
    }
 
    /* --- ALIEXPRESS --- */
@@ -4948,10 +4999,57 @@ export class LinkMetadataFetcher {
       return undefined;
    }
 
-   private async request(
-      url: string, customHeaders: Record<string, string | undefined> = {}, timeoutMs = 5000,
-      body?: string
-   ) {
+   /**
+    * One GET through Node's `https` instead of requestUrl - desktop only, since mobile has no
+    * Node. Electron's network stack silently drops a `sec-ch-ua` header set on requestUrl
+    * (seen from Obsidian's console at tls.peet.ws, 2026-09-17), and eBay's Akamai refuses any
+    * Chrome that arrives without one. A browser always asks for compression, and eBay refused
+    * a request that did not, so it is asked for and undone here. Redirects are followed; the
+    * answer is shaped like requestUrl's, so fetchGeneric treats both alike.
+    */
+   private requestViaNode(
+      url: string, customHeaders: Record<string, string | undefined> = {}, timeoutMs = 5000, hops = 5
+   ): Promise<{ status: number; text: string; arrayBuffer: ArrayBuffer } | undefined> {
+      // Required at call time, never imported: an import would stop the plugin loading on mobile.
+      const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
+      const https = nodeRequire("https") as typeof import("https");
+      const zlib = nodeRequire("zlib") as typeof import("zlib");
+      const headers = { ...this.requestHeaders(customHeaders), "Accept-Encoding": "gzip, deflate, br" };
+      return new Promise((resolve) => {
+         const req = https.get(url, { headers }, (res) => {
+            const status = res.statusCode ?? 0;
+            const location = res.headers.location;
+            if (status >= 300 && status < 400 && location && hops > 0) {
+               res.resume();
+               resolve(this.requestViaNode(new URL(location, url).toString(), customHeaders, timeoutMs, hops - 1));
+               return;
+            }
+            const chunks: Uint8Array[] = [];
+            res.on("data", (chunk: Uint8Array) => chunks.push(chunk));
+            res.on("error", (e) => { console.error(`Fetch failed for ${url}:`, e); resolve(undefined); });
+            res.on("end", () => {
+               try {
+                  const raw = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+                  chunks.reduce((at, c) => { raw.set(c, at); return at + c.length; }, 0);
+                  const encoding = res.headers["content-encoding"];
+                  const body: Uint8Array = encoding === "gzip" ? zlib.gunzipSync(raw)
+                     : encoding === "deflate" ? zlib.inflateSync(raw)
+                     : encoding === "br" ? zlib.brotliDecompressSync(raw)
+                     : raw;
+                  const bytes = new Uint8Array(body);
+                  resolve({ status, text: new TextDecoder().decode(bytes), arrayBuffer: bytes.buffer });
+               } catch (e) {
+                  console.error(`Fetch failed for ${url}:`, e);
+                  resolve(undefined);
+               }
+            });
+         });
+         req.on("error", (e) => { console.error(`Fetch failed for ${url}:`, e); resolve(undefined); });
+         req.setTimeout(timeoutMs, () => req.destroy(new Error("Timeout")));
+      });
+   }
+
+   private requestHeaders(customHeaders: Record<string, string | undefined>): Record<string, string> {
       const merged: Record<string, string | undefined> = {
          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -4960,9 +5058,16 @@ export class LinkMetadataFetcher {
          "Pragma": "no-cache",
          ...customHeaders
       };
-      const headers = Object.fromEntries(
+      return Object.fromEntries(
          Object.entries(merged).filter((entry): entry is [string, string] => entry[1] !== undefined)
       );
+   }
+
+   private async request(
+      url: string, customHeaders: Record<string, string | undefined> = {}, timeoutMs = 5000,
+      body?: string
+   ) {
+      const headers = this.requestHeaders(customHeaders);
 
       try {
          // `throw: false` matters: without it requestUrl rejects on every non-2xx, this catch

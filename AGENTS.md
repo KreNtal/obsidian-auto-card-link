@@ -97,8 +97,11 @@ for (const u of urls) for (const [k, ua] of Object.entries(uas)) {
    six times. When re-checking, the test is **whether Microlink was called**, not whether a
    card appeared. The lower bound holds only for the User-Agent the plugin already sends: a
    probe that gets through **with a different UA** proves nothing either. eBay answered a
-   phone UA with the real page from a script and with 403 in Obsidian (2026-09-17) - a phone
-   UA on Electron's desktop fingerprint is itself the tell. Confirm any new UA in the console.
+   phone UA with the real page from a script and with 403 in Obsidian (2026-09-17), and later
+   answered a full set of Chrome headers by script and 403 in Obsidian, because Electron drops
+   `sec-ch-ua` from `requestUrl`. Confirm any new UA or header in the console - and when one
+   passes by script but not there, send the same request to `https://tls.peet.ws/api/all`
+   from the console to see which headers actually leave Obsidian.
 5. **Never modify the URL the user pasted.** No stripping parameters on a hunch.
 6. **A shell seen with a browser User-Agent is not proof that the page cannot be read.**
    Some sites render real og tags only for crawlers: AniList, TikTok profiles, Trello
@@ -117,8 +120,11 @@ for (const u of urls) for (const [k, ua] of Object.entries(uas)) {
    that pass in Obsidian's console (rule 4). The hosted service also has per-domain proxy and
    prerender settings that are not published, so a card Iframely gets is not always one the
    plugin can. Found this way on 2026-09-16/17: AniList's crawler rendering, Epic's pages
-   being readable, Etsy answering WhatsApp and Slackbot. eBay is the counter-example: Iframely
-   renders it, no user agent tried gets through in Obsidian.
+   being readable, Etsy answering WhatsApp and Slackbot. When no user agent works, the site
+   may be checking the rest of the request: eBay wanted a recent Chrome with its Client Hints,
+   found by dropping one header at a time, and was recorded as unreachable for a few hours
+   before that. Where Electron will not send what the site needs, Node's `https` does, on
+   desktop (`requestViaNode`).
 
 **The failure to look for first is not "does this site block us".** It is a site that
 *answers, with something else* — a marketing shell, a sign-in wall, its own homepage —
