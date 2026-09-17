@@ -84,6 +84,20 @@ export interface DockerHubRepoResponse {
   pull_count?: number;
 }
 
+export interface CratesIoResponse {
+  crate?: { name?: string; description?: string | null; };
+  version?: { crate?: string; description?: string | null; };
+}
+
+export interface CratesIoOwnersResponse {
+  users?: { login?: string; }[];
+}
+
+export interface RubyGemsResponse {
+  authors?: string | null;
+  info?: string | null;
+}
+
 export interface NpmPackageResponse {
   name?: string;
   version?: string;

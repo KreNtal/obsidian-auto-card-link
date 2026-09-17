@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 19 endpoint, 4 page + endpoint, 9 page, 11 hook.
+the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 12 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -32,6 +32,7 @@ the same commit. Counts today: 19 endpoint, 4 page + endpoint, 9 page, 11 hook.
 | GitLab | REST `/api/v4/projects/<path>`, then `/api/v4/groups/<path>` | 1–2 | refresh | **404** from both — a missing project 302s to the sign-in page | low — documented, versioned |
 | Bitbucket | REST `api.bitbucket.org/2.0/repositories/<workspace>/<repo>` — the repo root only; pages under a repo are built from the URL with no request | 0–1 | refresh | **404** → `<workspace>/<repo>` from the URL; an API failure lands on the same card, never generic | low — documented, versioned, 60 req/h anonymous |
 | npm | `registry.npmjs.org/<pkg>/latest` + `api.npmjs.org/downloads/point/last-week` | 2 | refresh | registry **404** | low — documented registry |
+| crates.io | `crates.io/api/v1/crates/<name>?include=` (or `/<version>`) + `/owner_user`; the page, a shell, is read only for its per-crate `og:image` and favicon | 3 | refresh | API **404** → the name verbatim; an API failure lands on the same card, never generic | low — documented API |
 | TikTok | a profile's page with the crawler UA, when its description starts with the `@handle`; otherwise, and for every video, oEmbed `tiktok.com/oembed` | 1–3 | sticky | **400** from oEmbed | low for videos — documented; **high** for profiles — UA sniffing, oEmbed behind it; thumbnails and avatars are signed and expire |
 | Trello | the `.json` export any board URL answers to; a `/c/` card through REST `api.trello.com/1/cards/<id>` | 1 | refresh | **404** from the export or the card API | medium for boards — undocumented export; low for cards — documented API |
 | Wikipedia | REST `<lang>.wikipedia.org/api/rest_v1/page/summary/<title>` | 1 | — | non-200 → generic, so a real **404** | low — documented, versioned |
@@ -49,6 +50,7 @@ the same commit. Counts today: 19 endpoint, 4 page + endpoint, 9 page, 11 hook.
 | Steam | the page + `store.steampowered.com/api/appdetails` for the proof and the developers | 2 | refresh | `success:false` — a dead id 302s to the storefront | medium — public but unversioned |
 | OpenStreetMap | the page + `api.openstreetmap.org/api/0.6/<type>/<id>` for the description only | 2 | refresh | **404** from the API | low — documented, versioned |
 | Docker Hub | the page + `hub.docker.com/v2/repositories/<ns>/<name>/` for the description only | 1–2 | — | the page's own **404** — the endpoint is never reached | low — documented Hub API |
+| RubyGems | the page + `rubygems.org/api/v1/gems/<name>.json` (v2 for a version) for the description and authors; " \| RubyGems.org \| your community gem host" dropped (B6) | 1–2 | — | the page's own **404** — the endpoint is never reached | low — documented API |
 
 ## Page — our own request, our own headers and parsing, no endpoint
 
@@ -79,6 +81,7 @@ No extra request, nothing site-specific to break.
 | Epic Games Store | `goneCard`, `/p/<slug>` URLs only | 1 | — | a 200 with no description and no image — the not-found page, its `<h1>` translated | low — a live page that stopped declaring both would be taken for dead |
 | Google Play | a `urlCard` for the 404 branch: the title is the `?id=`, not the route word; an app's " - App su Google Play" tail dropped (B6) | 1 | — | a real **404** | none |
 | Hugging Face | a `urlCard` for a repo root: `<owner>/<name>` verbatim, owner as author; " · Hugging Face" / " · Datasets at Hugging Face" dropped from a live title, a Space's " - a Hugging Face Space by \<owner>" moved into `author` (B6) | 1 | — | the **401** a missing or private repo answers, which `fetchGeneric` now reads like a 404 for every site | none — a template that stops matching leaves the title whole |
+| Packagist | `goneCard`, `/packages/<vendor>/<name>` only; " - Packagist.org" dropped from a live title and the vendor made author, over the site-wide "Jordi Boggiano" (B6) | 1 | — | a 200 titled "Packagist.org" — the search page a missing package redirects to | none — a template that stops matching leaves the title whole |
 | itch.io | plain generic, then "\<title> by \<creators>" split into `author` when the first creator matches the subdomain or " by " occurs once | 1 | — | a real **404** | none — a template that stops matching leaves the title whole |
 | Apple Podcasts | plain generic, then the show name read out of Apple's description template into `author` | 1 | — | a real **404** | none — a no-op on a show page |
 

@@ -7,7 +7,7 @@ import {
    HackerNewsUser,
    NodeHttps,
    NodeZlib,
-   BitbucketRepoResponse, DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   BitbucketRepoResponse, CratesIoOwnersResponse, CratesIoResponse, RubyGemsResponse, DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, TrelloCardResponse,WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
@@ -111,6 +111,9 @@ export class LinkMetadataFetcher {
       if (CheckIf.isBitbucketRepoUrl(url)) return this.fetchBitbucket(url, refresh);
       if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
       if (CheckIf.isDockerHubRepoUrl(url)) return this.fetchDockerHub(url);
+      if (CheckIf.isCratesIoCrateUrl(url)) return this.fetchCratesIo(url, refresh);
+      if (CheckIf.isRubyGemsGemUrl(url)) return this.fetchRubyGems(url);
+      if (CheckIf.isPackagistPackageUrl(url)) return this.fetchPackagist(url);
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
       if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
       if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
@@ -178,6 +181,14 @@ export class LinkMetadataFetcher {
       "codeberg.org": "Codeberg",
       "sourceforge.net": "SourceForge",
       "npmjs.com": "npm",
+      // Four registries checked together on 2026-09-17, none declaring og:site_name; each
+      // is the name the site titles its own pages with. pkg.go.dev and Packagist live titles
+      // already end in it (H2), so these label the card a dead package builds from its URL,
+      // and crates.io's and RubyGems' cards once their fetchers have cut the title down.
+      "crates.io": "crates.io",
+      "pkg.go.dev": "Go Packages",
+      "rubygems.org": "RubyGems.org",
+      "packagist.org": "Packagist.org",
       // Generic path for `/_/<name>`, this fetcher for `/r/`, and hub.docker.com declares
       // no og:site_name on either - the official images name the site in their <title>
       // instead. Scoped to the `hub.` subdomain: docs.docker.com and docker.com are the
@@ -3002,6 +3013,168 @@ export class LinkMetadataFetcher {
          author: data.namespace?.trim() || named.author,
          description: LinkMetadataParser.sanitizeText(description),
       };
+   }
+
+   /* --- CRATES.IO --- */
+
+   private static readonly cratesCache = new Map<string, LinkMetadata>();
+
+   /**
+    * A crate, through the documented crates.io API - no key, and the one its own frontend reads.
+    *
+    * Field rule A1(a): every crates.io page is the same 5 KB client-rendered shell. Measured
+    * 2026-09-17 on `/crates/serde`, `/crates/tokio/1.40.0` and `/crates/nonexistent-crate-xyz123`
+    * with the Chrome UA, the plugin's and `facebookexternalhit` alike: 200, `og:title` "crates.io:
+    * Rust Package Registry" and the registry's own blurb on all three. The one specific tag is
+    * `og:image`, `static.crates.io/og-images/<name>.png` - a share card rendered per crate, and a
+    * 403 for a crate that does not exist.
+    *
+    * So the page is still read (A3) for that image and the favicon, alongside two endpoints:
+    * `/api/v1/crates/<name>?include=` (952 B; without `include=` the answer lists every version
+    * id) for the title and the description verbatim (B4, C1), or `/api/v1/crates/<name>/<version>`
+    * for a version link, which describes that release as npm's `/v/` does; and `/owner_user` for
+    * the author - the users' logins, which is the byline crates.io prints on that share card
+    * ("by carllerche and Darksonn"; teams are not named there). A 404 is proof: the card is the
+    * name verbatim, with the shell's blurb and icon riding along but not its image, which for a
+    * missing crate names a file that is not there. Any other failure builds the same card with
+    * the image kept - never fetchGeneric, which would take the shell for the crate.
+    */
+   private async fetchCratesIo(url: string, refresh = false): Promise<LinkMetadata> {
+      const [, name, version] = url.match(/crates\.io\/crates\/([^/?#]+)(?:\/(\d+\.\d+\.\d+[^/?#]*))?/i) ?? [];
+      if (!name) return this.buildUrlCard(url);
+      const key = (version ? `${name}@${version}` : name).toLowerCase();
+
+      const cached = LinkMetadataFetcher.cratesCache.get(key);
+      if (cached && !refresh) return { ...cached, url };
+
+      const api = `https://crates.io/api/v1/crates/${name}`;
+      const json = { "Accept": "application/json", "User-Agent": LinkMetadataFetcher.PLUGIN_UA };
+      const [page, res, owners] = await Promise.all([
+         this.request(url),
+         this.request(version ? `${api}/${version}` : `${api}?include=`, json),
+         this.request(`${api}/owner_user`, json),
+      ]);
+
+      const parsed = page?.status === 200
+         ? await new LinkMetadataParser(url, await this.decodeHtmlContent(page.arrayBuffer, page.text)).parse()
+         : undefined;
+      const fromUrl: LinkMetadata = {
+         url,
+         title: name,
+         host: "crates.io",
+         description: parsed?.description,
+         // A dead version of a live crate still has the crate's share card; a dead crate has none.
+         image: res?.status === 404 && !version ? undefined : parsed?.image,
+         favicon: parsed?.favicon ?? "https://crates.io/favicon.ico",
+         indent: 0,
+      };
+
+      let data: CratesIoResponse | undefined;
+      try {
+         data = res?.status === 200 ? JSON.parse(res.text) as CratesIoResponse : undefined;
+      } catch { /* no usable answer: the card from the URL below */ }
+      const item = version ? data?.version : data?.crate;
+      if (!item) {
+         console.debug(`crates.io API for ${key} returned ${res?.status}; building from the URL.`);
+         return fromUrl;
+      }
+
+      let logins: string[] = [];
+      try {
+         if (owners?.status === 200) {
+            logins = ((JSON.parse(owners.text) as CratesIoOwnersResponse).users ?? [])
+               .map((u) => u.login).filter((l): l is string => !!l);
+         }
+      } catch { /* no author */ }
+
+      const card: LinkMetadata = {
+         ...fromUrl,
+         title: (version ? data?.version?.crate : data?.crate?.name) ?? name,
+         author: logins.length <= 2 ? logins.join(" and ") || undefined : `${logins[0]!} et al.`,
+         description: LinkMetadataParser.sanitizeText(item.description ?? undefined),
+      };
+      LinkMetadataFetcher.cratesCache.set(key, card);
+      return card;
+   }
+
+   /* --- RUBYGEMS --- */
+
+   /**
+    * A gem page: read generically, then filled in - the Docker Hub shape.
+    *
+    * Field rule A1(d): a gem page declares no og:* and no meta description at all, measured
+    * 2026-09-17 on rails, nokogiri, devise, rspec-core and pg with the Chrome UA, the plugin's
+    * and `facebookexternalhit`, so the generic card is a bare title. The documented API,
+    * `/api/v1/gems/<name>.json` - or `/api/v2/rubygems/<name>/versions/<version>.json` for a
+    * `/versions/<version>` link - has the gem's own `info` (C1) and its `authors` (F2, joined as
+    * the parser joins them). A missing gem or version is a real 404, so the endpoint is only
+    * asked once the page has proven live.
+    *
+    * The title is RubyGems' template "<name> | RubyGems.org | your community gem host", five of
+    * five, the same on a version page; B6 drops the site-name segment. Only an exact match on
+    * the URL's own name counts, and only then is the endpoint asked.
+    */
+   private async fetchRubyGems(url: string): Promise<LinkMetadata | undefined> {
+      const card = await this.fetchGeneric(url);
+      const [, name, version] = url.match(/rubygems\.org\/gems\/([^/?#]+)(?:\/versions\/([^/?#]+))?/i) ?? [];
+      if (!card || !name || card.title.trim() !== `${name} | RubyGems.org | your community gem host`) return card;
+
+      const named = { ...card, title: name };
+      const res = await this.request(
+         version
+            ? `https://rubygems.org/api/v2/rubygems/${name}/versions/${version}.json`
+            : `https://rubygems.org/api/v1/gems/${name}.json`,
+         { "Accept": "application/json" }
+      );
+      if (res?.status !== 200) {
+         console.debug(`RubyGems API for ${name} returned ${res?.status}; keeping the page's card.`);
+         return named;
+      }
+
+      let data: RubyGemsResponse;
+      try {
+         data = JSON.parse(res.text) as RubyGemsResponse;
+      } catch {
+         return named;
+      }
+
+      // The API joins the gemspec's array with ", ".
+      const authors = (data.authors ?? "").split(", ").map((a) => a.trim()).filter(Boolean);
+      return {
+         ...named,
+         author: authors.length === 0 ? named.author
+            : authors.length <= 2 ? authors.join(" and ") : `${authors[0]!} et al.`,
+         description: LinkMetadataParser.sanitizeText(data.info ?? undefined) ?? named.description,
+      };
+   }
+
+   /* --- PACKAGIST --- */
+
+   /**
+    * Not a fetcher: a package reads generically - "<vendor>/<name> - Packagist.org" and its own
+    * meta description, no image, measured 2026-09-17 with three UAs.
+    *
+    * A package that does **not** exist 302s to `/search/?q=<vendor>/<name>&reason=package_not_found`,
+    * a **200** titled "Packagist.org" with "The PHP Package Repository" - A1(b). That whole
+    * title is the tell, on `/packages/<vendor>/<name>` only; the card is the id verbatim with the
+    * vendor as author, the Hugging Face shape, and the search page's blurb and icon ride along.
+    *
+    * Site template (B6, four of four: laravel/framework, monolog/monolog, symfony/console,
+    * guzzlehttp/guzzle): " - Packagist.org" is dropped and the vendor becomes the author (F2).
+    * That also replaces the `<meta name="author">` every Packagist page declares, the dead one
+    * included - "Jordi Boggiano", who runs the site, not the author of the package.
+    */
+   private async fetchPackagist(url: string): Promise<LinkMetadata | undefined> {
+      const [, vendor, name] = url.match(/packagist\.org\/packages\/([^/?#]+)\/([^/?#]+)/i) ?? [];
+      const metadata = await this.fetchGeneric(url, {
+         goneCard: (page) => page.title.trim() === "Packagist.org"
+            ? { ...this.withPageFurniture(this.buildUrlCard(url), page), title: `${vendor}/${name}`, author: vendor }
+            : undefined,
+      });
+      const suffix = " - Packagist.org";
+      const repo = metadata?.title.endsWith(suffix) ? metadata.title.slice(0, -suffix.length) : "";
+      if (!metadata || !/^[^/\s]+\/[^/\s]+$/.test(repo)) return metadata;
+      return { ...metadata, title: repo, author: repo.split("/")[0] };
    }
 
    /* --- TIKTOK --- */

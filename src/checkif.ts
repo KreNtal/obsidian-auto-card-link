@@ -114,6 +114,22 @@ export class CheckIf {
     return /^https?:\/\/hub\.docker\.com\/r\/[^/?#]+\/[^/?#]+/i.test(url);
   }
 
+  public static isCratesIoCrateUrl(url: string): boolean {
+    // A crate, its tabs and a version under it. Every crates.io route answers the same shell,
+    // but only a crate has an endpoint worth asking; users, keywords and the rest stay generic.
+    return /^https?:\/\/(www\.)?crates\.io\/crates\/[^/?#]+/i.test(url);
+  }
+
+  public static isRubyGemsGemUrl(url: string): boolean {
+    // A gem page, with or without `/versions/<version>`. Profiles and search stay generic.
+    return /^https?:\/\/(www\.)?rubygems\.org\/gems\/[^/?#]+/i.test(url);
+  }
+
+  public static isPackagistPackageUrl(url: string): boolean {
+    // `/packages/<vendor>/<name>` only: a missing one redirects to search with a 200.
+    return /^https?:\/\/(www\.)?packagist\.org\/packages\/[^/?#]+\/[^/?#]+/i.test(url);
+  }
+
   public static isNotionUrl(url: string): boolean {
     // A published Notion page: `notion.so` and every workspace's own `*.notion.site`.
     // `notion.com` - the marketing site, which `notion.so/product` and friends redirect to -
