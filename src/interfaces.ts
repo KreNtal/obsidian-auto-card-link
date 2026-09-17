@@ -280,3 +280,31 @@ export interface AniListMediaResponse {
     } | null;
   };
 }
+
+/**
+ * The slice of Node's `https` and `zlib` that requestViaNode uses, written out rather than taken
+ * from `@types/node`: the modules are required at run time, and without their types every call
+ * on them would be `any` to the linter.
+ */
+export interface NodeResponse {
+  statusCode?: number;
+  headers: Record<string, string | string[] | undefined>;
+  resume(): void;
+  on(event: "data", listener: (chunk: Uint8Array) => void): void;
+  on(event: "error", listener: (error: Error) => void): void;
+  on(event: "end", listener: () => void): void;
+}
+
+export interface NodeHttps {
+  get(url: string, options: { headers: Record<string, string>; }, callback: (res: NodeResponse) => void): {
+    on(event: "error", listener: (error: Error) => void): void;
+    setTimeout(ms: number, callback: () => void): void;
+    destroy(error: Error): void;
+  };
+}
+
+export interface NodeZlib {
+  gunzipSync(data: Uint8Array): Uint8Array;
+  inflateSync(data: Uint8Array): Uint8Array;
+  brotliDecompressSync(data: Uint8Array): Uint8Array;
+}

@@ -5,6 +5,8 @@ import {
    BlueskyProfile,
    HackerNewsItem,
    HackerNewsUser,
+   NodeHttps,
+   NodeZlib,
    BitbucketRepoResponse, DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, TrelloCardResponse,WikipediaSummaryResponse, XSyndicationResponse
@@ -5012,14 +5014,14 @@ export class LinkMetadataFetcher {
    ): Promise<{ status: number; text: string; arrayBuffer: ArrayBuffer } | undefined> {
       // Required at call time, never imported: an import would stop the plugin loading on mobile.
       const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-      const https = nodeRequire("https") as typeof import("https");
-      const zlib = nodeRequire("zlib") as typeof import("zlib");
+      const https = nodeRequire("https") as NodeHttps;
+      const zlib = nodeRequire("zlib") as NodeZlib;
       const headers = { ...this.requestHeaders(customHeaders), "Accept-Encoding": "gzip, deflate, br" };
       return new Promise((resolve) => {
          const req = https.get(url, { headers }, (res) => {
             const status = res.statusCode ?? 0;
             const location = res.headers.location;
-            if (status >= 300 && status < 400 && location && hops > 0) {
+            if (status >= 300 && status < 400 && typeof location === "string" && hops > 0) {
                res.resume();
                resolve(this.requestViaNode(new URL(location, url).toString(), customHeaders, timeoutMs, hops - 1));
                return;
