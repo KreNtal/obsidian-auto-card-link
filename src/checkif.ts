@@ -86,6 +86,12 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?goodreads\.com\/book\/show\//i.test(url);
   }
 
+  public static isGogGameUrl(url: string): boolean {
+    // Game pages only, with or without the language segment. Like Goodreads, only so a
+    // *missing* game can be recognised: GOG redirects one to its catalog with a 200.
+    return /^https?:\/\/(www\.)?gog\.com\/([a-z]{2}\/)?game\/[^/?#]+/i.test(url);
+  }
+
   public static isMediumUrl(url: string): boolean {
     // Article pages, including the `<publication>.medium.com` subdomain form. Medium reads
     // fine on the generic path — this is only so a *removed* article can be recognised, since
@@ -153,6 +159,24 @@ export class CheckIf {
     // A1(d)); everything else is the page's. A bare map view (`/#map=…`) carries no
     // server-visible location and stays generic.
     return /^https?:\/\/(www\.)?(openstreetmap\.org|osm\.org)\/(node|way|relation)\/\d+/i.test(url);
+  }
+
+  public static isEpicProductUrl(url: string): boolean {
+    // `/p/<slug>`, with or without the locale segment. Read generically; only a *missing*
+    // product needs recognising, since Epic answers one with a 200.
+    return /^https?:\/\/store\.epicgames\.com\/([a-z]{2}(-[a-z]{2})?\/)?p\/[^/?#]+\/?([?#]|$)/i.test(url);
+  }
+
+  public static isItchGameUrl(url: string): boolean {
+    // `<creator>.itch.io/<slug>` and nothing deeper: a game, tool or asset page, the shape
+    // titled "<title> by <creators>". Profiles, devlogs and itch.io itself stay generic.
+    return /^https?:\/\/[a-z0-9-]+\.itch\.io\/[^/?#]+\/?([?#]|$)/i.test(url);
+  }
+
+  public static isGooglePlayIdUrl(url: string): boolean {
+    // The shapes that name their item only in `?id=`: an app, a book, a developer by name
+    // or by number. They read fine generically; only a dead one needs its title from the id.
+    return /^https?:\/\/play\.google\.com\/store\/(apps|books)\/(details|dev|developer)\?(.*&)?id=/i.test(url);
   }
 
   public static isApplePodcastsUrl(url: string): boolean {

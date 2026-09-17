@@ -32,6 +32,46 @@ code. It also carries the release backlog. Nothing there should be re-derived fr
 - **Only a paste into Obsidian settles whether something works.** You cannot test the
   plugin yourself.
 
+### Measuring from Obsidian's console
+
+When a question is about what the plugin's requests actually receive - a 403 that may be a
+scripted-probe artefact (rule 4), a shell that may depend on the User-Agent (rule 6), a
+dead link's status - hand the maintainer a snippet for Obsidian's developer console
+(Ctrl+Shift+I) rather than guessing. It runs `requestUrl` with Electron's real network stack,
+which no script can reproduce. This is how Codeberg's 403 retry and Epic's readable pages
+were established. Three traps, all hit once:
+
+- `requestUrl` is a **global** in the console. Do not write `require("obsidian")`: it throws,
+  and a `const` whose initialiser threw stays uninitialised for the whole console session, so
+  every later use fails with "Cannot access 'requestUrl' before initialization". The fix is
+  Ctrl+R to reload Obsidian.
+- The plugin's own `console.debug` lines (e.g. `Fetch failed for … Status: 403`) are hidden
+  until the console's log level includes **Verbose**.
+- Ask for the **output**, and say which lines: the snippet itself is easy to paste back.
+
+The template - adjust `urls`, and the regexes to the tags in question:
+
+```js
+const uas = {
+  plugin_chrome124: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  obsidian_real: navigator.userAgent,
+  honest: "Mozilla/5.0 (compatible; ObsidianAutoCardLink/1.0; +https://github.com/KreNtal/obsidian-auto-card-link)",
+  facebook: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+  none: undefined,
+};
+const urls = ["https://example.com/live-thing", "https://example.com/cannot-exist-xyz123"];
+console.log("real UA:", navigator.userAgent);
+for (const u of urls) for (const [k, ua] of Object.entries(uas)) {
+  try {
+    const t0 = performance.now();
+    const r = await requestUrl({ url: u, headers: ua ? { "User-Agent": ua } : {}, throw: false });
+    console.log(k, r.status, `${Math.round(performance.now() - t0)} ms`, r.text.length,
+      (r.text.match(/<title[^>]*>[^<]*/i) || [""])[0],
+      "| og:", (r.text.match(/og:title["'][^>]*content=["']([^"']*)/i) || [])[1], u);
+  } catch (e) { console.log(k, "ERR", e.message, u); }
+}
+```
+
 ### Rules for link metadata
 
 1. **Site-specific code is the exception, not the rule.** Whether a site gets any code of
@@ -55,6 +95,11 @@ code. It also carries the release backlog. Nothing there should be re-derived fr
    six times. When re-checking, the test is **whether Microlink was called**, not whether a
    card appeared.
 5. **Never modify the URL the user pasted.** No stripping parameters on a hunch.
+6. **A shell seen with a browser User-Agent is not proof that the page cannot be read.**
+   Some sites render real og tags only for crawlers: AniList, TikTok profiles, Trello
+   boards. Before concluding a page is a shell, request it with the plugin's own UA
+   (`PLUGIN_UA`) and with `facebookexternalhit` as well, and record all three results. AniList was read through its API for a day on the strength of the Chrome UA
+   alone, while its pages carried everything Iframely showed (2026-09-16).
 
 **The failure to look for first is not "does this site block us".** It is a site that
 *answers, with something else* — a marketing shell, a sign-in wall, its own homepage —
@@ -143,9 +188,11 @@ exception exists only if it is written here, or recorded with its evidence in
   site-name segment; drop a count segment **from a title** (never from a description, C4);
   drop a technical id
   (OSM "Way: Tour Eiffel (5013364)" → "Way: Tour Eiffel" — the type prefix stays). Text
-  that does not match the template exactly is left alone. When the URL carries a handle,
-  the author segment must match it; otherwise the separator must occur exactly as often as
-  the template says.
+  that does not match the template exactly is left alone. The split must be proven one of
+  two ways: the author segment matches a handle the URL carries, or the separator occurs
+  exactly as often as the template says. Either is enough - a display name the handle does
+  not spell ("Graeme Borland" on `graebor.itch.io`) is still the author when the split is
+  unambiguous (Roberto, 2026-09-16).
 
 **C. Description**
 

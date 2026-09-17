@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 19 endpoint, 4 page + endpoint, 7 page, 5 hook.
+the same commit. Counts today: 19 endpoint, 4 page + endpoint, 7 page, 9 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -39,7 +39,7 @@ the same commit. Counts today: 19 endpoint, 4 page + endpoint, 7 page, 5 hook.
 | Stack Exchange | `api.stackexchange.com/2.3/`, resolving an answer id to its question first | 1–2 | sticky | `items: []` | low — documented, 300 req/day anonymous |
 | Hacker News | Firebase `hacker-news.firebaseio.com/v0/item\|user`, walking a comment up to its story | 1–6 | — | a literal `null`, or the `deleted` / `dead` flags | low — official API, no quota |
 | Bluesky | XRPC `public.api.bsky.app/xrpc/` | 1 | — | error or missing handle → card from the URL | low — documented public AppView |
-| AniList | GraphQL `graphql.anilist.co`, the `Media` query — `/anime/` and `/manga/` only; every other route is built from the URL with no request at all | 0–1 | refresh | **404** with `data.Media` null | low — documented, versioned, no key |
+| AniList | GraphQL `graphql.anilist.co`, the `Media` query — `/anime/` and `/manga/` only; every other route reads the page with the plugin's UA, which AniList renders for non-browsers, and is built from the URL where it does not | 1 | refresh (API only) | **404** with `data.Media` null; a rendered page titled "AniList" | low for the API — documented, versioned, no key; **high** for character and staff — UA sniffing |
 
 ## Page + endpoint — the page first (A3), the endpoint only adds a field
 
@@ -72,6 +72,10 @@ No extra request, nothing site-specific to break.
 | Google Maps | `goneCard`; the place name comes from the URL, the map thumbnail rides along | 1 | — | `og:title` "Google Maps" — the product, not the place | none — no endpoint exists for place data |
 | Bandcamp | a `siteName` floor, nothing else | 1 | sticky | a real **404** | none — the Cloudflare-interstitial check it used to carry now runs in `fetchGeneric` for every link |
 | Medium | `goneCard` | 1 | — | a title that is nothing but the site name | none |
+| GOG | `goneCard`, `/game/` URLs only; " \| GOG.com" dropped from a live title (B6) | 1 | — | a 200 titled "Best Video games, DRM-free \| GOG.COM" — the catalog a missing game redirects to | low — a reworded catalog title only brings back the catalog card |
+| Epic Games Store | `goneCard`, `/p/<slug>` URLs only | 1 | — | a 200 with no description and no image — the not-found page, its `<h1>` translated | low — a live page that stopped declaring both would be taken for dead |
+| Google Play | a `urlCard` for the 404 branch: the title is the `?id=`, not the route word; an app's " - App su Google Play" tail dropped (B6) | 1 | — | a real **404** | none |
+| itch.io | plain generic, then "\<title> by \<creators>" split into `author` when the first creator matches the subdomain or " by " occurs once | 1 | — | a real **404** | none — a template that stops matching leaves the title whole |
 | Apple Podcasts | plain generic, then the show name read out of Apple's description template into `author` | 1 | — | a real **404** | none — a no-op on a show page |
 
 ## Where the rest lives

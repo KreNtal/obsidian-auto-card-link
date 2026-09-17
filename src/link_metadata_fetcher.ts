@@ -110,6 +110,10 @@ export class LinkMetadataFetcher {
       if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
       if (CheckIf.isDockerHubRepoUrl(url)) return this.fetchDockerHub(url);
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
+      if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
+      if (CheckIf.isItchGameUrl(url)) return this.fetchItch(url);
+      if (CheckIf.isEpicProductUrl(url)) return this.fetchEpic(url);
+      if (CheckIf.isGooglePlayIdUrl(url)) return this.fetchGooglePlay(url);
       if (CheckIf.isTikTokUrl(url)) return this.fetchTikTok(url);
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
       if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
@@ -170,6 +174,16 @@ export class LinkMetadataFetcher {
       "hub.docker.com": "Docker Hub",
       "tiktok.com": "TikTok",
       "steampowered.com": "Steam",
+      // Generic path, and a live game declares "GOG.com" itself; this labels the card a dead
+      // game builds from its URL, since the catalog it lands on declares no name.
+      "gog.com": "GOG.com",
+      // Generic path. Google Play declares no og:site_name at all - its titles end "… on
+      // Google Play" instead, so a live card needs no suffix (H2). The App Store declares
+      // "App Store" itself. Both floors label the card a dead item builds from its URL.
+      "play.google.com": "Google Play",
+      "apps.apple.com": "App Store",
+      // Generic path; labels the card a missing product builds from its URL.
+      "store.epicgames.com": "Epic Games Store",
       "trello.com": "Trello",
       "openstreetmap.org": "OpenStreetMap",
       "osm.org": "OpenStreetMap",
@@ -315,6 +329,8 @@ export class LinkMetadataFetcher {
       checks?: {
          isUnusable?: (metadata: LinkMetadata) => boolean;
          goneCard?: (metadata: LinkMetadata) => LinkMetadata | undefined;
+         /** The card a real 404/410 is built from, where the path alone names nothing. */
+         urlCard?: (url: string) => LinkMetadata;
       }
    ): Promise<LinkMetadata | undefined> {
       let res = await this.request(url, {
@@ -345,7 +361,7 @@ export class LinkMetadataFetcher {
          // call, 2026-09-03).
          if (res && (res.status === 404 || res.status === 410)) {
             const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
-            return this.errorPageCard(url, html);
+            return this.errorPageCard(url, html, checks?.urlCard);
          }
          return this.fetchFallback(url);
       }
@@ -384,9 +400,11 @@ export class LinkMetadataFetcher {
    private static readonly PLUGIN_UA =
       "Mozilla/5.0 (compatible; ObsidianAutoCardLink/1.0; +https://github.com/KreNtal/obsidian-auto-card-link)";
 
-   private async errorPageCard(url: string, html: string): Promise<LinkMetadata> {
+   private async errorPageCard(
+      url: string, html: string, urlCard: (url: string) => LinkMetadata = (u) => this.buildUrlCard(u)
+   ): Promise<LinkMetadata> {
       const parsed = await new LinkMetadataParser(url, html).parse();
-      return this.withPageFurniture(this.buildUrlCard(url), parsed);
+      return this.withPageFurniture(urlCard(url), parsed);
    }
 
    /**
@@ -2225,6 +2243,109 @@ export class LinkMetadataFetcher {
       return title ? { ...card, title } : card;
    }
 
+   /* --- GOG --- */
+
+   /**
+    * Not a fetcher: a game that exists reads in full on the generic path - `og:title`
+    * "Cyberpunk 2077 | GOG.com", the store blurb, the game's own share image - and none of
+    * that is touched.
+    *
+    * A game that does **not** exist is 302'd to the catalog, `/en/games`, whatever language
+    * segment the URL carried (`/en/`, `/de/`, `/fr/`, none), which answers **200** with
+    * `<title>Best Video games, DRM-free | GOG.COM</title>`, no og:title and GOG's marketing
+    * blurb (measured 2026-09-16). Left generic, every dead game link is that same confident
+    * card. The catalog's title is the tell, checked whole: no game is titled that, and the
+    * check is scoped to `/game/` URLs. A renamed game redirects to its new slug, a real game
+    * page, so it never matches. If GOG rewords the catalog title this stops matching and a
+    * dead link goes back to the catalog card - never the reverse.
+    *
+    * A live game's title is "<name> | GOG.com" (Cyberpunk 2077, Stardew Valley, "Disco
+    * Elysium - The Final Cut"), not localised, and the site-name segment goes (B6, Roberto
+    * 2026-09-16). Only when " | " occurs once, so a name holding one is never cut.
+    */
+   private async fetchGog(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url, {
+         goneCard: (page) => {
+            if (page.title.trim().toLowerCase() !== "best video games, drm-free | gog.com") return undefined;
+            // `/en/game/the_witcher_3_wild_hunt`: the slug is the game's name, lowercased,
+            // so it gets title casing back. The catalog's blurb and icon ride along.
+            const slug = url.match(/\/game\/([^/?#]+)/i)?.[1];
+            const card = this.buildUrlCard(url);
+            const title = LinkMetadataFetcher.deslug(slug, "title");
+            return this.withPageFurniture(title ? { ...card, title } : card, page);
+         },
+      });
+      const title = metadata?.title;
+      const suffix = " | GOG.com";
+      if (!metadata || !title?.endsWith(suffix) || title.indexOf(" | ") !== title.length - suffix.length) return metadata;
+      return { ...metadata, title: title.slice(0, -suffix.length) };
+   }
+
+   /* --- EPIC GAMES STORE --- */
+
+   /**
+    * Not a fetcher: a product page reads in full in Obsidian - `og:title`, `og:description`
+    * and the game's own image, Fortnite and the self-published `dispatch-76e550` alike, with
+    * every user agent tried (measured in Obsidian's console 2026-09-16). Scripted probes get
+    * Cloudflare's 403 on every request, which proved nothing (rule 4).
+    *
+    * A product that does **not** exist answers **200** with no og tags and no `<title>`
+    * text; its only heading is an `<h1>` the parser falls back to, translated ("Page Not
+    * Found", "Pagina non trovata"), so the card came out confidently titled with the error.
+    * The tell is language-independent instead: no description and no image, which every live
+    * product page declares. The title comes from the slug, less the 6-hex suffix
+    * self-published products carry (`dispatch-76e550` → "Dispatch"); a suffix must hold a
+    * digit, so a word like "facade" is never cut. There is no furniture to keep beyond the
+    * favicon, and no Microlink.
+    */
+   private fetchEpic(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, {
+         goneCard: (metadata) => {
+            if (metadata.description || metadata.image) return undefined;
+            const slug = url.match(/\/p\/([^/?#]+)/i)?.[1]?.replace(/-(?=[0-9a-f]*\d)[0-9a-f]{6}$/i, "");
+            const card = this.buildUrlCard(url);
+            const title = LinkMetadataFetcher.deslug(slug, "title");
+            return this.withPageFurniture(title ? { ...card, title } : card, metadata);
+         },
+      });
+   }
+
+   /* --- GOOGLE PLAY --- */
+
+   /**
+    * Not a fetcher either: an app, a book or a developer page reads in full on the generic
+    * path, and a dead one is a real **404** (a 1.6 kB "Not Found", nothing to ride along).
+    * What was wrong is the card built from its URL: these name their item only in `?id=`,
+    * so the path's last word became the title - "Details", "Developer", "Dev" (measured
+    * 2026-09-16). The id is the URL's own name for it and is kept verbatim (field rule B4):
+    * `com.nonexistent.xyz123`, or "Nonexistent Dev Xyz123" for a developer by name. A
+    * developer by number gets a label from the URL's shape instead - digits tell nobody
+    * anything.
+    *
+    * An app's title is "<name> - <Apps on Google Play>", the tail localised and the dash an
+    * en dash in some languages: "Obsidian - App su Google Play", "Obsidian – Apps bei Google
+    * Play", "Obsidian - Google Play のアプリ", "Telegram - App su Google Play". That tail is
+    * the site-name segment and goes (B6, Roberto 2026-09-16) - on `/store/apps/details` only,
+    * only when the separator occurs once ("Duolingo: Corsi di Lingua" keeps its colon; a
+    * name with its own " - " is left whole). Developer and book pages use other templates
+    * ("App Android di Dynalist Inc. su Google Play") and are not touched.
+    */
+   private async fetchGooglePlay(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url, { urlCard: (u) => this.buildGooglePlayFallback(u) });
+      if (!metadata || !/\/store\/apps\/details\?/.test(url)) return metadata;
+      const parts = metadata.title.split(/ [-–] /);
+      if (parts.length !== 2 || !parts[1]!.includes("Google Play")) return metadata;
+      return { ...metadata, title: parts[0]!.trim() };
+   }
+
+   private buildGooglePlayFallback(url: string): LinkMetadata {
+      const card = this.buildUrlCard(url);
+      const parsed = new URL(url);
+      const id = parsed.searchParams.get("id")?.trim();
+      if (id && /\p{L}/u.test(id)) return { ...card, title: id };
+      return /\/dev$/.test(parsed.pathname) ? { ...card, title: "Google Play developer" } : card;
+   }
+
    /* --- APPLE PODCASTS --- */
 
    /**
@@ -2246,6 +2367,33 @@ export class LinkMetadataFetcher {
       if (!metadata?.description) return metadata;
       const show = metadata.description.match(/^Podcast Episode\s*·\s*([^·]+)·/)?.[1]?.trim();
       return show ? { ...metadata, author: show, linkTitle: `${metadata.title} - ${show}` } : metadata;
+   }
+
+   /* --- ITCH.IO --- */
+
+   /**
+    * A game page, `<creator>.itch.io/<slug>`, reads in full generically (no og:title, but
+    * `twitter:title` and `<title>` agree), and a dead game or creator is a real 404. This
+    * exists only for field rule A5: itch titles every game "<title> by <creators>" - 25 of 25
+    * on `/games/top-rated`, 2026-09-16 ("A Short Hike by adamgryu", "Six Cats Under by Team
+    * Bean Loop, Mosu") - so the creators move to `author` (B6), with no extra request.
+    *
+    * B6 wants the split proven: the first creator matches the subdomain (case and punctuation
+    * dropped - 20 of the 25), or " by " occurs exactly once (the other five, which credit a
+    * name the subdomain does not spell: "Graeme Borland" on `graebor`, "Scoot" on
+    * `alfredncy`). The last " by " is the one tried, so "Made by Me by x" keeps "Made by Me"
+    * on the handle; two " by " and no match is ambiguous and the title stays whole.
+    */
+   private async fetchItch(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      const handle = url.match(/^https?:\/\/([a-z0-9-]+)\.itch\.io\//i)?.[1];
+      const at = metadata?.title.lastIndexOf(" by ") ?? -1;
+      if (!metadata || !handle || at <= 0) return metadata;
+      const creators = metadata.title.slice(at + 4).trim();
+      const squash = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+      const once = metadata.title.indexOf(" by ") === at;
+      if (!once && squash(creators.split(", ")[0]!) !== squash(handle)) return metadata;
+      return { ...metadata, title: metadata.title.slice(0, at).trim(), author: creators };
    }
 
    /* --- OPENSTREETMAP --- */
@@ -3685,12 +3833,9 @@ export class LinkMetadataFetcher {
     * and `looksLikePlaceholder` cannot catch it: the tell it looks for is a title that
     * *is* the URL slug, and "AniList" is not.
     *
-    * `/anime/<id>` and `/manga/<id>` are what the endpoint covers (field rule A2). Every
-    * other route - `/character/`, `/staff/`, `/studio/`, `/user/`, a forum thread - gets a
-    * card built from the URL, and that is not a consolation prize: those URLs carry the name
-    * as their last segment ("/character/31/Hisoka-Morow/" -> "Hisoka Morow", "/user/Mocha/"
-    * -> "Mocha"), so the title is already right and only the portrait and the bio are
-    * missing. A query each would buy those; ask if it is worth it.
+    * `/anime/<id>` and `/manga/<id>` are what the endpoint covers (field rule A2).
+    * Every other route reads the page instead - see fetchAniListPage for why that works
+    * after all - and falls back to a card built from the URL where it does not.
     *
     * **Microlink is not asked, ever**, not even when the API fails. Its headless browser
     * could genuinely render this SPA, but `fetchFallback` ends at `fetchTitleOnly`, which
@@ -3706,7 +3851,7 @@ export class LinkMetadataFetcher {
     */
    private async fetchAniList(url: string, refresh = false): Promise<LinkMetadata | undefined> {
       const media = url.match(/anilist\.co\/(anime|manga)\/(\d+)/i);
-      if (!media) return this.buildUrlCard(url);
+      if (!media) return this.fetchAniListPage(url);
 
       const key = `${media[1]!.toLowerCase()}/${media[2]}`;
       if (!refresh) {
@@ -3769,6 +3914,36 @@ export class LinkMetadataFetcher {
 
       LinkMetadataFetcher.anilistCache.set(key, card);
       return card;
+   }
+
+   /**
+    * Any route but `/anime/` and `/manga/`, read from the page itself. The shell above is what AniList
+    * sends a **browser** user agent; anything that does not look like one - Iframely,
+    * facebookexternalhit, Discordbot, and the plugin naming itself - gets a server-rendered
+    * page with real og tags (measured 2026-09-16, `/character/31/Hisoka-Morow/` and
+    * `/staff/95185/`): `og:title` the name, `og:description` "Hisoka Morow's anime & manga
+    * roles", `og:image` the portrait - the card Iframely shows. So these read generically
+    * with the plugin's own UA, and the page's fields are kept as they are (A3, B1, C1, D1).
+    *
+    * A character that does not exist gets the same rendered page with no og:title, so the
+    * parser lands on `<title>AniList</title>`: that, or any failure to answer, is the card
+    * from the URL, which already carries the name. No Microlink, for the reason above.
+    * A user's profile root reads the same way (`/user/Mocha/`: og:title "Mocha", "Mocha's
+    * AniList user profile", an `img.anili.st` share card); a user that does not exist gets the
+    * browser shell, titled "AniList" too. The home page ("AniList: Track, Discover, Share
+    * Anime & Manga", its tagline and logo), `/search/anime` and a forum thread render as well.
+    * What does not - `/studio/` (no og tags even for a real studio), a user's `/animelist`,
+    * `/review/`, `/activity/`, a dead thread - answers titled "AniList" and is URL-built, as
+    * every one of these routes was before; an unknown route is a bare 404, the same.
+    * This is user-agent sniffing, the fragile category (A6): if AniList stops rendering for
+    * bots, these fall back to the URL card they had before, never to "AniList".
+    */
+   private async fetchAniListPage(url: string): Promise<LinkMetadata> {
+      const res = await this.request(url, { "User-Agent": LinkMetadataFetcher.PLUGIN_UA });
+      if (!res || res.status !== 200) return this.buildUrlCard(url);
+      const page = await new LinkMetadataParser(url, await this.decodeHtmlContent(res.arrayBuffer, res.text)).parse();
+      if (!page || page.title.trim().toLowerCase() === "anilist") return this.buildUrlCard(url);
+      return page;
    }
 
    /**
