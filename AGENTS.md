@@ -57,6 +57,8 @@ const uas = {
   obsidian_real: navigator.userAgent,
   honest: "Mozilla/5.0 (compatible; ObsidianAutoCardLink/1.0; +https://github.com/KreNtal/obsidian-auto-card-link)",
   facebook: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+  slack: "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+  whatsapp: "WhatsApp/2.23.20.0",
   none: undefined,
 };
 const urls = ["https://example.com/live-thing", "https://example.com/cannot-exist-xyz123"];
@@ -93,13 +95,30 @@ for (const u of urls) for (const [k, ua] of Object.entries(uas)) {
    bot protection actually profiles. Scripted probes are a **lower bound**: if the probe
    gets through the plugin will; if it is refused, nothing follows. This has been got wrong
    six times. When re-checking, the test is **whether Microlink was called**, not whether a
-   card appeared.
+   card appeared. The lower bound holds only for the User-Agent the plugin already sends: a
+   probe that gets through **with a different UA** proves nothing either. eBay answered a
+   phone UA with the real page from a script and with 403 in Obsidian (2026-09-17) - a phone
+   UA on Electron's desktop fingerprint is itself the tell. Confirm any new UA in the console.
 5. **Never modify the URL the user pasted.** No stripping parameters on a hunch.
 6. **A shell seen with a browser User-Agent is not proof that the page cannot be read.**
    Some sites render real og tags only for crawlers: AniList, TikTok profiles, Trello
    boards. Before concluding a page is a shell, request it with the plugin's own UA
-   (`PLUGIN_UA`) and with `facebookexternalhit` as well, and record all three results. AniList was read through its API for a day on the strength of the Chrome UA
-   alone, while its pages carried everything Iframely showed (2026-09-16).
+   (`PLUGIN_UA`) and with `facebookexternalhit` as well, and record all three results.
+   AniList was read through its API for a day on the strength of the Chrome UA alone, while
+   its pages carried everything Iframely showed (2026-09-16).
+7. **Before calling a site unreachable, or a card as good as it gets, check Iframely.** Paste
+   the link into iframely.com/try and compare its card with ours: a richer card means the
+   data is out there. Then look for a plugin for the domain in its open-source repo
+   (github.com/itteco/iframely, `plugins/domains/`) - if there is one, it names the endpoint
+   or the trick. If there is none, Iframely read the page, and the question is which request
+   gets through: try the other link-preview user agents - `facebookexternalhit`, Slackbot
+   (`Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)`), WhatsApp
+   (`WhatsApp/2.23.20.0`), Discordbot, Twitterbot - by script first, then confirm the ones
+   that pass in Obsidian's console (rule 4). The hosted service also has per-domain proxy and
+   prerender settings that are not published, so a card Iframely gets is not always one the
+   plugin can. Found this way on 2026-09-16/17: AniList's crawler rendering, Epic's pages
+   being readable, Etsy answering WhatsApp and Slackbot. eBay is the counter-example: Iframely
+   renders it, no user agent tried gets through in Obsidian.
 
 **The failure to look for first is not "does this site block us".** It is a site that
 *answers, with something else* — a marketing shell, a sign-in wall, its own homepage —

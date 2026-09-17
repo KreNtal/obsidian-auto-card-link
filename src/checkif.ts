@@ -167,6 +167,18 @@ export class CheckIf {
     return /^https?:\/\/store\.epicgames\.com\/([a-z]{2}(-[a-z]{2})?\/)?p\/[^/?#]+\/?([?#]|$)/i.test(url);
   }
 
+  public static isEtsyUrl(url: string): boolean {
+    // The whole host: Etsy refuses every ordinary request, and the WhatsApp UA that gets
+    // through works on listings, shops, categories and the localised home page alike.
+    return /^https?:\/\/(www\.)?etsy\.com(\/|$)/i.test(url);
+  }
+
+  public static isAliExpressItemUrl(url: string): boolean {
+    // `/item/<id>.html`, on www. or a country subdomain (it., es., …). Read generically; only
+    // a *missing* item needs recognising, since AliExpress answers one with a 200.
+    return /^https?:\/\/([a-z]{2,3}\.)?aliexpress\.com\/item\/\d+\.html/i.test(url);
+  }
+
   public static isItchGameUrl(url: string): boolean {
     // `<creator>.itch.io/<slug>` and nothing deeper: a game, tool or asset page, the shape
     // titled "<title> by <creators>". Profiles, devlogs and itch.io itself stay generic.

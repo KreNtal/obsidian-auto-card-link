@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 19 endpoint, 4 page + endpoint, 7 page, 9 hook.
+the same commit. Counts today: 19 endpoint, 4 page + endpoint, 8 page, 10 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -54,6 +54,7 @@ the same commit. Counts today: 19 endpoint, 4 page + endpoint, 7 page, 9 hook.
 
 | Site | Source | Req. | Cache | Dead link | Fragility (A6) |
 | --- | --- | --- | --- | --- | --- |
+| Etsy | `fetchGeneric` with the WhatsApp UA, the whole host; " - Etsy …" dropped from the title, the shop read out of a listing's description or a shop page's title (B6, F4) | 1 | — | the page's own **404** | **high** — UA sniffing; every other UA is 403, Microlink `EPROXYNEEDED` |
 | Twitch | the page, 3 attempts with rotating user agents, 9s timeout | 1–3 | — | the shell → card from the URL plus furniture | **high** — UA sniffing and retries |
 | TED | the page + speaker and ISO-8601 duration pulled from the HTML | 1 | — | non-200 → generic, so a real **404** | medium — HTML scraping for two fields |
 | Google Docs / Drive | the page + a check on the redirect to `accounts.google.com` and a `<base href>` there | 1–2 | — | the sign-in redirect — a wall, not a death | medium — a redirect and an HTML tell |
@@ -73,6 +74,7 @@ No extra request, nothing site-specific to break.
 | Bandcamp | a `siteName` floor, nothing else | 1 | sticky | a real **404** | none — the Cloudflare-interstitial check it used to carry now runs in `fetchGeneric` for every link |
 | Medium | `goneCard` | 1 | — | a title that is nothing but the site name | none |
 | GOG | `goneCard`, `/game/` URLs only; " \| GOG.com" dropped from a live title (B6) | 1 | — | a 200 titled "Best Video games, DRM-free \| GOG.COM" — the catalog a missing game redirects to | low — a reworded catalog title only brings back the catalog card |
+| AliExpress | `emptyPage`, `/item/<id>.html` only; " - AliExpress \<number>" dropped from a live title (B6) | 1 | — | a 200 whose `og:title` is declared empty | low — a changed empty page only brings back the Microlink call |
 | Epic Games Store | `goneCard`, `/p/<slug>` URLs only | 1 | — | a 200 with no description and no image — the not-found page, its `<h1>` translated | low — a live page that stopped declaring both would be taken for dead |
 | Google Play | a `urlCard` for the 404 branch: the title is the `?id=`, not the route word; an app's " - App su Google Play" tail dropped (B6) | 1 | — | a real **404** | none |
 | itch.io | plain generic, then "\<title> by \<creators>" split into `author` when the first creator matches the subdomain or " by " occurs once | 1 | — | a real **404** | none — a template that stops matching leaves the title whole |

@@ -144,6 +144,8 @@ export interface SteamAppDetailsResponse {
 
 export interface MicrolinkResponse {
   status?: string;
+  /** The HTTP status of the page Microlink itself read - not of the API call. */
+  statusCode?: number;
   data?: {
     title?: string;
     description?: string;

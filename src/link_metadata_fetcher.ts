@@ -111,6 +111,8 @@ export class LinkMetadataFetcher {
       if (CheckIf.isDockerHubRepoUrl(url)) return this.fetchDockerHub(url);
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
       if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
+      if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
+      if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
       if (CheckIf.isItchGameUrl(url)) return this.fetchItch(url);
       if (CheckIf.isEpicProductUrl(url)) return this.fetchEpic(url);
       if (CheckIf.isGooglePlayIdUrl(url)) return this.fetchGooglePlay(url);
@@ -185,6 +187,11 @@ export class LinkMetadataFetcher {
       "apps.apple.com": "App Store",
       // Generic path; labels the card a missing product builds from its URL.
       "store.epicgames.com": "Epic Games Store",
+      // Generic path. A live item declares "aliexpress." itself, which wins; this labels the
+      // card a missing item builds from its URL.
+      "aliexpress.com": "AliExpress",
+      // Etsy declares no og:site_name, so this labels every Etsy card, live or dead.
+      "etsy.com": "Etsy",
       "trello.com": "Trello",
       "openstreetmap.org": "OpenStreetMap",
       "osm.org": "OpenStreetMap",
@@ -332,10 +339,18 @@ export class LinkMetadataFetcher {
          goneCard?: (metadata: LinkMetadata) => LinkMetadata | undefined;
          /** The card a real 404/410 is built from, where the path alone names nothing. */
          urlCard?: (url: string) => LinkMetadata;
+         /**
+          * A 200 the parser found no title in, handed over as HTML: a site that answers a
+          * missing item with an empty page can recognise it here, before Microlink is asked.
+          */
+         emptyPage?: (html: string) => LinkMetadata | undefined;
+         /** Headers for the first request, over the defaults - a User-Agent a site answers. */
+         headers?: Record<string, string>;
       }
    ): Promise<LinkMetadata | undefined> {
       let res = await this.request(url, {
-         "Referer": "https://www.google.com/"
+         "Referer": "https://www.google.com/",
+         ...checks?.headers,
       });
 
       // A browser User-Agent that arrives without the rest of a browser's headers is itself
@@ -370,6 +385,12 @@ export class LinkMetadataFetcher {
       const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
       const parser = new LinkMetadataParser(url, decodedText);
       const metadata = await parser.parse();
+
+      const empty = !metadata && checks?.emptyPage?.(decodedText);
+      if (empty) {
+         console.debug(`Fetch for ${url} returned the site's empty page for a missing item; building from the URL.`);
+         return empty;
+      }
 
       // Some sites (e.g. zhihu.com) serve non-browser requests an unrendered SPA shell whose
       // <title> is left as the raw URL slug/id instead of the real page title — every other
@@ -512,7 +533,8 @@ export class LinkMetadataFetcher {
       // posts it faces the same login wall we do while the embed path above already covers
       // them. Spending one of its ~25 daily requests here only takes quota from sites where
       // it can actually help.
-      if (this.settings?.useExternalFallback && !CheckIf.isRedditUrl(url)) {
+      if (this.settings?.useExternalFallback && !CheckIf.isRedditUrl(url)
+         && !LinkMetadataFetcher.microlinkProxyHosts.has(new URL(url).hostname)) {
          // Once Microlink has answered 429 the quota is gone for the day - it is per IP and
          // daily - so every further call returns the same 429 and the round trip is skipped.
          // The notice still fires: that this link is one the direct fetch cannot handle is
@@ -558,6 +580,9 @@ export class LinkMetadataFetcher {
       return titleOnly.title === new URL(url).hostname ? this.buildUrlCard(url) : titleOnly;
    }
 
+   /** Hosts Microlink refused with `EPROXYNEEDED`, skipped for the rest of the session. */
+   private static readonly microlinkProxyHosts = new Set<string>();
+
    /** Set when Microlink answers 429; its quota is daily, so nothing changes before tomorrow. */
    private static microlinkExhausted = false;
 
@@ -581,6 +606,12 @@ export class LinkMetadataFetcher {
          if (res?.status === 429) return { rateLimited: true };
          if (!res || res.status !== 200) {
             console.debug(`Microlink request failed for ${url}. Status: ${res?.status}`);
+            // `EPROXYNEEDED`: Microlink will not fetch this host at all on the free tier - it
+            // wants its paid proxy (etsy.com, 2026-09-17: every route, the same 400). Nothing
+            // about that changes within a session, so the host is not sent again.
+            if (res?.text.includes("EPROXYNEEDED")) {
+               LinkMetadataFetcher.microlinkProxyHosts.add(new URL(url).hostname);
+            }
             return {};
          }
 
@@ -588,6 +619,15 @@ export class LinkMetadataFetcher {
          const d = json.data;
          if (json.status !== "success" || !d?.title) {
             console.debug(`Microlink returned no usable data for ${url}:`, json);
+            return {};
+         }
+         // "success" only means the API call worked. `statusCode` is what the page answered
+         // Microlink, and a 4xx/5xx page describes the error, not the link - the same line
+         // fetchTitleOnly draws. Found on eBay 2026-09-17: a listing Microlink was refused came
+         // back `status: "success"`, `statusCode: 403`, titled "Error Page | eBay" with the
+         // description "SORRY", and was written into the note as if it were the item.
+         if ((json.statusCode ?? 200) >= 400) {
+            console.debug(`Microlink read an error page for ${url}. Status: ${json.statusCode}`);
             return {};
          }
 
@@ -2280,6 +2320,94 @@ export class LinkMetadataFetcher {
       const suffix = " | GOG.com";
       if (!metadata || !title?.endsWith(suffix) || title.indexOf(" | ") !== title.length - suffix.length) return metadata;
       return { ...metadata, title: title.slice(0, -suffix.length) };
+   }
+
+   /* --- ETSY --- */
+
+   /** WhatsApp's link-preview agent: the one Etsy answers on every route that has a page. */
+   private static readonly WHATSAPP_UA = "WhatsApp/2.23.20.0";
+
+   /**
+    * Etsy, read as WhatsApp's link preview. Etsy answers the Chrome UA, the plugin's own,
+    * `facebookexternalhit`, Discordbot, Twitterbot and a phone's with a 780-byte 403, and
+    * Microlink with a 400 `EPROXYNEEDED`. Measured in Obsidian's console 2026-09-17: the
+    * WhatsApp UA gets the real page on the localised home page (`/it/`), a listing, a category
+    * (`/it/c/jewelry`) and a shop (`/it/shop/PotteryProps`), and a real **404** for a listing or
+    * a shop that does not exist, whose Etsy blurb rides along on the card built from the URL.
+    * Slackbot, tried first, only got listings and shops. Search (`?q=`) and the bare `/` stay
+    * 403 to every UA and end on the URL card. UA sniffing, the fragile category (A6): should it
+    * stop working, links go back to the URL-built card they got before.
+    *
+    * Site templates (B6), checked on five listings in Italian and three each in English and
+    * German. Titles end in the site-name segment - " - Etsy Italia", " - Etsy", " - Etsy.de" -
+    * dropped only when " - " occurs once, so a name holding its own dash keeps the whole title
+    * (the home page starts with "Etsy Italia - …" and is untouched). A listing's description
+    * names the shop in a fixed sentence per language ("… di PotteryProps è nei preferiti di 48
+    * clienti di Etsy", "This Mugs item by PotteryProps has 48 favorites", "Dieser Becher-Artikel
+    * von PotteryProps wurde 48 Mal …"), which becomes the author; a language not listed gets
+    * none. On a shop's own page the name left in the title is the shop's, checked against the
+    * URL, and is its author too (F4). Descriptions stay whole, counts included (C4).
+    */
+   private async fetchEtsy(url: string): Promise<LinkMetadata | undefined> {
+      const shopName = url.match(/etsy\.com\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?shop\/([A-Za-z0-9]+)/i)?.[1];
+      const metadata = await this.fetchGeneric(url, {
+         headers: { "User-Agent": LinkMetadataFetcher.WHATSAPP_UA },
+         // `/listing/<id>` alone would be titled "Listing"; the slug, when present, is the name.
+         // A shop's name is its identifier and is kept verbatim (B4).
+         urlCard: (u) => {
+            const card = this.buildUrlCard(u);
+            if (shopName) return { ...card, title: shopName };
+            if (!/\/listing\/\d+/i.test(u)) return card;
+            const slug = u.match(/\/listing\/\d+\/([^/?#]+)/i)?.[1];
+            return { ...card, title: LinkMetadataFetcher.deslug(slug) ?? "Etsy listing" };
+         },
+      });
+      if (!metadata) return metadata;
+
+      let title = metadata.title;
+      const tail = title.match(/ - Etsy(?:\.[a-z.]+| [A-Z]\w+)?$/);
+      if (tail && title.indexOf(" - ") === tail.index) title = title.slice(0, tail.index);
+      const shop = metadata.description?.match(
+         / di ([A-Za-z0-9]+) è nei preferiti di | item by ([A-Za-z0-9]+) has \d| von ([A-Za-z0-9]+) wurde \d/);
+      const author = shop?.slice(1).find(Boolean)
+         ?? (shopName && title.toLowerCase() === shopName.toLowerCase() ? title : undefined);
+      return { ...metadata, title, author: author ?? metadata.author };
+   }
+
+   /* --- ALIEXPRESS --- */
+
+   /**
+    * Not a fetcher: an item reads generically - `og:title` the product's name, the item's own
+    * image - and pasted in Obsidian it never called Microlink (2026-09-17).
+    *
+    * An item that does **not** exist was the problem, field rule A1(b): **200**, with
+    * `og:title`, `og:description`, `og:image` and `<title>` all present and all **empty**
+    * (`/item/1005000000000000.html`, `…001.html`, on www. and it.). The parser finds no title,
+    * so `fetchGeneric` handed it to Microlink - which in Obsidian did not even answer within
+    * its 15 seconds - and the card came out titled "Item", the route word. `emptyPage` sees
+    * the HTML the parser gave up on: an empty `og:title` declared on an item page is the tell,
+    * and the card is built from the URL. The URL carries only the id, so the title is a label
+    * from its shape, "AliExpress item" (B4). No Microlink.
+    *
+    * A live item's title is a site template (B6): "<name> - AliExpress <number>" on five of
+    * six items checked ("… freni a disco - AliExpress 201355758", "… Microfono - AliExpress
+    * 44"). The site-name segment and its technical number go; a title without that tail, or
+    * with " - AliExpress " more than once, is kept whole. The description stays AliExpress's
+    * own "Smarter Shopping, Better Living! Aliexpress.com": generic, but the only one declared
+    * (C1). A title with an inch mark in it is cut short by AliExpress itself, which does not
+    * escape the quote in its own attribute ("MileCity 1 E-Bike da 26"); a browser reads it the
+    * same way.
+    */
+   private async fetchAliExpress(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url, {
+         emptyPage: (html) => /<meta\s+property=["']og:title["']\s+content=["']\s*["']/i.test(html)
+            ? { ...this.buildUrlCard(url), title: "AliExpress item" }
+            : undefined,
+      });
+      const title = metadata?.title;
+      const tail = title?.match(/ - AliExpress \d+$/);
+      if (!metadata || !title || !tail || title.indexOf(" - AliExpress ") !== tail.index) return metadata;
+      return { ...metadata, title: title.slice(0, tail.index) };
    }
 
    /* --- EPIC GAMES STORE --- */
