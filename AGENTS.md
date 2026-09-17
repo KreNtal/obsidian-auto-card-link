@@ -310,6 +310,46 @@ exception exists only if it is written here, or recorded with its evidence in
 - **I2.** A refresh never clears a field.
 - **I3.** Every exception is recorded with its evidence. Without it, it does not exist.
 
+**J. Dead links**
+
+Agreed with the maintainer on 2026-09-17, after a round of pastes showed dead links costing
+more code and more checks than live ones for very little a reader gets from them.
+
+- **J1.** A link is *not found* only on proof that the site has nothing there for an anonymous
+  reader: a 404, 410 or 401 (Hugging Face answers a missing repo and a private one with the
+  same 401); a site's own not-found page recognised by a `goneCard` or `emptyPage` tell; an
+  endpoint's empty or not-found answer (SE's `items: []`, TikTok's 400, crates.io's 404). A
+  failure to answer - 5xx, 429, a timeout, a challenge - proves nothing. A sign-in wall is not
+  a dead link either: a site whose 401 or 403 is a wall reads it as one before the generic
+  path does (Google Docs).
+- **J2.** A dead link's card is built from the URL, with the page's furniture (C5, D4, G3).
+  Its title, in order: a name the code already has for the item - an endpoint it asked
+  anyway, an identifier it already parsed out of the URL - never an extra request for it;
+  otherwise the general builder: the URL's last path segment verbatim when it is a single
+  token (`nonexistentorgxyz123`, `gs10ad`), through `deslug` when it is a slug of several
+  words ("Some deleted story"), and the whole path verbatim when the last segment carries no
+  letters (`forgejo/forgejo/issues/99999999`). Accepted limit: a trailing route word
+  (`/files/`) stays a route word.
+- **J3.** No code exists only to improve a dead link's title. A title shape that is not tied
+  to a site - a route word, an id - is fixed in the general builder (A4). On a dead link two
+  things are checked, and only two: the title is not the error page's, and Microlink is not
+  called.
+- **J4.** A not-found card says so in its **title**, once, as the user chose in the settings
+  ("Links that are not found"). The default strikes it through with Markdown's own `~~…~~`:
+  the card renders a line-through without the tildes, a markdown link is struck natively
+  with the site name after the strike ("~~title~~ - Site"), no language is involved, it
+  survives the card's two-line clamp, and a search for `~~` finds every dead link in the
+  vault. The alternatives are a text of the user's own before the title (default "Not
+  found:", in whatever language they write it) or no mark. The renderer and the link label
+  always recognise `~~…~~`, whatever the setting is now, so cards written under another
+  choice still show correctly. Rejected on the way (2026-09-17): a fixed " - not found"
+  suffix (English, and cut first by the clamp) and a 🚫 prefix. No field of its own in the
+  block (the maintainer's call: a `status:` key adds little). Never in the description,
+  which on these cards is the site's own furniture. It is applied where the proof is established - `errorPageCard`, `goneCard`,
+  `emptyPage`, and each fetcher's own proven-dead path - and never to a card built from the
+  URL after a failure or a wall. A refresh rewrites the title, so a link that comes back loses
+  the marker with no exception to I2.
+
 ### Reuse before writing
 
 In `src/link_metadata_fetcher.ts` unless noted: `buildUrlCard`, `errorPageCard`,

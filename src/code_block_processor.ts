@@ -140,7 +140,13 @@ export class CodeBlockProcessor {
     // flex-direction: row-reverse, so the later child renders on the left.
     const mainEl = cardEl.createDiv({ cls: "auto-card-link-main" });
 
-    mainEl.createDiv({ cls: "auto-card-link-title", text: data.title });
+    // `~~title~~` marks a link the site says is not there (field rule J4): shown struck
+    // through, without the tildes.
+    const struck = data.title.match(/^~~([\s\S]+)~~$/);
+    mainEl.createDiv({
+      cls: struck ? "auto-card-link-title auto-card-link-title-not-found" : "auto-card-link-title",
+      text: struck ? struck[1]! : data.title,
+    });
 
     if (data.description) {
       mainEl.createDiv({ cls: "auto-card-link-description", text: data.description });

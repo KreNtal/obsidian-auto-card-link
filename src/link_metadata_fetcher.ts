@@ -419,7 +419,7 @@ export class LinkMetadataFetcher {
       const empty = !metadata && checks?.emptyPage?.(decodedText);
       if (empty) {
          console.debug(`Fetch for ${url} returned the site's empty page for a missing item; building from the URL.`);
-         return empty;
+         return this.notFound(empty);
       }
 
       // Some sites (e.g. zhihu.com) serve non-browser requests an unrendered SPA shell whose
@@ -437,7 +437,7 @@ export class LinkMetadataFetcher {
       const gone = metadata && checks?.goneCard?.(metadata);
       if (gone) {
          console.debug(`Fetch for ${url} returned the site's own not-found page; building from the URL.`);
-         return gone;
+         return this.notFound(gone);
       }
 
       if (metadata && (LinkMetadataFetcher.looksLikeInterstitial(metadata) || checks?.isUnusable?.(metadata))) {
@@ -456,7 +456,8 @@ export class LinkMetadataFetcher {
       url: string, html: string, urlCard: (url: string) => LinkMetadata = (u) => this.buildUrlCard(u)
    ): Promise<LinkMetadata> {
       const parsed = await new LinkMetadataParser(url, html).parse();
-      return this.withPageFurniture(urlCard(url), parsed);
+      // Only ever called on a 401, 404 or 410: proof, so the card says so (J4).
+      return this.notFound(this.withPageFurniture(urlCard(url), parsed));
    }
 
    /**
@@ -3759,13 +3760,12 @@ export class LinkMetadataFetcher {
     * made for Steam's storefront blurb: what is wrong with a shell is its title, not its
     * furniture.
     */
-   private fetchGoogleMaps(url: string): Promise<LinkMetadata | undefined> {
-      return this.fetchGeneric(url, {
-         goneCard: (metadata) => {
-            if (metadata.title.trim().toLowerCase() !== "google maps") return undefined;
-            return this.withPageFurniture(this.buildGoogleMapsFallback(url), metadata);
-         },
-      });
+   private async fetchGoogleMaps(url: string): Promise<LinkMetadata | undefined> {
+      // Not a goneCard: every Maps page, a real place included, is titled "Google Maps", so
+      // this is a title replacement on a live card, and goneCard marks its card not found (J4).
+      const metadata = await this.fetchGeneric(url);
+      if (!metadata || metadata.title.trim().toLowerCase() !== "google maps") return metadata;
+      return this.withPageFurniture(this.buildGoogleMapsFallback(url), metadata);
    }
 
    private buildGoogleMapsFallback(url: string): LinkMetadata {
@@ -5252,20 +5252,46 @@ export class LinkMetadataFetcher {
       };
    }
 
+   /**
+    * Field rule J2. The last segment names the item: verbatim when it is a single token (an
+    * identifier - `nonexistentorgxyz123`, `gs10ad`), through `deslug` when it is a slug of
+    * several words. When it carries no letters - an id - the whole path is the title,
+    * verbatim: climbing past the id used to land on a route word, so a dead Codeberg issue,
+    * a GitHub pull request and a BBC story came out "Issues", "Pull" and "Technology"
+    * (measured 2026-09-17). Apple's trailing `id<digits>` (podcasts, apps) is still skipped
+    * first, so the slug before it wins ("Id9999999999" on a dead Apple Podcasts link,
+    * 2026-09-10).
+    */
    private static titleFromUrlPath(parsed: URL): string | undefined {
       const segments = parsed.pathname.split("/").filter(Boolean);
-      // Last segment first, skipping any that carries no letters: an id, a date, a page
-      // number. "763622" tells a reader nothing. Apple's own convention - podcasts, apps -
-      // adds a trailing `id<digits>` segment that technically has letters (the "id") but
-      // means no more than a bare number would ("Id9999999999", found on a dead Apple
-      // Podcasts link 2026-09-10); skipped the same way so the real slug before it wins.
-      for (let i = segments.length - 1; i >= 0; i--) {
-         const raw = segments[i]!.replace(/\.\w{2,5}$/, "");
-         if (/^id\d+$/i.test(raw)) continue;
-         const words = LinkMetadataFetcher.deslug(raw);
-         if (words) return words;
+      while (segments.length && /^id\d+$/i.test(segments[segments.length - 1]!)) segments.pop();
+      const decode = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
+      const last = segments[segments.length - 1];
+      if (!last) return undefined;
+
+      const raw = decode(last).replace(/\.\w{2,5}$/, "");
+      if (!/\p{L}/u.test(raw)) return decode(segments.join("/"));
+      return /[_+-]/.test(raw) ? LinkMetadataFetcher.deslug(raw) : raw;
+   }
+
+   /**
+    * Field rule J4: a card for a link the site says is not there is marked in its title, the
+    * way the user chose. The default strikes it through, written as Markdown's own `~~…~~`:
+    * the card renders a line-through, a markdown link is struck natively, and no language is
+    * involved. The other choices are a text of the user's own before the title - in their
+    * language - or no mark at all. Tried first on 2026-09-17 and rejected by the maintainer:
+    * a fixed " - not found" suffix (English in every vault, cut by the card's two-line clamp)
+    * and a 🚫 prefix.
+    */
+   private notFound(card: LinkMetadata): LinkMetadata {
+      const style = this.settings?.notFoundMarker ?? "strikethrough";
+      if (style === "none") return card;
+      if (style === "prefix") {
+         const prefix = this.settings?.notFoundPrefix?.trim();
+         if (!prefix || card.title.startsWith(`${prefix} `)) return card;
+         return { ...card, title: `${prefix} ${card.title}` };
       }
-      return undefined;
+      return /^~~[\s\S]*~~$/.test(card.title) ? card : { ...card, title: `~~${card.title}~~` };
    }
 
    /**

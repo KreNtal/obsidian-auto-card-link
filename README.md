@@ -27,6 +27,7 @@ It includes tailored handling for over twenty sites — YouTube, Vimeo, Reddit, 
 - Show the thumbnail on the left or right of the card.
 - Choose thumbnail quality (best looking vs. max resolution).
 - Use an external service as a fallback for blocked sites (off by default).
+- Mark links that are not found: strike the title through (default), put a text of your choice before it, or leave it as it is.
 
 ## Network use
 

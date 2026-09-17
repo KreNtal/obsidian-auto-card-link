@@ -114,6 +114,11 @@
     /* necessary for ellipsis to work */
 }
 
+/* A link the site says is not there (field rule J4). */
+.auto-card-link-title-not-found {
+    text-decoration: line-through;
+}
+
 .auto-card-link-title {
     overflow: hidden;
     display: -webkit-box;
@@ -489,7 +494,7 @@ body.theme-light.auto-card-link-style-glass .auto-card-link-card:hover {
     margin: 0.1em 0;
 }
 
-/* Settings tab: separates the paste/drop group from the options below it */
+/* Settings tab: separates groups inside one section, e.g. paste/drop from the card options */
 .auto-card-link-settings-divider {
     border: none;
     border-top: 1px solid var(--background-modifier-border);

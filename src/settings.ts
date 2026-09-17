@@ -49,6 +49,8 @@ export interface ObsidianAutoCardLinkSettings {
   thumbnailQuality: "better-preview" | "max-resolution";
   useExternalFallback: boolean;
   thumbnailFit: "cover" | "contain";
+  notFoundMarker: "strikethrough" | "prefix" | "none";
+  notFoundPrefix: string;
 }
 
 export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
@@ -66,6 +68,8 @@ export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   thumbnailQuality: "better-preview",
   useExternalFallback: false,
   thumbnailFit: "cover",
+  notFoundMarker: "strikethrough",
+  notFoundPrefix: "Not found:",
 };
 
 export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
@@ -223,6 +227,22 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     containerEl.createEl("hr", { cls: "auto-card-link-settings-divider" });
 
     new Setting(containerEl)
+      .setName("Add blank line before card")
+      .setDesc("Insert an empty line before each card link block when converting a URL.")
+      .addToggle((val) => {
+        if (!this.plugin.settings) return;
+        return val
+          .setValue(this.plugin.settings.blankLineBeforeCard)
+          .onChange(async (value) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.blankLineBeforeCard = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl).setName("Menu").setHeading();
+
+    new Setting(containerEl)
       .setName("Add commands in menu item")
       .setDesc("Whether to add commands in right click menu items (refresh and delete will always be visible).")
       .addToggle((val) => {
@@ -250,21 +270,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
           });
       });
 
-    containerEl.createEl("hr", { cls: "auto-card-link-settings-divider" });
-
-    new Setting(containerEl)
-      .setName("Add blank line before card")
-      .setDesc("Insert an empty line before each card link block when converting a URL.")
-      .addToggle((val) => {
-        if (!this.plugin.settings) return;
-        return val
-          .setValue(this.plugin.settings.blankLineBeforeCard)
-          .onChange(async (value) => {
-            if (!this.plugin.settings) return;
-            this.plugin.settings.blankLineBeforeCard = value;
-            await this.plugin.saveSettings();
-          });
-      });
+    new Setting(containerEl).setName("Fetching").setHeading();
 
     new Setting(containerEl)
       .setName("Use external service for blocked sites")
@@ -279,6 +285,44 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
+
+    new Setting(containerEl)
+      .setName("Links that are not found")
+      .setDesc(createFragment((frag) => {
+        frag.appendText("How the title is marked when the site says the page is not there - a deleted post, a removed repository. ");
+        frag.createEl("strong", { text: "Applies only to new and refreshed links." });
+      }))
+      .addDropdown((drop) => {
+        if (!this.plugin.settings) return drop;
+        return drop
+          .addOption("strikethrough", "Strike through the title")
+          .addOption("prefix", "Put a text before the title")
+          .addOption("none", "Leave the title as it is")
+          .setValue(this.plugin.settings.notFoundMarker)
+          .onChange(async (value: string) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.notFoundMarker = value as "strikethrough" | "prefix" | "none";
+            await this.plugin.saveSettings();
+            this.display();
+          });
+      });
+
+    if (this.plugin.settings?.notFoundMarker === "prefix") {
+      new Setting(containerEl)
+        .setName("Text before the title")
+        .setDesc("Written before the title of a link that is not found, in any language.")
+        .addText((text) => {
+          if (!this.plugin.settings) return;
+          text
+            .setPlaceholder(DEFAULT_SETTINGS.notFoundPrefix)
+            .setValue(this.plugin.settings.notFoundPrefix)
+            .onChange(async (value) => {
+              if (!this.plugin.settings) return;
+              this.plugin.settings.notFoundPrefix = value.trim() || DEFAULT_SETTINGS.notFoundPrefix;
+              await this.plugin.saveSettings();
+            });
+        });
+    }
 
     // --- Images ---
     new Setting(containerEl).setName("Images").setHeading();

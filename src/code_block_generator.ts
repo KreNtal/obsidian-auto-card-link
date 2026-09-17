@@ -155,6 +155,14 @@ export class CodeBlockGenerator {
    * text — which is also what a site's own <title> normally does.
    */
   private static appendSiteName(title: string, siteName?: string): string {
+    // A dead link's title is struck through (field rule J4): the site name goes after the
+    // strike, not inside it, and is matched against the title without the tildes.
+    const struck = title.trim().match(/^~~([\s\S]+)~~$/);
+    if (struck) {
+      const label = CodeBlockGenerator.appendSiteName(struck[1]!, siteName);
+      const inner = struck[1]!.trim();
+      return label === inner ? `~~${inner}~~` : `~~${inner}~~${label.slice(inner.length)}`;
+    }
     const trimmed = title.trim();
     if (!siteName) return trimmed;
     if (!trimmed) return siteName;
