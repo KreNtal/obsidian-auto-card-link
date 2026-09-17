@@ -331,7 +331,9 @@ more code and more checks than live ones for very little a reader gets from them
   letters (`forgejo/forgejo/issues/99999999`). Accepted limit: a trailing route word
   (`/files/`) stays a route word.
 - **J3.** No code exists only to improve a dead link's title. A title shape that is not tied
-  to a site - a route word, an id - is fixed in the general builder (A4). On a dead link two
+  to a site - a route word, an id - is fixed in the general builder (A4). A label from the
+  URL's shape (B4) is still allowed where the URL carries no name and the general builder
+  would give a route word ("YouTube video" for `/watch?v=`, "arXiv:<id>" for `/abs/<id>`). On a dead link two
   things are checked, and only two: the title is not the error page's, and Microlink is not
   called.
 - **J4.** A not-found card says so in its **title**, once, as the user chose in the settings

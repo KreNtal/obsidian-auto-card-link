@@ -49,7 +49,7 @@ export interface PrintablesGraphQLResponse {
 }
 
 export interface ImdbSuggestionResponse {
-  d?: Array<{ l: string; y?: number; s?: string; i?: { imageUrl?: string; }; }>;
+  d?: Array<{ id?: string; l: string; y?: number; s?: string; i?: { imageUrl?: string; }; }>;
 }
 
 export interface GitHubRepoResponse {

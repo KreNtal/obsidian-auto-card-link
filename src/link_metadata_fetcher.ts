@@ -749,6 +749,10 @@ export class LinkMetadataFetcher {
       // oEmbed answers 400 for a video that is deleted, private or region-blocked. The watch
       // page is no help there - it carries no og:* tags at all and titles itself " - YouTube"
       // - so there is nothing to fetch and the URL is all there is to build from.
+      // Only a 400 (a video) or 404 (a playlist) is the item being gone (J1, measured
+      // 2026-09-17 on `watch?v=aaaaaaaaaaa` and a made-up playlist); a 401 may be a live video
+      // with embedding turned off, and no answer proves nothing, so those stay unmarked.
+      if (res?.status === 400 || res?.status === 404) return this.notFound(this.buildYouTubeFallback(url));
       if (!res || res.status !== 200) return this.buildYouTubeFallback(url);
 
       const data = JSON.parse(res.text) as OEmbedResponse;
@@ -861,7 +865,7 @@ export class LinkMetadataFetcher {
          // A 6+ digit path segment is the video id form.
          if (res?.status === 404 && /\/\d{6,}(?:\/|$|[?#])/.test(url)) {
             console.debug(`Vimeo has no video at ${url}; building a card from the URL.`);
-            return { url, title: "Vimeo video", host: "vimeo.com", favicon: "https://vimeo.com/favicon.ico", indent: 0 };
+            return this.notFound({ url, title: "Vimeo video", host: "vimeo.com", favicon: "https://vimeo.com/favicon.ico", indent: 0 });
          }
          return this.fetchGeneric(url);
       }
@@ -897,7 +901,7 @@ export class LinkMetadataFetcher {
       // which would spend a Microlink request and end up writing that same empty title.
       if (res?.status === 404) {
          console.debug(`Dailymotion has no video ${videoId}; building a card from the URL.`);
-         return { url, title: "Dailymotion video", host: "dailymotion.com", favicon: "https://www.dailymotion.com/favicon.ico", indent: 0 };
+         return this.notFound({ url, title: "Dailymotion video", host: "dailymotion.com", favicon: "https://www.dailymotion.com/favicon.ico", indent: 0 });
       }
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
@@ -998,7 +1002,7 @@ export class LinkMetadataFetcher {
             // shroud - Twitch" - which names no video at all (rule B3): the URL's label, and
             // the page's own blurb and logo along with it.
             if (/^(?:VOD|Clip)(?: of \S+)? - Twitch$/.test(metadata.title)) {
-               return this.withPageFurniture(this.buildTwitchFallback(url), metadata);
+               return this.notFound(this.withPageFurniture(this.buildTwitchFallback(url), metadata));
             }
             const parsed = LinkMetadataFetcher.parseTwitchVideoTitle(metadata.title, this.extractTwitchChannel(url));
             const duration = this.extractTwitchDuration(res.text, og("og:video:duration"));
@@ -1023,7 +1027,7 @@ export class LinkMetadataFetcher {
       // No Microlink - it would render the same shell. Its tags are single-quoted
       // (`property='og:title'`), which is why isTwitchResponseUsable, looking for double
       // quotes, never mistakes it for a page.
-      if (shell) return this.withParsedFurniture(this.buildTwitchFallback(url), url, shell);
+      if (shell) return this.notFound(await this.withParsedFurniture(this.buildTwitchFallback(url), url, shell));
 
       // No answer at all - a dead network, a 5xx. That proves nothing, so the normal path.
       return this.fetchGeneric(url);
@@ -1702,6 +1706,9 @@ export class LinkMetadataFetcher {
 
       // 1. GraphQL API — not behind the same Cloudflare wall as the web page
       const apiResult = await this.fetchPrintablesApi(modelId, url);
+      // `{"print":null}` on a 200 is the model not existing (J1, measured 2026-09-17 on
+      // model 99999999); a failed call is undefined and goes on to the page as before.
+      if (apiResult === "absent") return this.notFound(this.buildPrintablesFallback(url, modelId));
       if (apiResult) return apiResult;
 
       // 2. Page fetch with Googlebot UA — Cloudflare typically lets verified bots through
@@ -1737,7 +1744,7 @@ export class LinkMetadataFetcher {
       }
    }
 
-   private async fetchPrintablesApi(modelId: string, url: string): Promise<LinkMetadata | undefined> {
+   private async fetchPrintablesApi(modelId: string, url: string): Promise<LinkMetadata | "absent" | undefined> {
       // Printables GraphQL: operation name "PrintProfile", variable $id of type ID!
       // Discovered from https://github.com/100prznt/PrintablesGraphQL
       const query = `query PrintProfile($id: ID!) {
@@ -1760,6 +1767,7 @@ export class LinkMetadataFetcher {
 
       try {
          const data = JSON.parse(raw) as PrintablesGraphQLResponse;
+         if (data?.data && data.data.print === null) return "absent";
          const print = data?.data?.print;
          if (!print?.name) return undefined;
 
@@ -1856,8 +1864,12 @@ export class LinkMetadataFetcher {
       const res = await this.request(`https://v2.sg.media-imdb.com/suggestion/x/${id}.json`);
       if (!res || res.status !== 200) return this.buildImdbFallback(url);
 
-      const item = (JSON.parse(res.text) as ImdbSuggestionResponse)?.d?.[0];
-      if (!item) return this.buildImdbFallback(url);
+      // The suggestion endpoint is a search: an id that does not exist still answers, with
+      // whatever titles resemble it - tt99999999 came back as "Space: 1999" (2026-09-17), and
+      // the card used to take that first result. Only the entry carrying this very id is the
+      // item; no such entry is the id not existing (J1).
+      const item = (JSON.parse(res.text) as ImdbSuggestionResponse)?.d?.find((d) => d.id === id);
+      if (!item) return this.notFound(this.buildImdbFallback(url));
 
       return {
          url,
@@ -1940,7 +1952,7 @@ export class LinkMetadataFetcher {
       // Not cached: the repo may exist tomorrow.
       if (apiRes?.status === 404 || htmlRes?.status === 404) {
          console.debug(`GitHub repo ${key} does not exist (API ${apiRes?.status}, page ${htmlRes?.status}).`);
-         return {
+         return this.notFound({
             url,
             title: `${owner}/${repo}`,
             author: owner,
@@ -1949,7 +1961,7 @@ export class LinkMetadataFetcher {
             favicon: "https://github.com/favicon.ico",
             image,
             indent: 0,
-         };
+         });
       }
 
       // Rate-limited (403) → rebuild from the repo's own HTML instead of the generic scrape,
@@ -2109,7 +2121,7 @@ export class LinkMetadataFetcher {
          return group;
       }
       console.debug(`GitLab has no project or group at ${path}; building a card from the URL.`);
-      return this.buildUrlCard(url);
+      return this.notFound(this.buildUrlCard(url));
    }
 
    private gitLabProjectCard(url: string, path: string, body: string): LinkMetadata | undefined {
@@ -2213,7 +2225,8 @@ export class LinkMetadataFetcher {
       );
       if (res?.status !== 200) {
          console.debug(`Bitbucket API for ${path} returned ${res?.status}; building from the URL.`);
-         return fromUrl;
+         // The same card either way, but only a 404 is proof (J1).
+         return res?.status === 404 ? this.notFound(fromUrl) : fromUrl;
       }
 
       let data: BitbucketRepoResponse;
@@ -2701,7 +2714,7 @@ export class LinkMetadataFetcher {
 
       if (api && (api.status === 404 || api.status === 410)) {
          console.debug(`OpenStreetMap has no ${key}; keeping the page's furniture, labelling by type.`);
-         return { ...furniture, url, title: `OpenStreetMap ${kind}` };
+         return this.notFound({ ...furniture, url, title: `OpenStreetMap ${kind}` });
       }
 
       let tags: Record<string, string> = {};
@@ -2788,7 +2801,7 @@ export class LinkMetadataFetcher {
 
       if (metadata?.title.trim().toLowerCase().startsWith("soundcloud - hear the world")) {
          console.debug(`SoundCloud has no resource at ${url}; building a card from the URL.`);
-         return this.withPageFurniture(this.buildSoundCloudFallback(url), metadata);
+         return this.notFound(this.withPageFurniture(this.buildSoundCloudFallback(url), metadata));
       }
       if (!metadata) return this.buildSoundCloudFallback(url);
 
@@ -2914,7 +2927,7 @@ export class LinkMetadataFetcher {
       // not a slug and must not be de-slugged into prose ("left-pad", never "Left pad").
       if (res?.status === 404) {
          console.debug(`npm has no ${key}; building a card from the URL.`);
-         return { ...base, title: pkg };
+         return this.notFound({ ...base, title: pkg });
       }
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
@@ -3082,7 +3095,7 @@ export class LinkMetadataFetcher {
       const item = version ? data?.version : data?.crate;
       if (!item) {
          console.debug(`crates.io API for ${key} returned ${res?.status}; building from the URL.`);
-         return fromUrl;
+         return res?.status === 404 ? this.notFound(fromUrl) : fromUrl;
       }
 
       let logins: string[] = [];
@@ -3292,9 +3305,9 @@ export class LinkMetadataFetcher {
          console.debug(`TikTok has no oEmbed for ${clean}; building a card from the URL.`);
          const card = this.buildTikTokFallback(url, handle, videoId);
          const page = await this.request(clean);
-         return page?.status === 200
-            ? this.withParsedFurniture(card, url, await this.decodeHtmlContent(page.arrayBuffer, page.text))
-            : card;
+         return this.notFound(page?.status === 200
+            ? await this.withParsedFurniture(card, url, await this.decodeHtmlContent(page.arrayBuffer, page.text))
+            : card);
       }
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
@@ -3434,7 +3447,7 @@ export class LinkMetadataFetcher {
          // image are the site's own furniture on a page we have established says nothing
          // about the link. Keep them, replace only the title, exactly as the generic path
          // did before this fetcher existed. Never Microlink.
-         return html ? this.withParsedFurniture(card, url, html) : card;
+         return this.notFound(html ? await this.withParsedFurniture(card, url, html) : card);
       }
 
       const d = entry.data;
@@ -3530,9 +3543,9 @@ export class LinkMetadataFetcher {
          // anything, together" blurb) is furniture worth keeping even here - the same call
          // made for Steam's dead-app storefront. One direct request, never Microlink.
          const page = await this.request(url, { "Referer": "https://www.google.com/" });
-         return page?.status === 200
-            ? this.withParsedFurniture(card, url, await this.decodeHtmlContent(page.arrayBuffer, page.text))
-            : card;
+         return this.notFound(page?.status === 200
+            ? await this.withParsedFurniture(card, url, await this.decodeHtmlContent(page.arrayBuffer, page.text))
+            : card);
       }
       if (!res || res.status !== 200) return this.fetchGeneric(url);
 
@@ -3602,7 +3615,7 @@ export class LinkMetadataFetcher {
       );
       if (!res || res.status !== 200) {
          console.debug(`Trello API for card ${shortLink} returned ${res?.status}; building from the URL.`);
-         return fallback();
+         return res?.status === 404 ? this.notFound(fallback()) : fallback();
       }
 
       let data: TrelloCardResponse;
@@ -3987,7 +4000,7 @@ export class LinkMetadataFetcher {
       // read arXiv's 404 and end up titled after the URL's route segment ("Abs"); the id
       // itself is the citation form a reader recognises.
       const entry = res.text.split("<entry>")[1]?.split("</entry>")[0];
-      if (!entry) return this.arxivIdCard(url, id);
+      if (!entry) return this.notFound(this.arxivIdCard(url, id));
 
       const clean = (raw: string | undefined) => this.decodeXmlText(raw)?.replace(/\s+/g, " ").trim();
       const title = clean(entry.match(/<title>([\s\S]*?)<\/title>/)?.[1]);
@@ -4099,7 +4112,7 @@ export class LinkMetadataFetcher {
             // An empty `items` is the API stating the answer is deleted or never existed; a
             // failed call carries no `items` at all and proves nothing. See below for why the
             // difference is worth the branch.
-            return Array.isArray(ans?.items) ? this.buildUrlCard(url) : this.fetchGeneric(url);
+            return Array.isArray(ans?.items) ? this.notFound(this.buildUrlCard(url)) : this.fetchGeneric(url);
          }
       }
 
@@ -4113,7 +4126,7 @@ export class LinkMetadataFetcher {
       // on the one link where the API has already given a definitive answer. The URL's own
       // slug says more than that render would ("This question does not exist" beats a
       // rate-limit notice), and it costs nothing.
-      if (base === "absent") return this.buildUrlCard(url);
+      if (base === "absent") return this.notFound(this.buildUrlCard(url));
       if (!base) return this.fetchGeneric(url);
 
       const description = answerNote
@@ -4447,7 +4460,8 @@ export class LinkMetadataFetcher {
          || item?.title?.romaji?.trim()
          || item?.title?.english?.trim()
          || item?.title?.native?.trim();
-      if (!title) return this.buildUrlCard(url);
+      // A 404 carrying `Media: null` is AniList stating the item is not there (J1).
+      if (!title) return res.status === 404 && !item ? this.notFound(this.buildUrlCard(url)) : this.buildUrlCard(url);
 
       // Field rule F2: an endpoint field declared as the byline. A manga's is its author,
       // an anime's the studio that made it - the Steam `developers` case named in A3, and
@@ -4500,6 +4514,7 @@ export class LinkMetadataFetcher {
     */
    private async fetchAniListPage(url: string): Promise<LinkMetadata> {
       const res = await this.request(url, { "User-Agent": LinkMetadataFetcher.PLUGIN_UA });
+      if (res?.status === 404) return this.notFound(this.buildUrlCard(url));
       if (!res || res.status !== 200) return this.buildUrlCard(url);
       const page = await new LinkMetadataParser(url, await this.decodeHtmlContent(res.arrayBuffer, res.text)).parse();
       if (!page || page.title.trim().toLowerCase() === "anilist") return this.buildUrlCard(url);
@@ -4551,6 +4566,7 @@ export class LinkMetadataFetcher {
       const json = await this.blueskyJson<{ thread?: { post?: BlueskyPost; }; }>(
          `app.bsky.feed.getPostThread?uri=${encodeURIComponent(uri)}&depth=0&parentHeight=0`
       );
+      if (json === "notFound") return this.notFound(this.blueskyFallback(url, actor));
       const post = json?.thread?.post;
       if (!post?.author?.handle) return this.blueskyFallback(url, actor);
 
@@ -4588,6 +4604,7 @@ export class LinkMetadataFetcher {
       const profile = await this.blueskyJson<BlueskyProfile>(
          `app.bsky.actor.getProfile?actor=${encodeURIComponent(actor)}`
       );
+      if (profile === "notFound") return this.notFound(this.blueskyFallback(url, actor));
       if (!profile?.handle) return this.blueskyFallback(url, actor);
 
       const bio = this.blueskyText(profile.description);
@@ -4633,10 +4650,16 @@ export class LinkMetadataFetcher {
       return room >= 40 ? LinkMetadataParser.sanitizeText(text, room) : text;
    }
 
-   private async blueskyJson<T>(pathAndQuery: string): Promise<T | undefined> {
+   /**
+    * "notFound" when the AppView says so - a 400 whose error reads `NotFound` for a deleted
+    * post or "Profile not found" for an unknown handle (measured 2026-09-17) - which is proof
+    * (J1). Any other failure is undefined and proves nothing.
+    */
+   private async blueskyJson<T>(pathAndQuery: string): Promise<T | "notFound" | undefined> {
       const res = await this.request(`https://public.api.bsky.app/xrpc/${pathAndQuery}`, {
          "Accept": "application/json",
       });
+      if (res?.status === 400 && /"NotFound"|not found/i.test(res.text)) return "notFound";
       if (!res || res.status !== 200) return undefined;
       try {
          return JSON.parse(res.text) as T;
@@ -4678,6 +4701,7 @@ export class LinkMetadataFetcher {
       if (!id) return this.fetchGeneric(url);
 
       const item = await this.hackerNewsItem(id);
+      if (item === "absent") return this.notFound(this.hackerNewsFallback(url, "Hacker News item"));
       if (!item) return this.hackerNewsFallback(url, "Hacker News item");
 
       // A comment carries no title of its own. Its story does, and that is what a reader
@@ -4717,7 +4741,8 @@ export class LinkMetadataFetcher {
    private async hackerNewsCommentCard(url: string, comment: HackerNewsItem): Promise<LinkMetadata> {
       let root: HackerNewsItem | undefined = comment;
       for (let hop = 0; hop < 5 && root?.type === "comment" && root.parent !== undefined; hop++) {
-         root = await this.hackerNewsItem(String(root.parent));
+         const parent = await this.hackerNewsItem(String(root.parent));
+         root = parent === "absent" ? undefined : parent;
       }
       const storyTitle = root?.type !== "comment" ? root?.title : undefined;
       const body = this.hackerNewsText(comment.text);
@@ -4738,6 +4763,10 @@ export class LinkMetadataFetcher {
          ? await this.request(`https://hacker-news.firebaseio.com/v0/user/${encodeURIComponent(name)}.json`)
          : undefined;
       const user = this.hackerNewsJson<HackerNewsUser>(res);
+      // A literal `null` on a 200 is the API saying there is no such user (J1).
+      if (!user?.id && res?.status === 200 && res.text.trim() === "null") {
+         return this.notFound(this.hackerNewsFallback(url, name || "Hacker News user"));
+      }
       if (!user?.id) return this.hackerNewsFallback(url, name || "Hacker News user");
 
       // Hacker News says "karma", uncountable, and shows the exact number - so no k-shortening.
@@ -4755,11 +4784,14 @@ export class LinkMetadataFetcher {
       };
    }
 
-   private async hackerNewsItem(id: string): Promise<HackerNewsItem | undefined> {
+   /** "absent" when the API answered and the item is not there: `null`, deleted or dead (J1). */
+   private async hackerNewsItem(id: string): Promise<HackerNewsItem | "absent" | undefined> {
       const res = await this.request(`https://hacker-news.firebaseio.com/v0/item/${encodeURIComponent(id)}.json`);
       const item = this.hackerNewsJson<HackerNewsItem>(res);
+      if (res?.status === 200 && res.text.trim() === "null") return "absent";
       // Deleted and dead items still return an object, with nothing worth showing in it.
-      return item && !item.deleted && !item.dead ? item : undefined;
+      if (item && (item.deleted || item.dead)) return "absent";
+      return item;
    }
 
    private hackerNewsJson<T>(res: { status: number; text: string; } | undefined): T | undefined {
@@ -4831,6 +4863,7 @@ export class LinkMetadataFetcher {
       if (!res || res.status !== 200) {
          res = await this.request(url, { "Referer": "https://www.google.com/" });
       }
+      if (res?.status === 404) return this.notFound(this.buildLinkedInFallback(url));
       if (!res || res.status !== 200) return this.buildLinkedInFallback(url);
 
       const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
@@ -4942,12 +4975,14 @@ export class LinkMetadataFetcher {
       if (!res) return this.buildNotionFallback(url);
       const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
       if (res.status !== 200) {
-         return this.withParsedFurniture(this.buildNotionFallback(url), url, decodedText);
+         const card = await this.withParsedFurniture(this.buildNotionFallback(url), url, decodedText);
+         return res.status === 404 ? this.notFound(card) : card;
       }
 
+      // With the crawler UA only a workspace that does not exist still gets the shell: proof.
       if (LinkMetadataFetcher.isNotionShell(decodedText)) {
          console.debug(`Notion served its generic shell for ${url}.`);
-         return this.withParsedFurniture(this.buildNotionFallback(url), url, decodedText);
+         return this.notFound(await this.withParsedFurniture(this.buildNotionFallback(url), url, decodedText));
       }
 
       const metadata = await new LinkMetadataParser(url, decodedText).parse();
@@ -5053,7 +5088,7 @@ export class LinkMetadataFetcher {
       const declaredUrl = parser.htmlDoc.querySelector("meta[property='og:url']")?.getAttribute("content") ?? "";
       if (!parsed || !/\/invite\//i.test(declaredUrl)) {
          console.debug(`Discord answered ${url} with its front-page shell; building from the URL.`);
-         return this.discordInviteFallback(url, code, html);
+         return this.notFound(await this.discordInviteFallback(url, code, html));
       }
 
       const card = this.discordInviteCard(url, parsed, parser.htmlDoc.querySelector("title")?.textContent);

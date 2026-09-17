@@ -21,12 +21,12 @@ the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 13 hook.
 
 | Site | Source | Req. | Cache | Dead link | Fragility (A6) |
 | --- | --- | --- | --- | --- | --- |
-| YouTube | oEmbed `youtube.com/oembed`; a `@handle` / `/c/` / `/channel/` page is read instead | 1 | — | oEmbed non-200 → card from the URL | low — documented oEmbed |
+| YouTube | oEmbed `youtube.com/oembed`; a `@handle` / `/c/` / `/channel/` page is read instead | 1 | — | oEmbed **400** (a video) or **404** (a playlist) → card from the URL; a 401 or no answer gets the same card, unmarked | low — documented oEmbed |
 | Vimeo | oEmbed `vimeo.com/api/oembed.json` | 1 | — | **404** on a numeric id | low — documented oEmbed |
 | Dailymotion | REST `api.dailymotion.com/video/<id>` | 1 | — | **404** | low — documented API |
 | Reddit | oEmbed `reddit.com/oembed` for a post, then the `.rss` feed, then generic + `isUnusable` | 1–3 | refresh | empty feed, then the login-shell check | medium — the feed allows one request per minute |
 | X / Twitter | syndication `cdn.syndication.twimg.com/tweet-result`, then the page, then the URL | 1–2 | — | empty syndication answer | **high** — undocumented internal endpoint |
-| IMDb | suggestions `v2.sg.media-imdb.com/suggestion/x/<id>.json` | 1 | — | no match in the list | medium — undocumented, but long-lived |
+| IMDb | suggestions `v2.sg.media-imdb.com/suggestion/x/<id>.json` | 1 | — | no entry carrying this id - the endpoint is a search and answers a dead id with look-alikes | medium — undocumented, but long-lived |
 | Printables | GraphQL `api.printables.com/graphql/`, then the page with a Googlebot UA, then the slug | 1–2 | — | no model in the answer | **high** — Cloudflare plus UA sniffing |
 | GitHub | REST `api.github.com/repos/<owner>/<repo>`; the repo's HTML only when rate-limited | 1–2 | refresh | **404** from API or page | low — documented, 60 req/h anonymous |
 | GitLab | REST `/api/v4/projects/<path>`, then `/api/v4/groups/<path>` | 1–2 | refresh | **404** from both — a missing project 302s to the sign-in page | low — documented, versioned |
@@ -39,7 +39,7 @@ the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 13 hook.
 | arXiv | Atom `export.arxiv.org/api/query?id_list=` | 1 | — | empty `<entry>` | low — documented API |
 | Stack Exchange | `api.stackexchange.com/2.3/`, resolving an answer id to its question first | 1–2 | sticky | `items: []` | low — documented, 300 req/day anonymous |
 | Hacker News | Firebase `hacker-news.firebaseio.com/v0/item\|user`, walking a comment up to its story | 1–6 | — | a literal `null`, or the `deleted` / `dead` flags | low — official API, no quota |
-| Bluesky | XRPC `public.api.bsky.app/xrpc/` | 1 | — | error or missing handle → card from the URL | low — documented public AppView |
+| Bluesky | XRPC `public.api.bsky.app/xrpc/` | 1 | — | a **400** reading "not found" → card from the URL; any other failure gets the same card, unmarked | low — documented public AppView |
 | AniList | GraphQL `graphql.anilist.co`, the `Media` query — `/anime/` and `/manga/` only; every other route reads the page with the plugin's UA, which AniList renders for non-browsers, and is built from the URL where it does not | 1 | refresh (API only) | **404** with `data.Media` null; a rendered page titled "AniList" | low for the API — documented, versioned, no key; **high** for character and staff — UA sniffing |
 
 ## Page + endpoint — the page first (A3), the endpoint only adds a field
