@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 12 hook.
+the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 13 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -82,6 +82,7 @@ No extra request, nothing site-specific to break.
 | Google Play | a `urlCard` for the 404 branch: the title is the `?id=`, not the route word; an app's " - App su Google Play" tail dropped (B6) | 1 | — | a real **404** | none |
 | Hugging Face | a `urlCard` for a repo root: `<owner>/<name>` verbatim, owner as author; " · Hugging Face" / " · Datasets at Hugging Face" dropped from a live title, a Space's " - a Hugging Face Space by \<owner>" moved into `author` (B6) | 1 | — | the **401** a missing or private repo answers, which `fetchGeneric` now reads like a 404 for every site | none — a template that stops matching leaves the title whole |
 | Packagist | `goneCard`, `/packages/<vendor>/<name>` only; " - Packagist.org" dropped from a live title and the vendor made author, over the site-wide "Jordi Boggiano" (B6) | 1 | — | a 200 titled "Packagist.org" — the search page a missing package redirects to | none — a template that stops matching leaves the title whole |
+| Hashnode | `goneCard`, hashnode.com's `/@<handle>`, `/n/<tag>` and `/tag/<tag>` only; a live profile's " \| Hashnode" dropped, the name made author (B6, F4) | 1 | — | a 200 titled "User not found \| Hashnode" or "Tag not found \| Hashnode" | none — a reworded title only brings back the platform card |
 | itch.io | plain generic, then "\<title> by \<creators>" split into `author` when the first creator matches the subdomain or " by " occurs once | 1 | — | a real **404** | none — a template that stops matching leaves the title whole |
 | Apple Podcasts | plain generic, then the show name read out of Apple's description template into `author` | 1 | — | a real **404** | none — a no-op on a show page |
 

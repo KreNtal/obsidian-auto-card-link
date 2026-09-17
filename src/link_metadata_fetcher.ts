@@ -114,6 +114,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isCratesIoCrateUrl(url)) return this.fetchCratesIo(url, refresh);
       if (CheckIf.isRubyGemsGemUrl(url)) return this.fetchRubyGems(url);
       if (CheckIf.isPackagistPackageUrl(url)) return this.fetchPackagist(url);
+      if (CheckIf.isHashnodeProfileOrTagUrl(url)) return this.fetchHashnode(url);
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
       if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
       if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
@@ -189,6 +190,10 @@ export class LinkMetadataFetcher {
       "pkg.go.dev": "Go Packages",
       "rubygems.org": "RubyGems.org",
       "packagist.org": "Packagist.org",
+      // Generic path; both declare a name on a live page ("DEV Community", "Lobsters"), which
+      // wins. A dead article or story is a real 404 declaring nothing, so these label its card.
+      "dev.to": "DEV Community",
+      "lobste.rs": "Lobsters",
       // Generic path for `/_/<name>`, this fetcher for `/r/`, and hub.docker.com declares
       // no og:site_name on either - the official images name the site in their <title>
       // instead. Scoped to the `hub.` subdomain: docs.docker.com and docker.com are the
@@ -3175,6 +3180,42 @@ export class LinkMetadataFetcher {
       const repo = metadata?.title.endsWith(suffix) ? metadata.title.slice(0, -suffix.length) : "";
       if (!metadata || !/^[^/\s]+\/[^/\s]+$/.test(repo)) return metadata;
       return { ...metadata, title: repo, author: repo.split("/")[0] };
+   }
+
+   /* --- HASHNODE --- */
+
+   /**
+    * Not a fetcher: blog posts, on `*.hashnode.dev` or a custom domain, read in full and are a
+    * real 404 when gone, and so are the blogs themselves. Measured 2026-09-17.
+    *
+    * hashnode.com's own profile and tag pages are A1(b): a handle that does not exist answers
+    * **200** titled "User not found | Hashnode", a tag (`/n/<tag>`, which redirects to
+    * `/tag/<tag>`) "Tag not found | Hashnode", both with Hashnode's blurb and a share image - a
+    * confident card for the platform. That whole title is the tell; the card is the URL's
+    * identifier verbatim (B4), `@handle` or the tag, the furniture riding along (C5). The page
+    * declares "Hashnode" as its site name, which the dead card would otherwise lose; it is set
+    * here rather than as a `SITE_NAMES` floor, which would reach every `*.hashnode.com` blog.
+    *
+    * A live profile is titled "<name> (@<handle>) | Hashnode" (four of four: sandeep, hempun10,
+    * ipseeta, priyanshuworks). Since the site now has code, B6: the site-name segment goes, and
+    * on the creator's own page the name is its author too (F4) - only when the handle is the
+    * URL's own. Tag titles are left whole.
+    */
+   private async fetchHashnode(url: string): Promise<LinkMetadata | undefined> {
+      const [, route, id] = url.match(/hashnode\.com\/(@|n\/|tag\/)([^/?#]+)/i) ?? [];
+      if (!id) return this.fetchGeneric(url);
+      const metadata = await this.fetchGeneric(url, {
+         goneCard: (page) => /^(User|Tag) not found \| Hashnode$/.test(page.title.trim())
+            ? {
+               ...this.withPageFurniture(this.buildUrlCard(url), page),
+               title: route === "@" ? `@${id}` : id,
+               siteName: "Hashnode",
+            }
+            : undefined,
+      });
+      const profile = route === "@" ? metadata?.title.match(/^(.+) \(@([^()]+)\) \| Hashnode$/) : undefined;
+      if (!metadata || !profile || profile[2]!.toLowerCase() !== id.toLowerCase()) return metadata;
+      return { ...metadata, title: `${profile[1]!} (@${profile[2]!})`, author: profile[1] };
    }
 
    /* --- TIKTOK --- */

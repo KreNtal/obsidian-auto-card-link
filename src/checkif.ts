@@ -125,6 +125,12 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?rubygems\.org\/gems\/[^/?#]+/i.test(url);
   }
 
+  public static isHashnodeProfileOrTagUrl(url: string): boolean {
+    // hashnode.com's own profile and tag pages, which answer a missing one with a 200. Posts
+    // live on the blogs (`*.hashnode.dev`, custom domains) and are a real 404 when gone.
+    return /^https?:\/\/(www\.)?hashnode\.com\/(@|n\/|tag\/)[^/?#]+\/?([?#]|$)/i.test(url);
+  }
+
   public static isPackagistPackageUrl(url: string): boolean {
     // `/packages/<vendor>/<name>` only: a missing one redirects to search with a 200.
     return /^https?:\/\/(www\.)?packagist\.org\/packages\/[^/?#]+\/[^/?#]+/i.test(url);
