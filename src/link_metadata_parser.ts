@@ -53,7 +53,7 @@ export class LinkMetadataParser {
   private ogContent(property: string): string | undefined {
     const value =
       this.htmlDoc.querySelector(`meta[property='${property}']`)?.getAttribute("content") ??
-      this.htmlDoc.querySelector(`meta[name='${property}']`)?.getAttribute("content");
+      this.htmlDoc.querySelector(`meta[name='${property}' i]`)?.getAttribute("content");
     return value?.trim() || undefined;
   }
 
@@ -91,7 +91,7 @@ export class LinkMetadataParser {
 
     // 2. Try Twitter Title fallback
     const twitterTitle = this.htmlDoc
-      .querySelector("meta[name='twitter:title']")
+      .querySelector("meta[name='twitter:title' i]")
       ?.getAttribute("content");
     if (twitterTitle && twitterTitle.trim().length > 0) return twitterTitle.trim();
 
@@ -108,9 +108,12 @@ export class LinkMetadataParser {
   }
 
   private getDescription(): string | undefined {
+    // Every `meta[name=…]` lookup here matches case-insensitively (the ` i` flag): a `name`
+    // value is compared exactly otherwise, and pkg.go.dev declares `name="Description"`, so its
+    // package pages lost their description while its 404 page, written in lower case, kept one.
     const raw =
       this.ogContent("og:description") ??
-      this.htmlDoc.querySelector("meta[name='description']")?.getAttribute("content");
+      this.htmlDoc.querySelector("meta[name='description' i]")?.getAttribute("content");
 
     if (!raw) return undefined;
 
@@ -142,7 +145,7 @@ export class LinkMetadataParser {
   private getAuthor(siteName: string | undefined, host: string): string | undefined {
     return LinkMetadataParser.pickAuthor(
       [
-        this.htmlDoc.querySelector("meta[name='author']")?.getAttribute("content"),
+        this.htmlDoc.querySelector("meta[name='author' i]")?.getAttribute("content"),
         this.ogContent("article:author"),
       ],
       Array.from(this.htmlDoc.querySelectorAll("script[type='application/ld+json']"), (s) => s.textContent ?? ""),
