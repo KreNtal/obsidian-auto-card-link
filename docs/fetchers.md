@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 19 endpoint, 4 page + endpoint, 9 page, 10 hook.
+the same commit. Counts today: 19 endpoint, 4 page + endpoint, 9 page, 11 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -78,6 +78,7 @@ No extra request, nothing site-specific to break.
 | AliExpress | `emptyPage`, `/item/<id>.html` only; " - AliExpress \<number>" dropped from a live title (B6) | 1 | — | a 200 whose `og:title` is declared empty | low — a changed empty page only brings back the Microlink call |
 | Epic Games Store | `goneCard`, `/p/<slug>` URLs only | 1 | — | a 200 with no description and no image — the not-found page, its `<h1>` translated | low — a live page that stopped declaring both would be taken for dead |
 | Google Play | a `urlCard` for the 404 branch: the title is the `?id=`, not the route word; an app's " - App su Google Play" tail dropped (B6) | 1 | — | a real **404** | none |
+| Hugging Face | a `urlCard` for a repo root: `<owner>/<name>` verbatim, owner as author; " · Hugging Face" / " · Datasets at Hugging Face" dropped from a live title, a Space's " - a Hugging Face Space by \<owner>" moved into `author` (B6) | 1 | — | the **401** a missing or private repo answers, which `fetchGeneric` now reads like a 404 for every site | none — a template that stops matching leaves the title whole |
 | itch.io | plain generic, then "\<title> by \<creators>" split into `author` when the first creator matches the subdomain or " by " occurs once | 1 | — | a real **404** | none — a template that stops matching leaves the title whole |
 | Apple Podcasts | plain generic, then the show name read out of Apple's description template into `author` | 1 | — | a real **404** | none — a no-op on a show page |
 

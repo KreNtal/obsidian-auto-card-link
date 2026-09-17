@@ -197,6 +197,13 @@ export class CheckIf {
     return /^https?:\/\/play\.google\.com\/store\/(apps|books)\/(details|dev|developer)\?(.*&)?id=/i.test(url);
   }
 
+  public static isHuggingFaceRepoUrl(url: string): boolean {
+    // A model (`/<owner>/<name>`), dataset or Space root. Tabs, files and discussions carry
+    // titles of their own and stay generic, and so do the two-segment routes that are not
+    // repos (`/blog/<slug>`, `/papers/<id>`, `/docs/<lib>`, …).
+    return /^https?:\/\/(www\.)?(huggingface|hf)\.co\/(datasets\/|spaces\/|(?!(blog|docs|papers|learn|tasks|posts|collections|organizations|settings|models|datasets|spaces|api|chat|join|new)\/))[^/?#]+\/[^/?#]+\/?([?#]|$)/i.test(url);
+  }
+
   public static isApplePodcastsUrl(url: string): boolean {
     // The whole host: a show or episode already reads fine generically, and this only adds
     // the show's own name to an episode as `author` - a no-op everywhere else. Checked

@@ -119,6 +119,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isItchGameUrl(url)) return this.fetchItch(url);
       if (CheckIf.isEpicProductUrl(url)) return this.fetchEpic(url);
       if (CheckIf.isGooglePlayIdUrl(url)) return this.fetchGooglePlay(url);
+      if (CheckIf.isHuggingFaceRepoUrl(url)) return this.fetchHuggingFace(url);
       if (CheckIf.isTikTokUrl(url)) return this.fetchTikTok(url);
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
       if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
@@ -167,6 +168,10 @@ export class LinkMetadataFetcher {
       "github.com": "GitHub",
       "gitlab.com": "GitLab",
       "bitbucket.org": "Bitbucket",
+      // Generic path, and Hugging Face declares no og:site_name anywhere. A model's title
+      // already ends in the name (H2); a blog post, a paper or a dead repo's card does not.
+      "huggingface.co": "Hugging Face",
+      "hf.co": "Hugging Face",
       // Generic path, and both declare a name on a live page ("Codeberg.org", "SourceForge"),
       // which wins. A dead repo or project is a real 404 whose body declares nothing, so these
       // only label the card built from its URL - the MyAnimeList case.
@@ -380,7 +385,11 @@ export class LinkMetadataFetcher {
          // but its og:image and og:description are kept: they are the site's own furniture,
          // and a card carrying the site's graphic reads better than a bare one (Roberto's
          // call, 2026-09-03).
-         if (res && (res.status === 404 || res.status === 410)) {
+         // A 401 is the same for an anonymous reader: huggingface.co answers a repo that does
+         // not exist - or is private, which it will not tell apart - with 401 and a page titled
+         // "404 – Hugging Face" (2026-09-17). Microlink has no credentials either, and it
+         // rejects any page that answered it 400 or above, so asking it only spends quota.
+         if (res && (res.status === 401 || res.status === 404 || res.status === 410)) {
             const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
             return this.errorPageCard(url, html, checks?.urlCard);
          }
@@ -2526,6 +2535,50 @@ export class LinkMetadataFetcher {
       const id = parsed.searchParams.get("id")?.trim();
       if (id && /\p{L}/u.test(id)) return { ...card, title: id };
       return /\/dev$/.test(parsed.pathname) ? { ...card, title: "Google Play developer" } : card;
+   }
+
+   /* --- HUGGING FACE --- */
+
+   /**
+    * Not a fetcher: a model, a dataset and a Space read in full generically - `og:title`, the
+    * repo's own `cdn-thumbnails` share image - and a gated repo (`meta-llama/Llama-3.1-8B-
+    * Instruct`) reads like any other. A model's or dataset's `og:description` is Hugging
+    * Face's slogan, the same on a dead repo's page, but it is the only one declared (C1), and
+    * the image is specific, so A1(d) does not hold. Measured 2026-09-17; no difference for
+    * the plugin's UA, `facebookexternalhit` or Slackbot.
+    *
+    * A repo that does not exist, or is private, answers **401** with "404 – Hugging Face" -
+    * and so does the API, `{"error":"Invalid username or password."}`, so no endpoint can tell
+    * the two apart. fetchGeneric now builds that card from the URL; the path is the repo's id
+    * and is kept verbatim (B4), with its owner as author, GitHub's dead-repo shape - deslugged
+    * it would read "Llama 3.1 8b instruct".
+    *
+    * Site templates (B6), with the owner as author (F2): a model "<owner>/<name> · Hugging
+    * Face" (six of six), a dataset "<owner>/<name> · Datasets at Hugging Face" (four of four)
+    * lose the site-name segment; a Space "<title> - a Hugging Face Space by <owner>" (five of
+    * five) keeps its title, the owner moved to `author`. Each only when its separator occurs
+    * once. The owner is read from the title, not the URL: a renamed Space redirects
+    * (`HuggingFaceH4/open_llm_leaderboard` → `open-llm-leaderboard/…`).
+    */
+   private async fetchHuggingFace(url: string): Promise<LinkMetadata | undefined> {
+      const [, kind, owner, name] = url.match(/\.co\/(datasets\/|spaces\/)?([^/?#]+)\/([^/?#]+)/i) ?? [];
+      const metadata = await this.fetchGeneric(url, {
+         urlCard: (u) => ({ ...this.buildUrlCard(u), title: `${owner}/${name}`, author: owner }),
+      });
+      if (!metadata) return metadata;
+      const title = metadata.title;
+
+      if (kind?.toLowerCase() === "spaces/") {
+         const by = " - a Hugging Face Space by ";
+         const at = title.indexOf(by);
+         if (at <= 0 || title.lastIndexOf(by) !== at) return metadata;
+         return { ...metadata, title: title.slice(0, at), author: title.slice(at + by.length) };
+      }
+
+      const suffix = kind ? " · Datasets at Hugging Face" : " · Hugging Face";
+      const repo = title.endsWith(suffix) ? title.slice(0, -suffix.length) : "";
+      if (!/^[^/\s·]+\/[^/\s·]+$/.test(repo)) return metadata;
+      return { ...metadata, title: repo, author: repo.split("/")[0] };
    }
 
    /* --- APPLE PODCASTS --- */
