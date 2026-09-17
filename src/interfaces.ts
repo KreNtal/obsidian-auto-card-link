@@ -118,6 +118,14 @@ export interface TrelloBoardResponse {
   prefs?: { backgroundImage?: string | null; };
 }
 
+/** `api.trello.com/1/cards/<shortLink>`, with the board's name and the cover's previews. */
+export interface TrelloCardResponse {
+  name?: string;
+  desc?: string;
+  board?: { name?: string };
+  cover?: { scaled?: { url?: string; width?: number }[] | null };
+}
+
 /** One `appids=<id>` entry of `store.steampowered.com/api/appdetails`. */
 export interface SteamAppDetailsResponse {
   [appid: string]: {

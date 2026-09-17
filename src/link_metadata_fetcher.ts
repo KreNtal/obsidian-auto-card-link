@@ -7,7 +7,7 @@ import {
    HackerNewsUser,
    BitbucketRepoResponse, DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
-   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, WikipediaSummaryResponse, XSyndicationResponse
+   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, TrelloCardResponse,WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
@@ -117,6 +117,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isTikTokUrl(url)) return this.fetchTikTok(url);
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
       if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
+      if (CheckIf.isTrelloCardUrl(url)) return this.fetchTrelloCard(url, refresh);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
@@ -2787,7 +2788,8 @@ export class LinkMetadataFetcher {
     * avatar - but for a *video* it returns a generic placeholder ("TikTok · <name>", no real
     * caption), so it would need two different treatments for the two routes it has to cover.
     * oEmbed covers both from one source and is the documented one, so that fragility was not
-    * worth taking on.
+    * worth taking on - until 2026-09-17, when a profile pasted through oEmbed came out as a
+    * bare name. A profile now reads its page first (readTikTokProfile); videos stay here.
     *
     * A profile or video that does not exist (or cannot be embedded - suspended, private)
     * answers **400** with a generic `{"message":"Something went wrong"}` body. Not the 404 the
@@ -2823,6 +2825,15 @@ export class LinkMetadataFetcher {
       const clean = videoId
          ? `https://www.tiktok.com/@${handle}/video/${videoId}`
          : `https://www.tiktok.com/@${handle}`;
+
+      if (!videoId) {
+         const profile = await this.readTikTokProfile(url, clean, handle);
+         if (profile) {
+            LinkMetadataFetcher.tiktokCache.set(key, profile);
+            return profile;
+         }
+      }
+
       const res = await this.request(
          `https://www.tiktok.com/oembed?url=${encodeURIComponent(clean)}`,
          { "Accept": "application/json" }
@@ -2862,6 +2873,36 @@ export class LinkMetadataFetcher {
            };
       LinkMetadataFetcher.tiktokCache.set(key, card);
       return card;
+   }
+
+   /**
+    * A profile's own page, read with the crawler UA - page first (A3), oEmbed only when this
+    * does not hold. Measured in Obsidian's console 2026-09-17 (rule 6): the Chrome UA and the
+    * plugin's get the login wall, `facebookexternalhit` gets the real profile - `og:title`
+    * "NASA su TikTok", `og:description` "@nasa 1.7m Follower, 23 Seguiti, 9.0m Mi piace - …"
+    * and the avatar, where oEmbed gives a profile nothing but its name. A video gets only a
+    * placeholder that way, so videos stay on oEmbed.
+    *
+    * The tell that the page is the profile is the description starting with the URL's own
+    * `@handle`: a profile that does not exist answers 200 with "Visit TikTok to discover
+    * profiles!" and "Watch, follow, and discover more trending content." Anything else
+    * returns nothing, and the caller goes on to oEmbed exactly as before - whose 400 is still
+    * the proof of a dead profile.
+    *
+    * The title is a site template (B6): "<name> <word> TikTok" - "NASA on TikTok", "NASA su
+    * TikTok", "NASA bei TikTok", "Khabane lame on TikTok", "Bella Poarch on TikTok". The
+    * name is the title and, as on a channel card, the author (F4); the site-name segment goes.
+    * Japanese builds the title another way ("TikTokでNASAさんをチェック！"), which does not
+    * match and is kept whole, with no author. Counts in the description stay (C4). This is UA
+    * sniffing, the fragile category (A6); if it stops working, profiles fall back to oEmbed.
+    */
+   private async readTikTokProfile(url: string, clean: string, handle: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(clean, { "User-Agent": LinkMetadataFetcher.CRAWLER_UA });
+      if (!res || res.status !== 200) return undefined;
+      const page = await new LinkMetadataParser(url, await this.decodeHtmlContent(res.arrayBuffer, res.text)).parse();
+      if (!page?.description?.toLowerCase().startsWith(`@${handle.toLowerCase()} `)) return undefined;
+      const name = page.title.match(/^(.+) \S+ TikTok$/)?.[1]?.trim();
+      return { ...page, url, title: name ?? page.title, author: name };
    }
 
    /**
@@ -3018,9 +3059,8 @@ export class LinkMetadataFetcher {
     * Image = the board's own background photo when it has one (`prefs.backgroundImage`);
     * most boards use a flat colour instead and get no image, same as npm. Only a 404 is
     * proof; a non-200 or unparseable JSON fall through to generic. Only board URLs get this
-    * - `/c/` cards answer `.json` with the same HTML shell, not real data, so they and every
-    * other Trello route are a separate, unfixed gap. Session cache per board id, successes
-    * only.
+    * - `/c/` cards answer `.json` with the same HTML shell, not real data; they have
+    * fetchTrelloCard. Session cache per board id, successes only.
     */
    private async fetchTrello(url: string, refresh = false): Promise<LinkMetadata | undefined> {
       const shortLink = url.match(/trello\.com\/b\/([^/?#]+)/i)?.[1];
@@ -3068,6 +3108,78 @@ export class LinkMetadataFetcher {
          image: data.prefs?.backgroundImage ?? undefined,
       };
       LinkMetadataFetcher.trelloCache.set(shortLink, card);
+      return card;
+   }
+
+   /**
+    * A Trello card, through the documented REST API: `api.trello.com/1/cards/<shortLink>`,
+    * which answers a public card with no key (measured 2026-09-17).
+    *
+    * Field rule A1(a): a card's page is the same shell a board's is - `<title>Trello</title>`
+    * and the "Organize anything, together" blurb, to the Chrome UA and the plugin's own - so
+    * a card pasted today came out titled "Trello" with Trello's marketing line, confirmed in
+    * Obsidian on `/c/iufLokBz`. `facebookexternalhit` does get the real card page (rule 6),
+    * but was rejected: from a script two of four cards held that request open past 30
+    * seconds, six times the plugin's timeout, and it is UA sniffing, where this is a
+    * documented, versioned API answering in well under a second.
+    *
+    * Title the card's `name`, description its `desc` verbatim (C1), as a board's are. Author
+    * the board it sits on (F2): the page itself titles a card "<card> on <board>" ("Delete
+    * (Close/Archive) a board on Trello Android app"). Image the card's cover when it has one,
+    * the largest of its previews (D2) - a `trello.com/1/cards/…/download/` address that
+    * redirects to a freshly signed `files.trello.com` URL, so it keeps loading; most cards have
+    * none. A card that does not exist is a **404** `Card not found`, which is proof; anything
+    * else - a private card, a rate limit, no answer - proves nothing, but the generic path
+    * could only ever read the shell, so every failure builds the same card from the URL: the
+    * slug after the id (`/c/<id>/1710-more-butler-automation-types-for-all` → "More butler
+    * automation types for all", the card number dropped), or "Trello card". No Microlink. Session cache per card, successes only.
+    */
+   private async fetchTrelloCard(url: string, refresh = false): Promise<LinkMetadata> {
+      const m = url.match(/trello\.com\/c\/([A-Za-z0-9]+)(?:\/(?:\d+-)?([^/?#]+))?/i);
+      const shortLink = m![1]!;
+      const cached = LinkMetadataFetcher.trelloCache.get(`c/${shortLink}`);
+      if (cached && !refresh) return { ...cached, url };
+
+      const fallback = (): LinkMetadata => {
+         const card = this.buildUrlCard(url);
+         return { ...card, title: LinkMetadataFetcher.deslug(m![2]) ?? "Trello card" };
+      };
+
+      const res = await this.request(
+         // `cover.scaled` is only filled in when the cover attachment is asked for as well.
+         `https://api.trello.com/1/cards/${shortLink}?fields=name,desc,cover&board=true&board_fields=name`
+            + "&attachments=cover&attachment_fields=id",
+         { "Accept": "application/json" }
+      );
+      if (!res || res.status !== 200) {
+         console.debug(`Trello API for card ${shortLink} returned ${res?.status}; building from the URL.`);
+         return fallback();
+      }
+
+      let data: TrelloCardResponse;
+      try {
+         data = JSON.parse(res.text) as TrelloCardResponse;
+      } catch {
+         return fallback();
+      }
+      const title = LinkMetadataParser.sanitizeText(data.name, 300);
+      if (!title) return fallback();
+
+      const previews = (data.cover?.scaled ?? []).filter((p) => p.url);
+      const largest = previews.reduce<typeof previews[number] | undefined>(
+         (best, p) => (p.width ?? 0) > (best?.width ?? -1) ? p : best, undefined);
+
+      const card: LinkMetadata = {
+         url,
+         host: "trello.com",
+         favicon: "https://trello.com/favicon.ico",
+         indent: 0,
+         title,
+         author: LinkMetadataParser.sanitizeText(data.board?.name, 300),
+         description: LinkMetadataParser.sanitizeText(data.desc, 300),
+         image: largest?.url,
+      };
+      LinkMetadataFetcher.trelloCache.set(`c/${shortLink}`, card);
       return card;
    }
 

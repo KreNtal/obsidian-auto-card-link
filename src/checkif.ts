@@ -225,6 +225,12 @@ export class CheckIf {
     return /^https?:\/\/trello\.com\/b\/[^/?#]+/i.test(url);
   }
 
+  public static isTrelloCardUrl(url: string): boolean {
+    // A card, `/c/<shortLink>[/<n>-<slug>]`: the same shell as a board, read through the
+    // REST API instead - checked 2026-09-17.
+    return /^https?:\/\/trello\.com\/c\/[A-Za-z0-9]+/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,

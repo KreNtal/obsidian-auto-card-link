@@ -32,8 +32,8 @@ the same commit. Counts today: 19 endpoint, 4 page + endpoint, 7 page, 9 hook.
 | GitLab | REST `/api/v4/projects/<path>`, then `/api/v4/groups/<path>` | 1–2 | refresh | **404** from both — a missing project 302s to the sign-in page | low — documented, versioned |
 | Bitbucket | REST `api.bitbucket.org/2.0/repositories/<workspace>/<repo>` — the repo root only; pages under a repo are built from the URL with no request | 0–1 | refresh | **404** → `<workspace>/<repo>` from the URL; an API failure lands on the same card, never generic | low — documented, versioned, 60 req/h anonymous |
 | npm | `registry.npmjs.org/<pkg>/latest` + `api.npmjs.org/downloads/point/last-week` | 2 | refresh | registry **404** | low — documented registry |
-| TikTok | oEmbed `tiktok.com/oembed`, profile and video alike | 1 | sticky | **400** | low — documented; its thumbnails are signed and expire |
-| Trello | the `.json` export any board URL answers to | 1 | refresh | **404** from the export | medium — boards only, no equivalent for `/c/` cards |
+| TikTok | a profile's page with the crawler UA, when its description starts with the `@handle`; otherwise, and for every video, oEmbed `tiktok.com/oembed` | 1–3 | sticky | **400** from oEmbed | low for videos — documented; **high** for profiles — UA sniffing, oEmbed behind it; thumbnails and avatars are signed and expire |
+| Trello | the `.json` export any board URL answers to; a `/c/` card through REST `api.trello.com/1/cards/<id>` | 1 | refresh | **404** from the export or the card API | medium for boards — undocumented export; low for cards — documented API |
 | Wikipedia | REST `<lang>.wikipedia.org/api/rest_v1/page/summary/<title>` | 1 | — | non-200 → generic, so a real **404** | low — documented, versioned |
 | arXiv | Atom `export.arxiv.org/api/query?id_list=` | 1 | — | empty `<entry>` | low — documented API |
 | Stack Exchange | `api.stackexchange.com/2.3/`, resolving an answer id to its question first | 1–2 | sticky | `items: []` | low — documented, 300 req/day anonymous |
