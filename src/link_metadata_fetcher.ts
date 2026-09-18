@@ -393,6 +393,17 @@ export class LinkMetadataFetcher {
          if (retry && retry.status !== 403) res = retry;
       }
 
+      // Still a challenge: once more through Node's https, on desktop. Cloudflare challenges
+      // requestUrl itself on some sites, whatever the UA - measured in Obsidian's console on
+      // 2026-09-18: Bandcamp answered every UA with a 200 "Client Challenge", Docker Hub with a
+      // 403 "Just a moment...", live and dead links alike - while Node with the same headers,
+      // inside Obsidian too, got the real page and the real 404. That 404 is the proof a
+      // challenge can never give (J1), and the page is one Microlink need not be asked for.
+      if (Platform.isDesktopApp && !checks?.viaNode && LinkMetadataFetcher.isChallenge(res)) {
+         const viaNode = await this.requestViaNode(url, firstHeaders);
+         if (viaNode && !LinkMetadataFetcher.isChallenge(viaNode)) res = viaNode;
+      }
+
       if (!res || res.status !== 200) {
          console.debug(`Fetch failed for ${url}. Status: ${res?.status}`);
          // 404/410 is the server stating the page is not there. Microlink would render the
@@ -520,6 +531,15 @@ export class LinkMetadataFetcher {
       "access denied",
       "one moment, please",
    ];
+
+   /** A raw answer that is an anti-bot wall: any 403, or a 200 whose whole title is one. */
+   private static isChallenge(res?: { status: number; text: string }): boolean {
+      if (!res) return false;
+      if (res.status === 403) return true;
+      const title = res.text.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1];
+      return res.status === 200 && !!title
+         && LinkMetadataFetcher.INTERSTITIAL_TITLES.includes(title.trim().toLowerCase().replace(/\s+/g, " "));
+   }
 
    private static looksLikeInterstitial(metadata: LinkMetadata): boolean {
       return LinkMetadataFetcher.INTERSTITIAL_TITLES.includes(
@@ -702,15 +722,18 @@ export class LinkMetadataFetcher {
             ?.replace(/&quot;/g, '"')
             ?.replace(/&#039;/g, "'");
 
-         if (title) {
-            return {
-               url,
-               title: LinkMetadataParser.sanitizeText(title, 300) ?? title,
-               host: hostname,
-               favicon: `https://${hostname}/favicon.ico`,
-               indent: 0,
-            };
-         }
+         const card: LinkMetadata = {
+            url,
+            title: title ? LinkMetadataParser.sanitizeText(title, 300) ?? title : "",
+            host: hostname,
+            favicon: `https://${hostname}/favicon.ico`,
+            indent: 0,
+         };
+         // The same interstitial test fetchGeneric and Microlink's answer get: this is the last
+         // read in the chain, and the one that let it through. A dead Bandcamp track pasted
+         // in Obsidian on 2026-09-18 was challenged on the direct read, rejected from
+         // Microlink, and then written into the note as "Client Challenge" from here.
+         if (title && !LinkMetadataFetcher.looksLikeInterstitial(card)) return card;
       }
 
       // Nothing worked - a minimal card with just the hostname as title. Deliberately not
@@ -2859,6 +2882,8 @@ export class LinkMetadataFetcher {
       const cached = LinkMetadataFetcher.bandcampCache.get(url);
       if (cached) return cached;
 
+      // Every requestUrl read is challenged here (2026-09-18); fetchGeneric's Node retry is
+      // what reaches the real page and a dead track's real 404.
       const result = await this.fetchGeneric(url);
       if (!result) return result;
 
