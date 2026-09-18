@@ -293,6 +293,13 @@ export class CheckIf {
     return /^https?:\/\/[a-z0-9-]+\.atlassian\.net\/wiki([/?#]|$)/i.test(url);
   }
 
+  public static isLinearUrl(url: string): boolean {
+    // The whole host: every workspace route - an issue, a project, a document, the workspace
+    // itself, live or not - answers the same shell titled "Linear", while the marketing and
+    // docs pages carry og tags and read - checked 2026-09-18. The check runs on the result.
+    return /^https?:\/\/(www\.)?linear\.app([/?#]|$)/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,

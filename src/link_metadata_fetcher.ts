@@ -132,6 +132,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isTrelloCardUrl(url)) return this.fetchTrelloCard(url, refresh);
       if (CheckIf.isJiraCloudIssueUrl(url)) return this.fetchJiraIssue(url, refresh);
       if (CheckIf.isConfluenceCloudUrl(url)) return this.fetchConfluence(url);
+      if (CheckIf.isLinearUrl(url)) return this.fetchLinear(url);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
@@ -3815,6 +3816,46 @@ export class LinkMetadataFetcher {
       return parts.length === 3 && parts[2] === "Confluence"
          ? { ...parsed, title: parts[0]!, author: parts[1], siteName }
          : { ...parsed, siteName };
+   }
+
+   /* --- LINEAR --- */
+
+   /**
+    * Linear, `linear.app`. Every workspace route - an issue, a project, a document, the
+    * workspace itself, one that does not exist, `/login` - answers the identical client-
+    * rendered shell: `<title>Linear</title>`, no og tags, no description, to the Chrome UA,
+    * the plugin's own and `facebookexternalhit` alike (measured 2026-09-18), so a pasted
+    * issue came out as a card titled "Linear" (A1(a)). There is no anonymous API: the GraphQL
+    * endpoint wants a key, and a workspace is private by nature. The marketing and docs pages
+    * (`/`, `/docs`, `/method`, `/changelog`) carry og tags and read on the generic path.
+    *
+    * So the check is on the result: a title that is nothing but "Linear", with no description
+    * and no image, is the shell, and the card is built from the URL - with the shell's
+    * favicon, and unmarked, since a live issue and a missing one cannot be told apart.
+    * Never Microlink.
+    */
+   private async fetchLinear(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      if (!metadata || metadata.title !== "Linear" || metadata.description || metadata.image) return metadata;
+      console.debug(`Linear served its app shell for ${url}; building from the URL.`);
+      return this.withPageFurniture(this.buildLinearFallback(url), metadata);
+   }
+
+   /**
+    * The URL's own words. An issue, `/<ws>/issue/<KEY-n>[/<slug>]`: the slug Linear derives
+    * from its title ("fix-the-sidebar-bug" → "Fix the sidebar bug"), else the key verbatim.
+    * A project, document, initiative or view, `/<ws>/<type>/<slug>-<12 hex>`: the slug without
+    * its id, else "Linear <type>". Anything else goes through the general builder.
+    */
+   private buildLinearFallback(url: string): LinkMetadata {
+      const card: LinkMetadata = { ...this.buildUrlCard(url), siteName: "Linear" };
+      const m = url.match(/linear\.app\/[^/?#]+\/(issue|project|document|initiative|view)\/([^/?#]+)(?:\/([^/?#]+))?/i);
+      if (!m) return card;
+      const type = m[1]!.toLowerCase();
+      const title = type === "issue"
+         ? LinkMetadataFetcher.deslug(m[3]) ?? m[2]!
+         : LinkMetadataFetcher.deslug(m[2]!.replace(/-?[0-9a-f]{12}$/i, "")) ?? `Linear ${type}`;
+      return { ...card, title };
    }
 
    /* --- GOOGLE DOCS / DRIVE --- */
