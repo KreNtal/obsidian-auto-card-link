@@ -278,6 +278,14 @@ export class CheckIf {
     return /^https?:\/\/trello\.com\/c\/[A-Za-z0-9]+/i.test(url);
   }
 
+  public static isJiraCloudIssueUrl(url: string): boolean {
+    // A Jira Cloud issue, `<site>.atlassian.net/browse/<KEY>-<n>`: every one - live, missing
+    // or private - answers the same shell titled "Jira", read through the REST API instead -
+    // checked 2026-09-18. Boards, filters, `/wiki/` (Confluence) and self-hosted Jira stay
+    // generic.
+    return /^https?:\/\/[a-z0-9-]+\.atlassian\.net\/browse\/[a-z][a-z0-9_]*-\d+\/?([?#]|$)/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,

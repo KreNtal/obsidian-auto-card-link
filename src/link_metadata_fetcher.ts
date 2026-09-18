@@ -11,7 +11,7 @@ import {
    NodeZlib,
    BitbucketRepoResponse, CratesIoOwnersResponse, CratesIoResponse, RubyGemsResponse, DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
-   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, TrelloCardResponse,WikipediaSummaryResponse, XSyndicationResponse
+   PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, TrelloCardResponse, JiraIssueResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
 import { LinkMetadataParser } from "./link_metadata_parser";
 import { CheckIf } from "./checkif";
@@ -130,6 +130,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
       if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
       if (CheckIf.isTrelloCardUrl(url)) return this.fetchTrelloCard(url, refresh);
+      if (CheckIf.isJiraCloudIssueUrl(url)) return this.fetchJiraIssue(url, refresh);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
@@ -3691,6 +3692,70 @@ export class LinkMetadataFetcher {
          image: largest?.url,
       };
       LinkMetadataFetcher.trelloCache.set(`c/${shortLink}`, card);
+      return card;
+   }
+
+   /* --- JIRA CLOUD --- */
+
+   private static readonly jiraCache = new Map<string, LinkMetadata>();
+
+   /**
+    * A Jira Cloud issue, through the documented REST API v2:
+    * `<site>.atlassian.net/rest/api/2/issue/<key>`, which answers an issue in a public
+    * project with no auth (measured 2026-09-18 on hibernate.atlassian.net).
+    *
+    * Field rule A1(a)/(b): the issue page is a client-rendered shell - `<title>Jira</title>`,
+    * no og tags - the same for a live issue, a missing one and a private one, to the Chrome
+    * UA, the plugin's own and `facebookexternalhit` alike. Microlink renders "Jira" too.
+    *
+    * Title the `summary` alone (B4 - the maintainer's call, 2026-09-18, over Jira's own
+    * "[KEY] summary" page title), description the rendered description as plain text (the raw
+    * field is wiki markup), author the project (F2 - the issue sits under it, as a Trello
+    * card under its board). No image: the project's avatar is an icon (D3).
+    *
+    * A missing issue and one in a private project answer the identical **404** "does not
+    * exist or you do not have permission", and most Jira links pasted are the reader's own
+    * company's, private. So the 404 is read as a wall, not a death, and the card carries no
+    * status - a declared exception to J1 (the maintainer's call, 2026-09-18), recorded in
+    * docs/domain-coverage.md. Every failure builds the card from the URL, titled with the
+    * issue key verbatim; never generic, which could only read the shell. Session cache per
+    * issue, successes only.
+    */
+   private async fetchJiraIssue(url: string, refresh = false): Promise<LinkMetadata> {
+      const m = url.match(/^https?:\/\/([a-z0-9-]+\.atlassian\.net)\/browse\/([a-z][a-z0-9_]*-\d+)/i)!;
+      const host = m[1]!.toLowerCase();
+      const key = m[2]!;
+      const cacheKey = `${host}/${key.toUpperCase()}`;
+      const cached = LinkMetadataFetcher.jiraCache.get(cacheKey);
+      if (cached && !refresh) return { ...cached, url };
+
+      const fallback: LinkMetadata = { ...this.buildUrlCard(url), title: key, siteName: "Jira" };
+      const res = await this.request(
+         `https://${host}/rest/api/2/issue/${encodeURIComponent(key)}?fields=summary,description,project&expand=renderedFields`,
+         { "Accept": "application/json" }
+      );
+      if (!res || res.status !== 200) {
+         console.debug(`Jira API for ${key} on ${host} returned ${res?.status}; building from the URL.`);
+         return fallback;
+      }
+
+      let data: JiraIssueResponse;
+      try {
+         data = JSON.parse(res.text) as JiraIssueResponse;
+      } catch {
+         return fallback;
+      }
+      const title = LinkMetadataParser.sanitizeText(data.fields?.summary, 300);
+      if (!title) return fallback;
+
+      const card: LinkMetadata = {
+         ...fallback,
+         title,
+         author: LinkMetadataParser.sanitizeText(data.fields?.project?.name, 300),
+         description: LinkMetadataParser.sanitizeText(
+            LinkMetadataFetcher.plainText(data.renderedFields?.description ?? undefined)),
+      };
+      LinkMetadataFetcher.jiraCache.set(cacheKey, card);
       return card;
    }
 

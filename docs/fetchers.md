@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 21 endpoint, 7 page + endpoint, 9 page, 13 hook.
+the same commit. Counts today: 22 endpoint, 7 page + endpoint, 9 page, 13 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -35,6 +35,7 @@ the same commit. Counts today: 21 endpoint, 7 page + endpoint, 9 page, 13 hook.
 | crates.io | `crates.io/api/v1/crates/<name>?include=` (or `/<version>`) + `/owner_user`; the page, a shell, is read only for its per-crate `og:image` and favicon | 3 | refresh | API **404** → the name verbatim; an API failure lands on the same card, never generic | low — documented API |
 | TikTok | a profile's page with the crawler UA, when its description starts with the `@handle`; otherwise, and for every video, oEmbed `tiktok.com/oembed` | 1–3 | sticky | **400** from oEmbed | low for videos — documented; **high** for profiles — UA sniffing, oEmbed behind it; thumbnails and avatars are signed and expire |
 | Trello | the `.json` export any board URL answers to; a `/c/` card through REST `api.trello.com/1/cards/<id>` | 1 | refresh | **404** from the export or the card API | medium for boards — undocumented export; low for cards — documented API |
+| Jira Cloud | REST `<site>.atlassian.net/rest/api/2/issue/<key>` — `/browse/<KEY>-<n>` only | 1 | refresh | none: a missing and a private issue are the same **404**, read as a wall (a declared exception to J1) → the key, unmarked | low — documented, versioned |
 | Wikipedia | REST `<lang>.wikipedia.org/api/rest_v1/page/summary/<title>` | 1 | — | non-200 → generic, so a real **404** | low — documented, versioned |
 | arXiv | Atom `export.arxiv.org/api/query?id_list=` | 1 | — | empty `<entry>` | low — documented API |
 | PubMed | E-utilities `eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml` | 1 | — | an empty `<PubmedArticleSet>` | low — documented, 3 req/s anonymous |

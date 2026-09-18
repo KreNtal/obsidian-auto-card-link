@@ -146,6 +146,12 @@ export interface TrelloCardResponse {
   cover?: { scaled?: { url?: string; width?: number }[] | null };
 }
 
+/** `<site>.atlassian.net/rest/api/2/issue/<key>?fields=summary,description,project&expand=renderedFields`. */
+export interface JiraIssueResponse {
+  fields?: { summary?: string; project?: { name?: string } };
+  renderedFields?: { description?: string | null } | null;
+}
+
 /** One `appids=<id>` entry of `store.steampowered.com/api/appdetails`. */
 export interface SteamAppDetailsResponse {
   [appid: string]: {
