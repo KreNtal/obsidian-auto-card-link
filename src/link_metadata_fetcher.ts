@@ -134,6 +134,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isConfluenceCloudUrl(url)) return this.fetchConfluence(url);
       if (CheckIf.isLinearUrl(url)) return this.fetchLinear(url);
       if (CheckIf.isClickUpAppUrl(url)) return this.fetchClickUp(url);
+      if (CheckIf.isCodaDocUrl(url)) return this.fetchCoda(url);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
@@ -3897,6 +3898,40 @@ export class LinkMetadataFetcher {
       if (customId) return { ...card, title: customId };
       if (/\/t\//.test(path)) return { ...card, title: "ClickUp task" };
       return card;
+   }
+
+   /* --- CODA / SUPERHUMAN DOCS --- */
+
+   /**
+    * A Coda doc, `/d/…` on coda.io or on docs.superhuman.com, where coda.io now redirects. A
+    * doc shared publicly reads in full - title, image, "Superhuman Docs doc by <name>" and a
+    * declared `author`. A private one, and one that does not exist, both end a chain of
+    * redirects on Superhuman's sign-in page (`id.superhuman.com/signin`), which parsed as a
+    * confident card titled "Login" (A1(a), measured 2026-09-18). Private and missing cannot be
+    * told apart, so it is read as a wall: a card from the URL, unmarked, never Microlink. The
+    * sign-in page carries no description or image, and its favicon is relative to a host we
+    * cannot see (`requestUrl` exposes no final URL), so the renderer's own fallback shows one.
+    */
+   private async fetchCoda(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      if (!metadata || metadata.title !== "Login" || metadata.description || metadata.image) return metadata;
+      console.debug(`Coda sent ${url} to its sign-in page; building from the URL.`);
+      return this.withPageFurniture(this.buildCodaFallback(url), metadata);
+   }
+
+   /**
+    * The doc's name from `/d/<Doc-Name>_d<id>`, else the page's from `/<Page-Name>_su<id>`
+    * after it, else "Superhuman Docs doc" - the site's own wording for one.
+    */
+   private buildCodaFallback(url: string): LinkMetadata {
+      const card: LinkMetadata = { ...this.buildUrlCard(url), siteName: "Superhuman Docs" };
+      const m = new URL(url).pathname.match(/^\/d\/([^/]+)(?:\/([^/]+))?/);
+      const doc = m?.[1]?.replace(/_d[\w-]+$/, "");
+      const page = m?.[2]?.replace(/_su[\w-]+$/, "");
+      return {
+         ...card,
+         title: LinkMetadataFetcher.deslug(doc) ?? LinkMetadataFetcher.deslug(page) ?? "Superhuman Docs doc",
+      };
    }
 
    /* --- GOOGLE DOCS / DRIVE --- */

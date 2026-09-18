@@ -307,6 +307,14 @@ export class CheckIf {
     return /^https?:\/\/(app|doc|sharing)\.clickup\.com([/?#]|$)/i.test(url);
   }
 
+  public static isCodaDocUrl(url: string): boolean {
+    // A Coda doc, `/d/<Doc-Name>_d<id>[/<Page>_su<id>]`, on coda.io or on docs.superhuman.com,
+    // where coda.io now redirects: a doc shared publicly reads, a private or missing one lands
+    // on Superhuman's sign-in page - checked 2026-09-18. Published docs (`/@<user>/…`) read
+    // and answer a missing one with a real 404.
+    return /^https?:\/\/(www\.)?(coda\.io|docs\.superhuman\.com)\/d\/[^/?#]+/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,

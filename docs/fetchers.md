@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 7 page + endpoint, 10 page, 15 hook.
+the same commit. Counts today: 22 endpoint, 7 page + endpoint, 10 page, 16 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -92,6 +92,7 @@ No extra request, nothing site-specific to break.
 | Apple Podcasts | plain generic, then the show name read out of Apple's description template into `author` | 1 | — | a real **404** | none — a no-op on a show page |
 | Linear | plain generic, then a result titled nothing but "Linear", with no description or image - the app shell every workspace route answers - becomes a card from the URL: an issue's slug or key, a project's or document's slug without its id | 1 | — | none: live and missing are the same shell, so the card is unmarked | low — a reworded shell only brings back the "Linear" card |
 | ClickUp | plain generic on the app hosts, then a result titled nothing but "ClickUp" or "ClickUp Docs" - the shell every task and doc answers - becomes a card from the URL with the shell's blurb and image: a doc's slug, a task's custom id, else "ClickUp doc" / "ClickUp task" | 1 | — | none: live and missing are the same shell, so the card is unmarked | low — a reworded shell only brings back the "ClickUp" card |
+| Coda / Superhuman Docs | plain generic on `/d/` docs, then a result titled nothing but "Login", with no description or image - the sign-in page a private or missing doc redirects to - becomes a card from the URL: the doc's name, else the page's | 1 | — | none: private and missing land on the same sign-in page, so the card is unmarked | low — a reworded sign-in page only brings back the "Login" card |
 
 ## Where the rest lives
 
