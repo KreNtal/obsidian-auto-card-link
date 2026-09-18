@@ -151,6 +151,15 @@ export class LinkMetadataParser {
   }
 
   private async getFavicon(): Promise<string | undefined> {
+    // An SVG icon first, when the page declares one: Chromium picks it for the tab bar too, it
+    // scales to the card's 16px, and a declared .ico can be one Chromium will not draw - Linear's
+    // 64px favicon-*.ico decodes fully transparent in Obsidian, while the SVG beside it renders
+    // (measured in the console, 2026-09-18).
+    const svg = Array.from(this.htmlDoc.querySelectorAll("link[rel='icon']")).find((l) =>
+      l.getAttribute("type") === "image/svg+xml" || /\.svg([?#]|$)/i.test(l.getAttribute("href") ?? ""));
+    const svgHref = svg?.getAttribute("href");
+    if (svgHref) return this.resolveUrl(svgHref);
+
     // Try all common favicon link rel variants in order
     const selectors = [
       "link[rel='icon']",

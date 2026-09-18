@@ -285,7 +285,10 @@ exception exists only if it is written here, or recorded with its evidence in
 
 **G. Favicon**
 
-- **G1.** The icon the page declares wins, else the `/favicon.ico` guess.
+- **G1.** The icon the page declares wins, else the `/favicon.ico` guess. Among the icons a page
+  declares, an SVG `rel="icon"` comes first, as Chromium's own tab bar picks it (Roberto,
+  2026-09-18): Linear's `.ico` decodes fully transparent in Obsidian while the SVG beside it
+  renders, and a vector icon is the sharper one at 16px anyway.
 - **G2.** Hardcoded only when the code does not read the page and the guess was measured to
   fail (Discord, Bluesky).
 - **G3.** Always rides along on dead-link and shell cards.
