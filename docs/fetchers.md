@@ -60,7 +60,7 @@ the same commit. Counts today: 21 endpoint, 7 page + endpoint, 9 page, 13 hook.
 | Site | Source | Req. | Cache | Dead link | Fragility (A6) |
 | --- | --- | --- | --- | --- | --- |
 | Etsy | `fetchGeneric` with the WhatsApp UA, the whole host; " - Etsy …" dropped from the title, the shop read out of a listing's description or a shop page's title (B6, F4) | 1 | — | the page's own **404** | **high** — UA sniffing; every other UA is 403, Microlink `EPROXYNEEDED` |
-| eBay | `fetchGeneric` with `viaNode`: on desktop the first request goes through Node's `https`, a current Chrome UA and its Client Hints (`sec-ch-ua`, which Electron drops from `requestUrl`); " \| eBay" dropped from an item's title (B6) | 1 | — | the page's own **404**; a bare `/itm/<id>` titled "eBay item" | **high** — header sniffing, and Node, so desktop only; mobile gets the 403 and falls back |
+| eBay | `fetchGeneric` with `viaNode`: on desktop the first request goes through Node's `https`, a current Chrome UA and its Client Hints (`sec-ch-ua`, which Electron drops from `requestUrl`); " \| eBay" dropped from an item's title (B6) | 1 | — | the page's own **404**; a bare `/itm/<id>` titled "eBay item" | **high** — header sniffing, and Node on desktop; mobile's own requestUrl read a listing too (2026-09-18) |
 | Twitch | the page, 3 attempts with rotating user agents, 9s timeout | 1–3 | — | the shell → card from the URL plus furniture | **high** — UA sniffing and retries |
 | TED | the page + speaker and ISO-8601 duration pulled from the HTML | 1 | — | non-200 → generic, so a real **404** | medium — HTML scraping for two fields |
 | Google Docs / Drive | the page + a check on the redirect to `accounts.google.com` and a `<base href>` there | 1–2 | — | the sign-in redirect — a wall, not a death | medium — a redirect and an HTML tell |
@@ -77,7 +77,7 @@ No extra request, nothing site-specific to break.
 | --- | --- | --- | --- | --- | --- |
 | Goodreads | `goneCard` | 1 | — | a 200 whose `og:title` is nothing but "Goodreads" | none |
 | Google Maps | `goneCard`; the place name comes from the URL, the map thumbnail rides along | 1 | — | `og:title` "Google Maps" — the product, not the place | none — no endpoint exists for place data |
-| Bandcamp | a `siteName` floor, nothing else (`requestUrl` is challenged by Cloudflare; `fetchGeneric`'s Node retry reads it on desktop) | 1 | sticky | a real **404** | medium — the Node retry is desktop-only, mobile still challenged; the Cloudflare-interstitial check it used to carry now runs in `fetchGeneric` for every link |
+| Bandcamp | a `siteName` floor, nothing else (`requestUrl` is challenged by Cloudflare; `fetchGeneric`'s Node retry reads it on desktop) | 1 | sticky | a real **404** | medium — the Node retry is desktop-only; on mobile the challenge goes to Microlink, which reads it (pasted on a phone, 2026-09-18); the Cloudflare-interstitial check it used to carry now runs in `fetchGeneric` for every link |
 | Medium | `goneCard` | 1 | — | a title that is nothing but the site name | none |
 | GOG | `goneCard`, `/game/` URLs only; " \| GOG.com" dropped from a live title (B6) | 1 | — | a 200 titled "Best Video games, DRM-free \| GOG.COM" — the catalog a missing game redirects to | low — a reworded catalog title only brings back the catalog card |
 | AliExpress | `emptyPage`, `/item/<id>.html` only; " - AliExpress \<number>" dropped from a live title (B6) | 1 | — | a 200 whose `og:title` is declared empty | low — a changed empty page only brings back the Microlink call |
