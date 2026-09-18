@@ -300,6 +300,13 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?linear\.app([/?#]|$)/i.test(url);
   }
 
+  public static isClickUpAppUrl(url: string): boolean {
+    // The app and its two public-link hosts: a task (`app.clickup.com/t/…`), a public doc
+    // (`doc.clickup.com`), a public task or view (`sharing.clickup.com`) - every one the same
+    // shell, public or not - checked 2026-09-18. clickup.com and help.clickup.com read.
+    return /^https?:\/\/(app|doc|sharing)\.clickup\.com([/?#]|$)/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,

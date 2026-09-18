@@ -133,6 +133,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isJiraCloudIssueUrl(url)) return this.fetchJiraIssue(url, refresh);
       if (CheckIf.isConfluenceCloudUrl(url)) return this.fetchConfluence(url);
       if (CheckIf.isLinearUrl(url)) return this.fetchLinear(url);
+      if (CheckIf.isClickUpAppUrl(url)) return this.fetchClickUp(url);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
@@ -3856,6 +3857,46 @@ export class LinkMetadataFetcher {
          ? LinkMetadataFetcher.deslug(m[3]) ?? m[2]!
          : LinkMetadataFetcher.deslug(m[2]!.replace(/-?[0-9a-f]{12}$/i, "")) ?? `Linear ${type}`;
       return { ...card, title };
+   }
+
+   /* --- CLICKUP --- */
+
+   /**
+    * ClickUp's app hosts. Every task (`app.clickup.com/t/…`), every doc shared publicly
+    * (`doc.clickup.com/<ws>/d/…`) and every public task link (`sharing.clickup.com`) answers
+    * the same client-rendered shell, public or private, live or not: titled "ClickUp" with
+    * ClickUp's marketing blurb on a task, "ClickUp Docs" with ClickUp's social card image on a
+    * doc - to the Chrome UA, `facebookexternalhit`, Slackbot, WhatsApp, Discordbot, Twitterbot
+    * and Googlebot alike (measured 2026-09-18). Microlink renders "ClickUp Docs" too, and the
+    * data behind a public doc comes from ClickUp's undocumented app API, not asked (A6).
+    *
+    * So, as Linear's, the check is on the result: a title that is nothing but "ClickUp" or
+    * "ClickUp Docs" is the shell, and the card is built from the URL - unmarked, since live
+    * and missing cannot be told apart - with the shell's blurb and image as furniture (C5,
+    * D4). Never Microlink.
+    */
+   private async fetchClickUp(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      if (!metadata || (metadata.title !== "ClickUp" && metadata.title !== "ClickUp Docs")) return metadata;
+      console.debug(`ClickUp served its app shell for ${url}; building from the URL.`);
+      return this.withPageFurniture(this.buildClickUpFallback(url), metadata);
+   }
+
+   /**
+    * The URL's own words. A doc, `/<ws>/d/<id>/<slug>`: the slug ("release-notes" → "Release
+    * notes"); a publicly shared one, `/<ws>/d/h/<id>/<token>`, carries only ids - "ClickUp
+    * doc". A task: its custom id verbatim when the URL carries one (`/t/<team>/DEV-123`),
+    * else "ClickUp task". Anything else through the general builder.
+    */
+   private buildClickUpFallback(url: string): LinkMetadata {
+      const card: LinkMetadata = { ...this.buildUrlCard(url), siteName: "ClickUp" };
+      const path = new URL(url).pathname;
+      const doc = path.match(/^\/[^/]+\/d\/(h\/)?[^/]+\/([^/]+)/);
+      if (doc) return { ...card, title: (!doc[1] && LinkMetadataFetcher.deslug(doc[2])) || "ClickUp doc" };
+      const customId = path.match(/^\/t\/[^/]+\/([a-z][a-z0-9]*-\d+)\/?$/i)?.[1];
+      if (customId) return { ...card, title: customId };
+      if (/\/t\//.test(path)) return { ...card, title: "ClickUp task" };
+      return card;
    }
 
    /* --- GOOGLE DOCS / DRIVE --- */

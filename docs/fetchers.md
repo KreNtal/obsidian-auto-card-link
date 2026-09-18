@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 7 page + endpoint, 10 page, 14 hook.
+the same commit. Counts today: 22 endpoint, 7 page + endpoint, 10 page, 15 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -91,6 +91,7 @@ No extra request, nothing site-specific to break.
 | itch.io | plain generic, then "\<title> by \<creators>" split into `author` when the first creator matches the subdomain or " by " occurs once | 1 | — | a real **404** | none — a template that stops matching leaves the title whole |
 | Apple Podcasts | plain generic, then the show name read out of Apple's description template into `author` | 1 | — | a real **404** | none — a no-op on a show page |
 | Linear | plain generic, then a result titled nothing but "Linear", with no description or image - the app shell every workspace route answers - becomes a card from the URL: an issue's slug or key, a project's or document's slug without its id | 1 | — | none: live and missing are the same shell, so the card is unmarked | low — a reworded shell only brings back the "Linear" card |
+| ClickUp | plain generic on the app hosts, then a result titled nothing but "ClickUp" or "ClickUp Docs" - the shell every task and doc answers - becomes a card from the URL with the shell's blurb and image: a doc's slug, a task's custom id, else "ClickUp doc" / "ClickUp task" | 1 | — | none: live and missing are the same shell, so the card is unmarked | low — a reworded shell only brings back the "ClickUp" card |
 
 ## Where the rest lives
 
