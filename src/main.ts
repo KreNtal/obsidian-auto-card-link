@@ -84,9 +84,12 @@ export default class ObsidianAutoCardLink extends Plugin {
     applyCardStyle(this.settings?.cardStyle ?? "classic");
     applyThumbnailFit(this.settings?.thumbnailFit ?? "cover");
 
+    // Icons are the context menu's own, so the mobile toolbar shows the same shape for the
+    // same action - without one it shows a question mark.
     this.addCommand({
       id: "auto-card-link-paste-and-enhance",
       name: "Paste URL and enhance to card link",
+      icon: "rectangle-horizontal",
       editorCallback: async (editor: Editor) => {
         await this.manualPasteAndEnhanceURL(editor);
       },
@@ -95,6 +98,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     this.addCommand({
       id: "auto-card-link-enhance-selected-url",
       name: "Enhance selected URL to card link",
+      icon: "rectangle-horizontal",
       editorCheckCallback: (checking: boolean, editor: Editor) => {
         if (!navigator.onLine) return false;
         if (checking) return true;
@@ -106,6 +110,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     this.addCommand({
       id: "auto-card-link-paste-and-enhance-markdown-link",
       name: "Paste URL and enhance to Markdown link",
+      icon: "link",
       editorCallback: async (editor: Editor) => {
         await this.manualPasteAndEnhanceURL(editor, "markdown-link");
       },
@@ -114,6 +119,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     this.addCommand({
       id: "auto-card-link-enhance-selected-url-markdown-link",
       name: "Enhance selected URL to Markdown link",
+      icon: "link",
       editorCheckCallback: (checking: boolean, editor: Editor) => {
         if (!navigator.onLine) return false;
         if (checking) return true;
@@ -129,6 +135,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     this.addCommand({
       id: "auto-card-link-paste-plain-url",
       name: "Paste URL without enhancing",
+      icon: "link-2",
       editorCallback: async (editor: Editor) => {
         await this.pastePlainUrl(editor);
       },
