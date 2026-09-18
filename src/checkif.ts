@@ -286,6 +286,13 @@ export class CheckIf {
     return /^https?:\/\/[a-z0-9-]+\.atlassian\.net\/browse\/[a-z][a-z0-9_]*-\d+\/?([?#]|$)/i.test(url);
   }
 
+  public static isConfluenceCloudUrl(url: string): boolean {
+    // Confluence Cloud, `<site>.atlassian.net/wiki/...`: a live page reads, but a missing page
+    // or space is a 200 titled "Page Not Found - Confluence" and a site closed to anonymous
+    // readers a 401 - checked 2026-09-18. Self-hosted Confluence answers a real 404.
+    return /^https?:\/\/[a-z0-9-]+\.atlassian\.net\/wiki([/?#]|$)/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,

@@ -131,6 +131,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
       if (CheckIf.isTrelloCardUrl(url)) return this.fetchTrelloCard(url, refresh);
       if (CheckIf.isJiraCloudIssueUrl(url)) return this.fetchJiraIssue(url, refresh);
+      if (CheckIf.isConfluenceCloudUrl(url)) return this.fetchConfluence(url);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
@@ -3757,6 +3758,63 @@ export class LinkMetadataFetcher {
       };
       LinkMetadataFetcher.jiraCache.set(cacheKey, card);
       return card;
+   }
+
+   /* --- CONFLUENCE CLOUD --- */
+
+   /**
+    * Confluence Cloud, `<site>.atlassian.net/wiki/...`. A live page reads on its own - a
+    * `<title>` and nothing else, no og tags, description or image - so this is the generic
+    * read plus two walls and a title template. Measured 2026-09-18 on publica-project,
+    * ithelpcentre and hibernate.
+    *
+    * - A missing page, and a space that does not exist, answer **200** titled "Page Not Found
+    *   - Confluence", which parsed as a confident card (A1(b)). A page restricted inside a
+    *   public space presumably looks the same to an anonymous reader, and the REST API
+    *   answers both "No content found", so it is read as a wall, not a death - unmarked, as
+    *   Jira's 404 is (the maintainer's call, 2026-09-18). The title is English whatever the
+    *   site's language, as far as measured; a localised one would read as today.
+    * - A site closed to anonymous readers answers **401** to every page, which `fetchGeneric`
+    *   reads as not found (the Hugging Face rule) - here it is the sign-in wall (J1).
+    *
+    * Both build the card from the URL with the page's furniture, never Microlink. A live
+    * title follows the template "<page> - <space> - Confluence" (Supported Macros Reference -
+    * Publica Public Documentation - Confluence; Home - Publica Public Documentation -
+    * Confluence; Public Knowledge Base - Public Knowledge Base - Confluence): when " - "
+    * occurs exactly twice and the last segment is "Confluence", the space moves to `author`
+    * and the site name goes (B6, F4). Anything else keeps its title whole.
+    */
+   private async fetchConfluence(url: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(url);
+      const wallCard = (): LinkMetadata => ({ ...this.buildUrlCard(url), siteName: "Confluence" });
+
+      if (res?.status === 401) {
+         console.debug(`Confluence refused ${url} without authentication; treating it as a wall.`);
+         const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
+         return html ? this.withParsedFurniture(wallCard(), url, html) : wallCard();
+      }
+      if (!res || res.status !== 200) {
+         // Mirrors fetchGeneric's own non-200 handling rather than delegating to it, which
+         // would request the same url a second time.
+         console.debug(`Fetch failed for ${url}. Status: ${res?.status}`);
+         if (res && (res.status === 404 || res.status === 410)) {
+            return this.errorPageCard(url, await this.decodeHtmlContent(res.arrayBuffer, res.text));
+         }
+         return this.fetchFallback(url);
+      }
+
+      const parsed = await new LinkMetadataParser(url, await this.decodeHtmlContent(res.arrayBuffer, res.text)).parse();
+      if (!parsed) return this.fetchFallback(url);
+      if (parsed.title === "Page Not Found - Confluence") {
+         console.debug(`Confluence has no page it will show for ${url}; building from the URL.`);
+         return this.withPageFurniture(wallCard(), parsed);
+      }
+
+      const parts = parsed.title.split(" - ");
+      const siteName = parsed.siteName ?? "Confluence";
+      return parts.length === 3 && parts[2] === "Confluence"
+         ? { ...parsed, title: parts[0]!, author: parts[1], siteName }
+         : { ...parsed, siteName };
    }
 
    /* --- GOOGLE DOCS / DRIVE --- */

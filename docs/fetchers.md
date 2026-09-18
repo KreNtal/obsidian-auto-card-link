@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 7 page + endpoint, 9 page, 13 hook.
+the same commit. Counts today: 22 endpoint, 7 page + endpoint, 10 page, 13 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -69,6 +69,7 @@ the same commit. Counts today: 22 endpoint, 7 page + endpoint, 9 page, 13 hook.
 | LinkedIn | the page with the crawler UA (`facebookexternalhit`), then `fetchTitleOnly` | 1–2 | — | the sign-in wall → card from the URL | **high** — UA sniffing |
 | Notion | the page with the crawler UA, which splits one shell into page / 404 / shell | 1 | sticky | a real **404**, or the marketing shell | **high** — UA sniffing |
 | Discord | the invite page itself (the `/api/v10/invites/` endpoint was dropped 2026-09-11) | 1 | sticky | the front page an expired invite returns, spotted by its missing `og:url` | medium — one HTML tell; favicon hardcoded (G2) |
+| Confluence Cloud | the page; "Page Not Found - Confluence" and a **401** read as walls → card from the URL, unmarked; "<page> - <space> - Confluence" split into title and `author` (B6) | 1 | — | none: a missing and a restricted page look the same, so both are walls (as Jira) | medium — one English title tell |
 
 ## Hook — `fetchGeneric` plus one check, or a touch-up of its result
 
