@@ -382,8 +382,14 @@ export class LinkMetadataFetcher {
       // A browser User-Agent that arrives without the rest of a browser's headers is itself
       // the tell some bot protection refuses. Measured in Obsidian's console 2026-09-16:
       // codeberg.org answered our Chrome/124 UA with 403 "Access denied" and sourceforge.net
+         /**
+          * What to do instead of Microlink when the page cannot be read: an endpoint a caller
+          * would rather ask (A3 - the page first, the endpoint only when it fails).
+          */
+         fallback?: () => Promise<LinkMetadata | undefined>;
       // answered it - and Obsidian's own real UA - with Cloudflare's 403 "Just a moment...",
       // while the plugin naming itself got 200 and the real page on both. Both then went to
+      const fallback = checks?.fallback ?? (() => this.fetchFallback(url));
       // Microlink for a page we could have read. One retry, only on a 403, so nothing that
       // reads today changes; a 403 that stays a 403 goes on to the fallback as before. Any
       // other answer is taken - a dead repo refused as a bot is a real 404 underneath, and
@@ -420,7 +426,7 @@ export class LinkMetadataFetcher {
             const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
             return this.errorPageCard(url, html, checks?.urlCard);
          }
-         return this.fetchFallback(url);
+         return fallback();
       }
 
       const decodedText = await this.decodeHtmlContent(res.arrayBuffer, res.text);
@@ -440,7 +446,7 @@ export class LinkMetadataFetcher {
       // were real content, and never give the external fallback (if enabled) a chance.
       if (metadata && this.looksLikePlaceholder(metadata, url)) {
          console.debug(`Fetch for ${url} returned only a URL-slug placeholder title.`);
-         return this.fetchFallback(url);
+         return fallback();
       }
 
       // Before isUnusable: this one is the site *telling* us the thing is gone, which is a
@@ -453,10 +459,10 @@ export class LinkMetadataFetcher {
 
       if (metadata && (LinkMetadataFetcher.looksLikeInterstitial(metadata) || checks?.isUnusable?.(metadata))) {
          console.debug(`Fetch for ${url} returned a placeholder page rather than real content.`);
-         return this.fetchFallback(url);
+         return fallback();
       }
 
-      return metadata ?? this.fetchFallback(url);
+      return metadata ?? fallback();
    }
 
    /** The plugin naming itself. Spotify's page and fetchGeneric's 403 retry use it. */
@@ -540,6 +546,14 @@ export class LinkMetadataFetcher {
       return res.status === 200 && !!title
          && LinkMetadataFetcher.INTERSTITIAL_TITLES.includes(title.trim().toLowerCase().replace(/\s+/g, " "));
    }
+      // Not anti-bot, but served instead of the link all the same: a stub that moves on by
+      // meta refresh or script, which requestUrl never follows. Elsevier's linkinghub answers
+      // every DOI it resolves this way, to any client (2026-09-18).
+      "redirecting",
+      // Atypon's, the platform behind Wiley, ACS, Science and Taylor & Francis: the page a
+      // request that did not keep the cookie it was just set lands on. Wiley's DOIs answered
+      // it in Obsidian (2026-09-18).
+      "error - cookies turned off",
 
    private static looksLikeInterstitial(metadata: LinkMetadata): boolean {
       return LinkMetadataFetcher.INTERSTITIAL_TITLES.includes(

@@ -267,7 +267,9 @@ exception exists only if it is written here, or recorded with its evidence in
 
 - **F1.** The parser reads the author a page declares, for every site: `meta name="author"`,
   then `article:author`, then JSON-LD `author` from a top-level object only (never a nested
-  one, such as a review's). Discarded: a URL, from any source, and a name that is the site's
+  one, such as a review's), then `citation_author` - the Highwire tags Google Scholar reads,
+  often an academic page's only byline (bioRxiv, Zenodo; added 2026-09-18), last so that no
+  author read before changes. Discarded: a URL, from any source, and a name that is the site's
   own. Several authors read "A and B", three or more "A et al.". A fetcher's own author
   still wins.
 - **F2.** Sources allowed: a field declared as the author, an endpoint field, a site-specific

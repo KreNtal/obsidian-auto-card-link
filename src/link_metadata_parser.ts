@@ -10,6 +10,33 @@ export class LinkMetadataParser {
     const parser = new DOMParser();
     const htmlDoc = parser.parseFromString(htmlText, "text/html");
     this.htmlDoc = htmlDoc;
+    this.base = this.declaredBase() ?? url;
+  }
+
+  /** What relative favicon and image paths resolve against - see declaredBase. */
+  private base: string;
+
+  /**
+   * The address the page says it is at, when that is on another host than the URL we asked
+   * for: we were redirected, and requestUrl does not tell us where to. A DOI lands on the
+   * publisher, and Nature's `/oscar-static/…` favicon came out on doi.org, a 404 (2026-09-18).
+   * `<base href>` first, since relative URLs are resolved against it by definition, then
+   * `og:url`, then the canonical link. On the same host nothing changes.
+   */
+  private declaredBase(): string | undefined {
+    const declared = [
+      this.htmlDoc.querySelector("base[href]")?.getAttribute("href"),
+      this.ogContent("og:url"),
+      this.htmlDoc.querySelector("link[rel='canonical']")?.getAttribute("href"),
+    ];
+    for (const href of declared) {
+      if (!href) continue;
+      try {
+        const resolved = new URL(href, this.url);
+        if (/^https?:$/.test(resolved.protocol) && resolved.hostname !== new URL(this.url).hostname) return resolved.href;
+      } catch { /* not a URL */ }
+    }
+    return undefined;
   }
 
   async parse(): Promise<LinkMetadata | undefined> {
@@ -138,7 +165,7 @@ export class LinkMetadataParser {
     }
 
     // Fallback: /favicon.ico always exists on well-behaved sites
-    const { origin } = new URL(this.url);
+    const { origin } = new URL(this.base);
     return `${origin}/favicon.ico`;
   }
 
@@ -150,13 +177,16 @@ export class LinkMetadataParser {
       ],
       Array.from(this.htmlDoc.querySelectorAll("script[type='application/ld+json']"), (s) => s.textContent ?? ""),
       siteName,
-      host
+      host,
+      Array.from(this.htmlDoc.querySelectorAll("meta[name='citation_author' i]"), (m) => m.getAttribute("content") ?? ""),
     );
   }
 
   /**
    * The byline a page declares (field rule F1), in order: `<meta name="author">`,
-   * `article:author`, then JSON-LD. Measured 2026-09-16 on 38 pages: news and blogs declare
+   * `article:author`, then JSON-LD, then `citation_author` - the Highwire tags Google Scholar
+   * reads, one per author, which is often the only byline an academic page declares (bioRxiv,
+   * Zenodo, 2026-09-18). Last, so nothing that already had an author changes. Measured 2026-09-16 on 38 pages: news and blogs declare
    * one (Medium, The Verge, Wired, TechCrunch, GitHub Blog in a meta tag; BBC, Guardian, Ars
    * Technica, Repubblica, Quanta, Substack only in JSON-LD), catalogues and databases do not.
    *
@@ -171,7 +201,8 @@ export class LinkMetadataParser {
    * a book's editors and illustrators after its writer.
    */
   static pickAuthor(
-    metaValues: (string | null | undefined)[], jsonLdTexts: string[], siteName: string | undefined, host: string
+    metaValues: (string | null | undefined)[], jsonLdTexts: string[], siteName: string | undefined, host: string,
+    citationAuthors: string[] = []
   ): string | undefined {
     const squash = (s: string) => s.toLowerCase().replace(/\.[a-z]{2,}$/, "").replace(/[^\p{L}\p{N}]/gu, "");
     const site = [siteName, host.replace(/^www\./, "")].filter((s): s is string => !!s).map(squash);
@@ -203,7 +234,9 @@ export class LinkMetadataParser {
         if (names.length) return LinkMetadataParser.sanitizeText(join(names));
       }
     }
-    return undefined;
+
+    const cited = citationAuthors.filter(usable).map((n) => n.trim());
+    return cited.length ? LinkMetadataParser.sanitizeText(join(cited)) : undefined;
   }
 
   private getJsonLdData(): unknown {
@@ -334,10 +367,10 @@ export class LinkMetadataParser {
     }
     if (url.startsWith("//")) return `https:${url}`;
     if (url.startsWith("/")) {
-      const { origin } = new URL(this.url);
+      const { origin } = new URL(this.base);
       return `${origin}${url}`;
     }
-    const base = this.url.replace(/\/[^/]*$/, "/");
+    const base = this.base.replace(/\/[^/]*$/, "/");
     return `${base}${url}`;
   }
 
