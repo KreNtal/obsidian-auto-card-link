@@ -5310,23 +5310,13 @@ export class LinkMetadataFetcher {
    }
 
    /**
-    * Field rule J4: a card for a link the site says is not there is marked in its title, the
-    * way the user chose. The default strikes it through, written as Markdown's own `~~…~~`:
-    * the card renders a line-through, a markdown link is struck natively, and no language is
-    * involved. The other choices are a text of the user's own before the title - in their
-    * language - or no mark at all. Tried first on 2026-09-17 and rejected by the maintainer:
-    * a fixed " - not found" suffix (English in every vault, cut by the card's two-line clamp)
-    * and a 🚫 prefix.
+    * Field rule J4: a card for a link the site says is not there carries `status: not-found`, and
+    * nothing else about it changes here. The mark the user chose ("Links that are not found")
+    * is applied where the title is shown - by the card renderer, with the setting as it is
+    * then, and when a markdown link is written - see `CodeBlockGenerator.notFoundTitle`.
     */
    private notFound(card: LinkMetadata): LinkMetadata {
-      const style = this.settings?.notFoundMarker ?? "strikethrough";
-      if (style === "none") return card;
-      if (style === "prefix") {
-         const prefix = this.settings?.notFoundPrefix?.trim();
-         if (!prefix || card.title.startsWith(`${prefix} `)) return card;
-         return { ...card, title: `${prefix} ${card.title}` };
-      }
-      return /^~~[\s\S]*~~$/.test(card.title) ? card : { ...card, title: `~~${card.title}~~` };
+      return { ...card, status: "not-found" };
    }
 
    /**

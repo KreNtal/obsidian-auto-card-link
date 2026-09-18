@@ -16,7 +16,7 @@ It includes tailored handling for over twenty sites — YouTube, Vimeo, Reddit, 
 - Right-click a Markdown link to refresh its title or turn it into a card.
 - Cards and Markdown links have separate commands, so each can have its own hotkey and both can be used side by side.
 - Support for local images through internal links (`image: "[[image.png]]"`).
-- Links to content that is gone — a deleted post, a removed video, an expired invite — produce a card built from the URL, instead of a confident-looking card describing the site's own error page or sign-in wall.
+- Links to content that is gone — a deleted post, a removed video, an expired invite — produce a card built from the URL, instead of a confident-looking card describing the site's own error page or sign-in wall. The card is marked `status: not-found`, and its title is marked the way the settings say.
 
 ## Settings
 
@@ -27,7 +27,7 @@ It includes tailored handling for over twenty sites — YouTube, Vimeo, Reddit, 
 - Show the thumbnail on the left or right of the card.
 - Choose thumbnail quality (best looking vs. max resolution).
 - Use an external service as a fallback for blocked sites (off by default).
-- Mark links that are not found: strike the title through (default), put a text of your choice before it, or leave it as it is.
+- Mark links that are not found: strike the title through (default), put a text of your choice before it, or leave it as it is. Cards follow the setting as it is now, including cards already in your notes; Markdown links keep the mark they were written with.
 
 ## Network use
 
@@ -55,6 +55,7 @@ The code block `cardlink` uses YAML syntax for displaying card-styled link.
 | image       | false    | thumbnail image to show in the card link |
 | author      | false    | channel or author (if present)           |
 | duration    | false    | duration time for videos                 |
+| status      | false    | `not-found` when the site says the page is not there; the title is then marked as the settings say |
 
 ## example
 
@@ -66,6 +67,18 @@ description: "The free and flexible app for your private thoughts."
 host: obsidian.md
 favicon: https://obsidian.md/favicon.ico
 image: https://obsidian.md/images/banner.png
+```
+````
+
+A link the site says is not there:
+
+````
+```cardlink
+url: https://github.com/obsidianmd/nonexistent-repo
+title: "obsidianmd/nonexistent-repo"
+host: github.com
+favicon: https://github.com/favicon.ico
+status: not-found
 ```
 ````
 

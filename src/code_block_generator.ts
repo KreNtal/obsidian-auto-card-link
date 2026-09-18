@@ -53,7 +53,10 @@ export class CodeBlockGenerator {
 
     const { metadata, startPos, endPos } = located;
     this.editor.replaceRange(
-      CodeBlockGenerator.buildMarkdownLink(metadata.linkTitle ?? metadata.title, url, metadata.siteName),
+      CodeBlockGenerator.buildMarkdownLink(
+        CodeBlockGenerator.notFoundTitle(metadata.linkTitle ?? metadata.title, metadata.status, this.settings),
+        url, metadata.siteName
+      ),
       startPos,
       endPos
     );
@@ -134,6 +137,34 @@ export class CodeBlockGenerator {
     }
 
     return { metadata: linkMetadata, ...found };
+  }
+
+  /** Whether a block's `status` (comma-separated words) says the site has nothing there. */
+  static isNotFound(status?: string): boolean {
+    return typeof status === "string" && status.split(",").some((word) => word.trim().toLowerCase() === "not-found");
+  }
+
+  /**
+   * Field rule J4: a dead link's title marked the way the user chose - struck through with
+   * Markdown's own `~~…~~` (a markdown link is struck natively, the card renderer draws a
+   * line-through), a text of the user's own before it, or nothing. A card's block keeps its
+   * title clean and says `status: not-found`, so this runs every time it is shown and follows the
+   * setting as it is then; a markdown link has no field of its own, so it is marked once,
+   * when written.
+   */
+  static notFoundTitle(title: string, status: string | undefined, settings?: ObsidianAutoCardLinkSettings): string {
+    // A card written on 2026-09-17, before `status`, carries the strike in its title instead.
+    const legacy = title.trim().match(/^~~([\s\S]+)~~$/);
+    if (!legacy && !CodeBlockGenerator.isNotFound(status)) return title;
+    const clean = legacy ? legacy[1]!.trim() : title.trim();
+
+    const style = settings?.notFoundMarker ?? "strikethrough";
+    if (style === "none") return clean;
+    if (style === "prefix") {
+      const prefix = settings?.notFoundPrefix?.trim();
+      return prefix ? `${prefix} ${clean}` : clean;
+    }
+    return `~~${clean}~~`;
   }
 
   /**
@@ -256,6 +287,7 @@ export class CodeBlockGenerator {
     if (linkMetadata.favicon) codeBlockTexts.push(`favicon: ${linkMetadata.favicon}`);
     if (linkMetadata.image) codeBlockTexts.push(`image: ${linkMetadata.image}`);
     if (linkMetadata.duration) codeBlockTexts.push(`duration: ${this.yamlQuote(linkMetadata.duration)}`);
+    if (linkMetadata.status) codeBlockTexts.push(`status: ${linkMetadata.status}`);
 
     codeBlockTexts.push(trailingNewline ? "```\n" : "```");
     return codeBlockTexts.join("\n");

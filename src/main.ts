@@ -63,7 +63,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     this.registerMarkdownCodeBlockProcessor("cardlink", async (source, el, ctx) => {
       const processor = new CodeBlockProcessor(this.app, (copied) => {
         this.cachedClipboard = copied;
-      });
+      }, this.settings);
       await processor.run(source, el);
 
       const info = ctx.getSectionInfo(el);
@@ -676,7 +676,11 @@ export default class ObsidianAutoCardLink extends Plugin {
     }
 
     const blockStart = range.startPos.line;
-    const title = this.parseCardlinkField(lines, blockStart, range.blockEnd, "title") ?? range.url;
+    const title = CodeBlockGenerator.notFoundTitle(
+      this.parseCardlinkField(lines, blockStart, range.blockEnd, "title") ?? range.url,
+      this.parseCardlinkField(lines, blockStart, range.blockEnd, "status"),
+      this.settings
+    );
     const host = this.parseCardlinkField(lines, blockStart, range.blockEnd, "host");
     const siteName = host ? LinkMetadataFetcher.siteNameFor(host) : undefined;
 
@@ -1145,5 +1149,17 @@ export default class ObsidianAutoCardLink extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  /**
+   * Re-marks the title of every card on screen after the "Links that are not found" setting
+   * changes (field rule J4). Only the title element is touched: the rest of a card does not
+   * depend on it, and cards rendered later read the setting themselves.
+   */
+  refreshNotFoundTitles(): void {
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      leaf.view.containerEl.querySelectorAll<HTMLElement>(".auto-card-link-title[data-title]")
+        .forEach((titleEl) => CodeBlockProcessor.showTitle(titleEl, this.settings));
+    });
   }
 }

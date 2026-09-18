@@ -289,8 +289,8 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Links that are not found")
       .setDesc(createFragment((frag) => {
-        frag.appendText("How the title is marked when the site says the page is not there - a deleted post, a removed repository. ");
-        frag.createEl("strong", { text: "Applies only to new and refreshed links." });
+        frag.appendText("How the title is marked when the site says the page is not there, a deleted post, a removed repository. Cards follow the setting as it is. ");
+        frag.createEl("strong", { text: "Markdown links keep the mark they were written with." });
       }))
       .addDropdown((drop) => {
         if (!this.plugin.settings) return drop;
@@ -303,6 +303,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
             if (!this.plugin.settings) return;
             this.plugin.settings.notFoundMarker = value as "strikethrough" | "prefix" | "none";
             await this.plugin.saveSettings();
+            this.plugin.refreshNotFoundTitles();
             this.display();
           });
       });
@@ -320,6 +321,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
               if (!this.plugin.settings) return;
               this.plugin.settings.notFoundPrefix = value.trim() || DEFAULT_SETTINGS.notFoundPrefix;
               await this.plugin.saveSettings();
+              this.plugin.refreshNotFoundTitles();
             });
         });
     }

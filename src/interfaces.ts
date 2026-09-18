@@ -15,6 +15,12 @@ export interface LinkMetadata {
   favicon?: string;
   image?: string;
   duration?: string;
+  /**
+   * What is known about the link itself, as comma-separated words. Only "not-found" exists: the
+   * site says the page is not there (field rule J4). The title stays clean, and how a dead
+   * card is marked is decided when it is shown, by the setting as it is then.
+   */
+  status?: string;
   indent: number;
 }
 

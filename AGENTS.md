@@ -336,21 +336,24 @@ more code and more checks than live ones for very little a reader gets from them
   would give a route word ("YouTube video" for `/watch?v=`, "arXiv:<id>" for `/abs/<id>`). On a dead link two
   things are checked, and only two: the title is not the error page's, and Microlink is not
   called.
-- **J4.** A not-found card says so in its **title**, once, as the user chose in the settings
-  ("Links that are not found"). The default strikes it through with Markdown's own `~~…~~`:
-  the card renders a line-through without the tildes, a markdown link is struck natively
-  with the site name after the strike ("~~title~~ - Site"), no language is involved, it
-  survives the card's two-line clamp, and a search for `~~` finds every dead link in the
-  vault. The alternatives are a text of the user's own before the title (default "Not
-  found:", in whatever language they write it) or no mark. The renderer and the link label
-  always recognise `~~…~~`, whatever the setting is now, so cards written under another
-  choice still show correctly. Rejected on the way (2026-09-17): a fixed " - not found"
-  suffix (English, and cut first by the clamp) and a 🚫 prefix. No field of its own in the
-  block (the maintainer's call: a `status:` key adds little). Never in the description,
-  which on these cards is the site's own furniture. It is applied where the proof is established - `errorPageCard`, `goneCard`,
-  `emptyPage`, and each fetcher's own proven-dead path - and never to a card built from the
-  URL after a failure or a wall. A refresh rewrites the title, so a link that comes back loses
-  the marker with no exception to I2.
+- **J4.** A not-found card says so, once, as the user chose in the settings ("Links that are
+  not found"): its title struck through (the default), a text of the user's own before it
+  (default "Not found:", in whatever language they write it), or no mark. **A card** keeps
+  its title clean and carries `status: not-found` in its block - written only on dead cards; the
+  renderer marks the title with the setting as it is when shown, and a change of the setting
+  re-marks the cards on screen (2026-09-18, the maintainer's call, reversing the day before:
+  a `~~` in every dead title was dirtier than one field). `status` holds comma-separated
+  words so later states can join "not-found" without a new key; named after the setting and J1 rather than "dead", which claims more than a 404 proves (2026-09-18). **A markdown link** has no field,
+  so it is marked once, when written - struck with Markdown's own `~~…~~` and the site name
+  after the strike ("~~title~~ - Site"), or prefixed - and keeps that mark whatever the
+  setting becomes; converting a dead card to a link marks it the same way. Cards written on
+  2026-09-17 carry `~~title~~` instead of the field and are still read as dead. Rejected on
+  the way (2026-09-17): a fixed " - not found" suffix (English, and cut first by the card's
+  two-line clamp) and a 🚫 prefix. Never in the description, which on these cards is the
+  site's own furniture. The status is set (`notFound`) where the proof is established -
+  `errorPageCard`, `goneCard`, `emptyPage`, and each fetcher's own proven-dead path - and
+  never on a card built from the URL after a failure or a wall. A refresh rebuilds the card,
+  so a link that comes back loses the status with no exception to I2.
 
 ### Reuse before writing
 

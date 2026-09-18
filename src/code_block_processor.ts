@@ -3,6 +3,8 @@ import { App, parseYaml, Notice, ButtonComponent, getLinkpath } from "obsidian";
 import { YamlParseError, NoRequiredParamsError } from "./errors";
 import { LinkMetadata } from "./interfaces";
 import { CheckIf } from "./checkif";
+import { CodeBlockGenerator } from "./code_block_generator";
+import { ObsidianAutoCardLinkSettings } from "./settings";
 
 export class CodeBlockProcessor {
   app: App;
@@ -11,10 +13,24 @@ export class CodeBlockProcessor {
    * never moves focus, so nothing else would prompt a re-read before the next right-click.
    */
   private onUrlCopied?: (url: string) => void;
+  private settings?: ObsidianAutoCardLinkSettings;
 
-  constructor(app: App, onUrlCopied?: (url: string) => void) {
+  constructor(app: App, onUrlCopied?: (url: string) => void, settings?: ObsidianAutoCardLinkSettings) {
     this.app = app;
     this.onUrlCopied = onUrlCopied;
+    this.settings = settings;
+  }
+
+  /**
+   * Shows a card's title, marked if the link is dead (field rule J4) the way the setting says
+   * now. The block's own title and status stay on the element, so a change of the setting can
+   * re-mark every card already on screen without re-rendering it.
+   */
+  static showTitle(titleEl: HTMLElement, settings?: ObsidianAutoCardLinkSettings): void {
+    const shown = CodeBlockGenerator.notFoundTitle(titleEl.dataset.title ?? "", titleEl.dataset.status, settings);
+    const struck = shown.match(/^~~([\s\S]+)~~$/);
+    titleEl.toggleClass("auto-card-link-title-not-found", !!struck);
+    titleEl.setText(struck ? struck[1]! : shown);
   }
 
   async run(source: string, el: HTMLElement) {
@@ -58,6 +74,7 @@ export class CodeBlockProcessor {
         favicon: yaml.favicon,
         image: yaml.image,
         duration: yaml.duration,
+        status: yaml.status,
         indent: 0,
       };
     } catch {
@@ -106,6 +123,7 @@ export class CodeBlockProcessor {
       favicon: yaml.favicon,
       image: yaml.image,
       duration: yaml.duration,
+      status: yaml.status,
       indent,
     };
   }
@@ -140,13 +158,10 @@ export class CodeBlockProcessor {
     // flex-direction: row-reverse, so the later child renders on the left.
     const mainEl = cardEl.createDiv({ cls: "auto-card-link-main" });
 
-    // `~~title~~` marks a link the site says is not there (field rule J4): shown struck
-    // through, without the tildes.
-    const struck = data.title.match(/^~~([\s\S]+)~~$/);
-    mainEl.createDiv({
-      cls: struck ? "auto-card-link-title auto-card-link-title-not-found" : "auto-card-link-title",
-      text: struck ? struck[1]! : data.title,
-    });
+    const titleEl = mainEl.createDiv({ cls: "auto-card-link-title" });
+    titleEl.dataset.title = data.title;
+    if (data.status) titleEl.dataset.status = data.status;
+    CodeBlockProcessor.showTitle(titleEl, this.settings);
 
     if (data.description) {
       mainEl.createDiv({ cls: "auto-card-link-description", text: data.description });
