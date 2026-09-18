@@ -301,6 +301,28 @@ export interface AniListMediaResponse {
   };
 }
 
+/** The CSL-JSON doi.org answers when asked for it (content negotiation, Crossref and DataCite). */
+export interface CslItem {
+  title?: string | string[];
+  author?: { given?: string; family?: string; literal?: string; name?: string; }[];
+  "container-title"?: string | string[];
+  publisher?: string;
+  issued?: { "date-parts"?: (number | string)[][]; };
+  /** JATS XML from Crossref, plain text from DataCite. */
+  abstract?: string;
+}
+
+/** api.biorxiv.org/details - one entry per version of the preprint, oldest first. */
+export interface BiorxivDetailsResponse {
+  collection?: {
+    title?: string;
+    /** "Gordon, D. E.; Jang, G. M.; …" */
+    authors?: string;
+    version?: string;
+    abstract?: string;
+  }[];
+}
+
 /**
  * The slice of Node's `https` and `zlib` that requestViaNode uses, written out rather than taken
  * from `@types/node`: the modules are required at run time, and without their types every call

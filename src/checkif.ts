@@ -310,6 +310,24 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?arxiv\.org\/?([?#]|$)/i.test(url);
   }
 
+  public static isDoiUrl(url: string): boolean {
+    // A DOI, never the resolver's own pages: every DOI starts "10." (ISO 26324), and the
+    // homepage is a readable page like any other.
+    return /^https?:\/\/(dx\.|www\.)?doi\.org\/10\.\d+\//i.test(url);
+  }
+
+  public static isPubMedArticleUrl(url: string): boolean {
+    // An article, /<PMID>/. Live and dead ids alike answer the same 203 proof-of-work page,
+    // "Cookies must be enabled", with no tag about the article (measured 2026-09-18).
+    return /^https?:\/\/pubmed\.ncbi\.nlm\.nih\.gov\/\d+\/?([?#]|$)/i.test(url);
+  }
+
+  public static isBiorxivPreprintUrl(url: string): boolean {
+    // A preprint, /content/10.1101/<id>[v<n>][.full…]. Live and dead ones alike are 302'd by
+    // Cloudflare to /node/, a page titled "| bioRxiv" (measured 2026-09-18).
+    return /^https?:\/\/(www\.)?biorxiv\.org\/content\/10\.1101\/\d/i.test(url);
+  }
+
   public static isBlueskyUrl(url: string): boolean {
     // A post or a profile. The handle may also be a raw DID, which the API accepts as-is.
     return /^https?:\/\/bsky\.app\/profile\/[^/?#]+/i.test(url);

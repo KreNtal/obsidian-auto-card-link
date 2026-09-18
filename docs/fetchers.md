@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 13 hook.
+the same commit. Counts today: 21 endpoint, 7 page + endpoint, 9 page, 13 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -37,6 +37,7 @@ the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 13 hook.
 | Trello | the `.json` export any board URL answers to; a `/c/` card through REST `api.trello.com/1/cards/<id>` | 1 | refresh | **404** from the export or the card API | medium for boards — undocumented export; low for cards — documented API |
 | Wikipedia | REST `<lang>.wikipedia.org/api/rest_v1/page/summary/<title>` | 1 | — | non-200 → generic, so a real **404** | low — documented, versioned |
 | arXiv | Atom `export.arxiv.org/api/query?id_list=` | 1 | — | empty `<entry>` | low — documented API |
+| PubMed | E-utilities `eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml` | 1 | — | an empty `<PubmedArticleSet>` | low — documented, 3 req/s anonymous |
 | Stack Exchange | `api.stackexchange.com/2.3/`, resolving an answer id to its question first | 1–2 | sticky | `items: []` | low — documented, 300 req/day anonymous |
 | Hacker News | Firebase `hacker-news.firebaseio.com/v0/item\|user`, walking a comment up to its story | 1–6 | — | a literal `null`, or the `deleted` / `dead` flags | low — official API, no quota |
 | Bluesky | XRPC `public.api.bsky.app/xrpc/` | 1 | — | a **400** reading "not found" → card from the URL; any other failure gets the same card, unmarked | low — documented public AppView |
@@ -51,6 +52,8 @@ the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 13 hook.
 | OpenStreetMap | the page + `api.openstreetmap.org/api/0.6/<type>/<id>` for the description only | 2 | refresh | **404** from the API | low — documented, versioned |
 | Docker Hub | the page + `hub.docker.com/v2/repositories/<ns>/<name>/` for the description only | 1–2 | — | the page's own **404** — the endpoint is never reached | low — documented Hub API |
 | RubyGems | the page + `rubygems.org/api/v1/gems/<name>.json` (v2 for a version) for the description and authors; " \| RubyGems.org \| your community gem host" dropped (B6) | 1–2 | — | the page's own **404** — the endpoint is never reached | low — documented API |
+| DOI | the page the DOI lands on; when it cannot be read, CSL-JSON from `doi.org` by content negotiation instead of Microlink - the endpoint replaces a failed read rather than adding a field | 1–4 | — | doi.org's own **404** → the DOI as title | low — documented content negotiation, Crossref and DataCite alike |
+| bioRxiv | the page; `api.biorxiv.org/details/biorxiv/<doi>` only when it is the "\| bioRxiv" `/node` page, which reads as no preprint | 1–2 | — | that page, then `collection: []` from the API | low — documented API |
 
 ## Page — our own request, our own headers and parsing, no endpoint
 

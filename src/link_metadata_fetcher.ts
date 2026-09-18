@@ -1,7 +1,9 @@
 import { Notice, Platform, requestUrl } from "obsidian";
 import {
    AniListMediaResponse,
+   BiorxivDetailsResponse,
    BlueskyPost,
+   CslItem,
    BlueskyProfile,
    HackerNewsItem,
    HackerNewsUser,
@@ -138,6 +140,9 @@ export class LinkMetadataFetcher {
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
       if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
+      if (CheckIf.isDoiUrl(url)) return this.fetchDoi(url);
+      if (CheckIf.isPubMedArticleUrl(url)) return this.fetchPubMed(url);
+      if (CheckIf.isBiorxivPreprintUrl(url)) return this.fetchBiorxiv(url);
       if (CheckIf.isStackExchangeUrl(url)) return this.fetchStackExchange(url);
       if (CheckIf.isLinkedInUrl(url)) return this.fetchLinkedIn(url);
       if (CheckIf.isNotionUrl(url)) return this.fetchNotion(url);
@@ -223,6 +228,11 @@ export class LinkMetadataFetcher {
       "x.com": "X",
       "twitter.com": "X",
       "arxiv.org": "arXiv",
+      // A DOI's card is the publisher's page when that reads, which names itself; these are
+      // for the cards built from the endpoints, which read no page.
+      "doi.org": "DOI",
+      "pubmed.ncbi.nlm.nih.gov": "PubMed",
+      "biorxiv.org": "bioRxiv",
       "stackoverflow.com": "Stack Overflow",
       "serverfault.com": "Server Fault",
       "superuser.com": "Super User",
@@ -372,8 +382,14 @@ export class LinkMetadataFetcher {
          headers?: Record<string, string>;
          /** Make the first request through Node's https on desktop - see requestViaNode. */
          viaNode?: boolean;
+         /**
+          * What to do instead of Microlink when the page cannot be read: an endpoint a caller
+          * would rather ask (A3 - the page first, the endpoint only when it fails).
+          */
+         fallback?: () => Promise<LinkMetadata | undefined>;
       }
    ): Promise<LinkMetadata | undefined> {
+      const fallback = checks?.fallback ?? (() => this.fetchFallback(url));
       const firstHeaders = { "Referer": "https://www.google.com/", ...checks?.headers };
       let res = checks?.viaNode && Platform.isDesktopApp
          ? await this.requestViaNode(url, firstHeaders)
@@ -382,14 +398,8 @@ export class LinkMetadataFetcher {
       // A browser User-Agent that arrives without the rest of a browser's headers is itself
       // the tell some bot protection refuses. Measured in Obsidian's console 2026-09-16:
       // codeberg.org answered our Chrome/124 UA with 403 "Access denied" and sourceforge.net
-         /**
-          * What to do instead of Microlink when the page cannot be read: an endpoint a caller
-          * would rather ask (A3 - the page first, the endpoint only when it fails).
-          */
-         fallback?: () => Promise<LinkMetadata | undefined>;
       // answered it - and Obsidian's own real UA - with Cloudflare's 403 "Just a moment...",
       // while the plugin naming itself got 200 and the real page on both. Both then went to
-      const fallback = checks?.fallback ?? (() => this.fetchFallback(url));
       // Microlink for a page we could have read. One retry, only on a 403, so nothing that
       // reads today changes; a 403 that stays a 403 goes on to the fallback as before. Any
       // other answer is taken - a dead repo refused as a bot is a real 404 underneath, and
@@ -536,6 +546,14 @@ export class LinkMetadataFetcher {
       "checking your browser before accessing",
       "access denied",
       "one moment, please",
+      // Not anti-bot, but served instead of the link all the same: a stub that moves on by
+      // meta refresh or script, which requestUrl never follows. Elsevier's linkinghub answers
+      // every DOI it resolves this way, to any client (2026-09-18).
+      "redirecting",
+      // Atypon's, the platform behind Wiley, ACS, Science and Taylor & Francis: the page a
+      // request that did not keep the cookie it was just set lands on. Wiley's DOIs answered
+      // it in Obsidian (2026-09-18).
+      "error - cookies turned off",
    ];
 
    /** A raw answer that is an anti-bot wall: any 403, or a 200 whose whole title is one. */
@@ -546,14 +564,6 @@ export class LinkMetadataFetcher {
       return res.status === 200 && !!title
          && LinkMetadataFetcher.INTERSTITIAL_TITLES.includes(title.trim().toLowerCase().replace(/\s+/g, " "));
    }
-      // Not anti-bot, but served instead of the link all the same: a stub that moves on by
-      // meta refresh or script, which requestUrl never follows. Elsevier's linkinghub answers
-      // every DOI it resolves this way, to any client (2026-09-18).
-      "redirecting",
-      // Atypon's, the platform behind Wiley, ACS, Science and Taylor & Francis: the page a
-      // request that did not keep the cookie it was just set lands on. Wiley's DOIs answered
-      // it in Obsidian (2026-09-18).
-      "error - cookies turned off",
 
    private static looksLikeInterstitial(metadata: LinkMetadata): boolean {
       return LinkMetadataFetcher.INTERSTITIAL_TITLES.includes(
@@ -4091,6 +4101,160 @@ export class LinkMetadataFetcher {
          ...metadata,
          image: metadata.image ?? LinkMetadataFetcher.ARXIV_LOGO,
          favicon: metadata.favicon ?? "https://arxiv.org/favicon.ico",
+      };
+   }
+
+   /** Several authors the way the parser (F1) and arXiv write them: "A", "A and B", "A et al.". */
+   private static authorLine(names: (string | undefined)[]): string | undefined {
+      const named = names.filter((n): n is string => !!n);
+      if (named.length === 0) return undefined;
+      return named.length <= 2 ? named.join(" and ") : `${named[0]!} et al.`;
+   }
+
+   /** Text out of the markup an endpoint may carry in a field: Crossref's JATS, an `<i>` in a title. */
+   private static plainText(markup: string | undefined): string | undefined {
+      if (!markup) return undefined;
+      const text = new DOMParser().parseFromString(markup, "text/html").body.textContent;
+      return text?.replace(/\s+/g, " ").trim() || undefined;
+   }
+
+   /* --- DOI --- */
+
+   /**
+    * A DOI is a redirector, and its card describes where it lands (A3, the maintainer's call,
+    * 2026-09-18): the publisher's page when that reads - PLOS does, with its image and abstract
+    * - and otherwise the DOI's own metadata, asked of doi.org by content negotiation, instead
+    * of Microlink. Most publishers cannot be read, measured 2026-09-18: Elsevier answers a
+    * "Redirecting" stub, Nature and Springer a "Client Challenge", Wiley, ACS and Science
+    * Cloudflare's "Just a moment...", IEEE a 202 with no body. A DOI that does not exist is
+    * doi.org's own 404, and its card is titled with the DOI (J2) rather than its last part.
+    */
+   private async fetchDoi(url: string): Promise<LinkMetadata | undefined> {
+      const path = new URL(url).pathname;
+      let doi: string;
+      try { doi = decodeURIComponent(path.slice(1)); } catch { doi = path.slice(1); }
+      return this.fetchGeneric(url, {
+         urlCard: u => ({ ...this.buildUrlCard(u), title: doi }),
+         fallback: async () => (await this.doiCsl(url, path)) ?? this.fetchFallback(url),
+      });
+   }
+
+   /**
+    * The CSL-JSON every registration agency answers on doi.org when asked for it - Crossref
+    * (journals, bioRxiv) and DataCite (Zenodo, Dryad) alike, one request, redirected to the
+    * agency's own API. No image: it has none (D3). The description is the abstract when the
+    * publisher deposited one, otherwise journal and year (C3).
+    */
+   private async doiCsl(url: string, path: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(`https://doi.org${path}`, { "Accept": "application/vnd.citationstyles.csl+json" });
+      if (res?.status !== 200) return undefined;
+      let item: CslItem;
+      try { item = JSON.parse(res.text) as CslItem; } catch { return undefined; }
+
+      const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
+      const title = LinkMetadataFetcher.plainText(first(item.title));
+      if (!title) return undefined;
+
+      const abstract = LinkMetadataFetcher.plainText(item.abstract?.replace(/<jats:title>[\s\S]*?<\/jats:title>/g, ""));
+      const source = [first(item["container-title"]) ?? item.publisher, item.issued?.["date-parts"]?.[0]?.[0]]
+         .filter(Boolean).join(" · ");
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(title, 300) ?? title,
+         author: LinkMetadataFetcher.authorLine((item.author ?? []).map(a =>
+            a.literal ?? a.name ?? ([a.given, a.family].filter(Boolean).join(" ") || undefined))),
+         description: LinkMetadataParser.sanitizeText(abstract ?? (source || undefined)),
+         host: "doi.org",
+         // G2: doi.org/favicon.ico is a 404; this is the icon its pages declare.
+         favicon: "https://doi.org/static/images/favicons/favicon-32x32.png",
+         indent: 0,
+      };
+   }
+
+   /* --- PUBMED --- */
+
+   /**
+    * Every article page, live or dead, answers NCBI's 203 proof-of-work page, "Cookies must be
+    * enabled", which carries nothing about the article (A1(a), measured 2026-09-18), so the
+    * card comes from E-utilities' efetch: title, full abstract and authors in one request. An
+    * empty `<PubmedArticleSet>` is the endpoint stating there is no such PMID (J1).
+    */
+   private async fetchPubMed(url: string): Promise<LinkMetadata | undefined> {
+      const pmid = url.match(/nih\.gov\/(\d+)/)?.[1];
+      if (!pmid) return this.fetchGeneric(url);
+      const res = await this.request(
+         `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&id=${pmid}`
+      );
+      if (res?.status !== 200) return this.fetchGeneric(url);
+
+      const doc = new DOMParser().parseFromString(res.text, "text/xml");
+      const article = doc.querySelector("PubmedArticle, PubmedBookArticle");
+      if (!article) {
+         return doc.querySelector("PubmedArticleSet") ? this.notFound(this.buildUrlCard(url)) : this.fetchGeneric(url);
+      }
+
+      const text = (el: Element | null | undefined) => el?.textContent?.replace(/\s+/g, " ").trim() || undefined;
+      const title = text(article.querySelector("ArticleTitle")) ?? text(article.querySelector("BookTitle"));
+      if (!title) return this.fetchGeneric(url);
+      const abstract = Array.from(article.querySelectorAll("Abstract > AbstractText")).map(text).filter(Boolean).join(" ");
+      const authors = Array.from(article.querySelectorAll("AuthorList > Author")).map(a =>
+         text(a.querySelector("CollectiveName"))
+         ?? ([text(a.querySelector("ForeName")), text(a.querySelector("LastName"))].filter(Boolean).join(" ") || undefined));
+
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(title, 300) ?? title,
+         author: LinkMetadataFetcher.authorLine(authors),
+         description: LinkMetadataParser.sanitizeText(abstract),
+         host: "pubmed.ncbi.nlm.nih.gov",
+         favicon: "https://pubmed.ncbi.nlm.nih.gov/favicon.ico",
+         indent: 0,
+      };
+   }
+
+   /* --- BIORXIV --- */
+
+   /**
+    * A preprint's page reads in Obsidian (2026-09-18). A missing one does not 404: it is a 200
+    * titled "| bioRxiv", canonical `/node`, carrying nothing else - and a scripted probe got
+    * that same page for **live** preprints too, a Cloudflare 302. So the page alone cannot say
+    * a preprint is gone (A1(b)), and on that page, only, the documented API is asked: an
+    * empty `collection` is the proof (J1); an entry means the page was withheld, and the card
+    * comes from the API - one entry per version, the URL's if it names one, else the latest.
+    */
+   private async fetchBiorxiv(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, {
+         isUnusable: m => /^\|\s*bioRxiv$/i.test(m.title),
+         fallback: async () => (await this.biorxivApi(url)) ?? this.fetchFallback(url),
+      });
+   }
+
+   private async biorxivApi(url: string): Promise<LinkMetadata | undefined> {
+      const match = url.match(/\/content\/(10\.1101\/\d[\d.]*\d)(?:v(\d+))?/i);
+      if (!match) return undefined;
+      const res = await this.request(`https://api.biorxiv.org/details/biorxiv/${match[1]}`);
+      if (res?.status !== 200) return undefined;
+      let versions: BiorxivDetailsResponse["collection"];
+      try { versions = (JSON.parse(res.text) as BiorxivDetailsResponse).collection; } catch { return undefined; }
+      if (!Array.isArray(versions)) return undefined;
+      if (versions.length === 0) return this.notFound(this.buildUrlCard(url));
+
+      const entry = versions.find(v => v.version === match[2]) ?? versions[versions.length - 1]!;
+      if (!entry.title) return undefined;
+      // "Gordon, D. E.; Jang, G. M." - family name first; turned round to read as a byline.
+      const authors = (entry.authors ?? "").split(";").map(name => {
+         const [family, given] = name.split(",").map(s => s.trim());
+         return [given, family].filter(Boolean).join(" ") || undefined;
+      });
+
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(entry.title.trim(), 300) ?? entry.title,
+         author: LinkMetadataFetcher.authorLine(authors),
+         description: LinkMetadataParser.sanitizeText(entry.abstract?.trim()),
+         host: "biorxiv.org",
+         favicon: "https://www.biorxiv.org/favicon.ico",
+         indent: 0,
       };
    }
 
