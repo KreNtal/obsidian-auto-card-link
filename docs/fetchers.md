@@ -40,7 +40,7 @@ the same commit. Counts today: 20 endpoint, 5 page + endpoint, 9 page, 13 hook.
 | Stack Exchange | `api.stackexchange.com/2.3/`, resolving an answer id to its question first | 1–2 | sticky | `items: []` | low — documented, 300 req/day anonymous |
 | Hacker News | Firebase `hacker-news.firebaseio.com/v0/item\|user`, walking a comment up to its story | 1–6 | — | a literal `null`, or the `deleted` / `dead` flags | low — official API, no quota |
 | Bluesky | XRPC `public.api.bsky.app/xrpc/` | 1 | — | a **400** reading "not found" → card from the URL; any other failure gets the same card, unmarked | low — documented public AppView |
-| AniList | GraphQL `graphql.anilist.co`, the `Media` query — `/anime/` and `/manga/` only; every other route reads the page with the plugin's UA, which AniList renders for non-browsers, and is built from the URL where it does not | 1 | refresh (API only) | **404** with `data.Media` null; a rendered page titled "AniList" | low for the API — documented, versioned, no key; **high** for character and staff — UA sniffing |
+| AniList | GraphQL `graphql.anilist.co`, the `Media` query — `/anime/` and `/manga/` only; every other route reads the page with the plugin's UA, which AniList renders for non-browsers, and is built from the URL where it does not | 1 (2 when a user, character, staff or studio page fails) | refresh (API only) | **404** with `data.Media` null; for a user, character, staff member or studio whose page came back the shell, the same 404 with `data.<Type>` null | low for the API — documented, versioned, no key; **high** for character and staff — UA sniffing |
 
 ## Page + endpoint — the page first (A3), the endpoint only adds a field
 

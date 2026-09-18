@@ -4515,10 +4515,41 @@ export class LinkMetadataFetcher {
    private async fetchAniListPage(url: string): Promise<LinkMetadata> {
       const res = await this.request(url, { "User-Agent": LinkMetadataFetcher.PLUGIN_UA });
       if (res?.status === 404) return this.notFound(this.buildUrlCard(url));
-      if (!res || res.status !== 200) return this.buildUrlCard(url);
-      const page = await new LinkMetadataParser(url, await this.decodeHtmlContent(res.arrayBuffer, res.text)).parse();
-      if (!page || page.title.trim().toLowerCase() === "anilist") return this.buildUrlCard(url);
-      return page;
+      const page = res?.status === 200
+         ? await new LinkMetadataParser(url, await this.decodeHtmlContent(res.arrayBuffer, res.text)).parse()
+         : undefined;
+      if (page && page.title.trim().toLowerCase() !== "anilist") return page;
+      return await this.aniListGone(url) ? this.notFound(this.buildUrlCard(url)) : this.buildUrlCard(url);
+   }
+
+   /**
+    * A user, character, staff member or studio that does not exist gets the same 200 shell as
+    * every unreadable page - the browser's redirect to `/404` is done by script - so the page
+    * proves nothing. The API does: `{"data":{"User":null}}` with a 404 (J1), measured
+    * 2026-09-18 on `/user/Josh/` and on id 99999999 of the other three. Asked only once the
+    * page has failed, so a live link costs nothing extra.
+    */
+   private async aniListGone(url: string): Promise<boolean> {
+      const m = url.match(/anilist\.co\/(user|character|staff|studio)\/([^/?#]+)/i);
+      if (!m) return false;
+      const type = m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1).toLowerCase();
+      const byName = type === "User";
+      if (!byName && !/^\d+$/.test(m[2]!)) return false;
+      const res = await this.request(
+         "https://graphql.anilist.co",
+         { "Content-Type": "application/json", "Accept": "application/json" },
+         8000,
+         JSON.stringify({
+            query: `query($v: ${byName ? "String" : "Int"}) { ${type}(${byName ? "name" : "id"}: $v) { id } }`,
+            variables: { v: byName ? decodeURIComponent(m[2]!) : Number(m[2]) },
+         })
+      );
+      if (res?.status !== 404) return false;
+      try {
+         return (JSON.parse(res.text) as { data?: Record<string, unknown> }).data?.[type] === null;
+      } catch {
+         return false;
+      }
    }
 
    /**
