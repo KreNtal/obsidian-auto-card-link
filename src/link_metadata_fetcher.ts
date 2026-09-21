@@ -122,6 +122,9 @@ export class LinkMetadataFetcher {
       if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
       if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
       if (CheckIf.isCults3dUrl(url)) return this.fetchCults3d(url);
+      if (CheckIf.isBookingUrl(url)) return this.fetchBooking(url);
+      if (CheckIf.isYelpBizUrl(url)) return this.fetchYelp(url);
+      if (CheckIf.isTripAdvisorReviewUrl(url)) return this.fetchTripAdvisor(url);
       if (CheckIf.isEbayUrl(url)) return this.fetchEbay(url);
       if (CheckIf.isItchGameUrl(url)) return this.fetchItch(url);
       if (CheckIf.isEpicProductUrl(url)) return this.fetchEpic(url);
@@ -2490,6 +2493,78 @@ export class LinkMetadataFetcher {
     */
    private async fetchCults3d(url: string): Promise<LinkMetadata | undefined> {
       return this.fetchGeneric(url, { headers: { "User-Agent": LinkMetadataFetcher.CRAWLER_UA } });
+   }
+
+   /* --- BOOKING.COM --- */
+
+   /**
+    * Booking.com, read as Facebook's link preview (A1(c)). Measured in Obsidian's console
+    * 2026-09-21: Obsidian's own UA, the plugin's, Slackbot and Node's `https` get a 3.9 KB
+    * **202** with an empty title - a JavaScript challenge - which `fetchGeneric` sent on to
+    * Microlink, and Microlink answers every Booking URL with a 400. `facebookexternalhit` gets
+    * the real hotel page (`og:title` "Hotel Artemide, Rome (updated prices 2026)", the
+    * description, a 1200x630 photo) and a real **404** for a hotel that does not exist. In the
+    * URL's own language: `/hotel/it/<name>.it.html` answers in Italian. A shared `/Share-<id>`
+    * link and a browser link with its search parameters both land on the hotel page. WhatsApp
+    * works too, but answers in the language it guesses and rewrites the URL for it, so the
+    * crawler UA is the one used. UA sniffing, the fragile category (A6): should it stop
+    * working, links go back to the card built from the URL. Known gap: by script a hotel slug
+    * that may have been delisted (`/hotel/fr/ritz-paris.html`) redirected to its city's page,
+    * which reads as a confident "10 Best Paris Hotels" card - one example, not handled (A2).
+    */
+   private async fetchBooking(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, { headers: { "User-Agent": LinkMetadataFetcher.CRAWLER_UA } });
+   }
+
+   /* --- YELP --- */
+
+   /**
+    * Yelp's `.com` and `.ca` sit behind DataDome, which answers a 779-byte 403 titled
+    * "yelp.com" to every request - Obsidian's own UA, the plugin's, every crawler and chat
+    * app, Node's `https` with a current Chrome's Client Hints (Obsidian's console,
+    * 2026-09-21) - and Microlink answers 400. The other national hosts serve the same
+    * business pages from Yelp's own servers with no DataDome in front: `yelp.co.uk`, `.it`,
+    * `.ie`, `.de`, `.fr`, `.es` and `.com.au` all answered 200 by script, and `yelp.co.uk`
+    * gave the full page to every UA in the console, with a real **404** for a business that
+    * does not exist. So a `/biz/` link on `.com` or `.ca` is read from `yelp.co.uk` - same
+    * path, same query, English like `.com` - and the card keeps the pasted URL and host
+    * (rule 5: the address the user pasted is not touched; the mirror is only where the data
+    * is read, as an endpoint would be, A1(c)). Other routes are untested and stay generic
+    * (A2). Fragile (A6): should Yelp put DataDome in front of `.co.uk` too, the card falls
+    * back to Microlink and then to the URL, as today.
+    */
+   private async fetchYelp(url: string): Promise<LinkMetadata | undefined> {
+      const mirror = new URL(url);
+      mirror.hostname = "www.yelp.co.uk";
+      const card = await this.fetchGeneric(mirror.href);
+      return card && { ...card, url, host: new URL(url).hostname };
+   }
+
+   /* --- TRIPADVISOR --- */
+
+   /**
+    * TripAdvisor answers every page with DataDome's 778-byte 403 titled "tripadvisor.com" -
+    * in Obsidian's console to Obsidian's own UA, the plugin's, `facebookexternalhit`, Slackbot,
+    * WhatsApp and Node's `https` (2026-09-21), and by script on every national host tried
+    * (.co.uk, .de, .fr, .es, .ca, .com.au, .ie, .in, .co.nz) - a challenge, not the place
+    * (A1(a)). Microlink answers 400, Iframely has no plugin for the domain, and the Content API
+    * wants a key. The public review widget (`WidgetEmbed-selfserveprop?locationId=<d id>`)
+    * answers, but with the place's name only, which the URL already spells:
+    * `Hotel_Review-g194863-d275658-Reviews-Hotel_Reginella-Positano_Amalfi_…` → "Hotel
+    * Reginella". So no extra request is spent: the page is still asked first (A3), and when
+    * it does not answer, the card is built from the URL with that name (B4), unmarked - a
+    * wall proves nothing (J1) - and never sent to Microlink. A real 404 builds the same card,
+    * marked.
+    */
+   private async fetchTripAdvisor(url: string): Promise<LinkMetadata | undefined> {
+      const urlCard = (u: string): LinkMetadata => {
+         const name = u.match(/-Reviews-(?:or\d+-)?([^-/?#]+)-/)?.[1];
+         const card = this.buildUrlCard(u);
+         let title: string | undefined;
+         try { title = name && decodeURIComponent(name).replace(/_/g, " ").trim(); } catch { /* keep the slug */ }
+         return { ...card, title: title || card.title, siteName: "Tripadvisor" };
+      };
+      return this.fetchGeneric(url, { urlCard, fallback: () => Promise.resolve(urlCard(url)) });
    }
 
    /* --- EBAY --- */

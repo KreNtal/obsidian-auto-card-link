@@ -201,6 +201,23 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?cults3d\.com(\/|$)/i.test(url);
   }
 
+  public static isBookingUrl(url: string): boolean {
+    // The whole host: every ordinary request gets a JavaScript challenge, and
+    // facebookexternalhit gets the real page on hotels and shared links alike - 2026-09-21.
+    return /^https?:\/\/(www\.)?booking\.com(\/|$)/i.test(url);
+  }
+
+  public static isYelpBizUrl(url: string): boolean {
+    // A business on the two hosts DataDome guards; the other national hosts read as they are.
+    return /^https?:\/\/(www\.)?yelp\.(com|ca)\/biz\/[^/?#]+/i.test(url);
+  }
+
+  public static isTripAdvisorReviewUrl(url: string): boolean {
+    // A place's page on any national host - `Hotel_Review-`, `Restaurant_Review-`,
+    // `Attraction_Review-`, … `-g<geo>-d<id>-Reviews-<Name>-<Place>.html` - checked 2026-09-21.
+    return /^https?:\/\/(www\.)?tripadvisor\.[a-z.]+\/\w+_Review-g\d+-d\d+-Reviews-/i.test(url);
+  }
+
   public static isEbayUrl(url: string): boolean {
     // Every eBay marketplace (ebay.com, ebay.it, ebay.co.uk, …): Akamai refuses them all the
     // same way, and the request that gets through works on items, search and the home page.
