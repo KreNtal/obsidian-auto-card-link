@@ -32,6 +32,10 @@ export class CheckIf {
     return /^https?:\/\/(www\.twitch\.tv\/\w|clips\.twitch\.tv\/)/.test(url);
   }
 
+  public static isKickUrl(url: string): boolean {
+    return /^https?:\/\/(www\.)?kick\.com\/[^/?#]/i.test(url);
+  }
+
   public static isTedUrl(url: string): boolean {
     return /^https?:\/\/(www\.)?ted\.com\/talks\//.test(url);
   }

@@ -42,6 +42,29 @@ export interface DailymotionVideoResponse {
   "owner.screenname"?: string;
 }
 
+/** kick.com/api/v1/video/<uuid> - undocumented, the fields the card reads. */
+export interface KickVideoResponse {
+  views?: number;
+  livestream?: {
+    session_title?: string;
+    duration?: number; // milliseconds
+    channel?: { user?: { username?: string } };
+    categories?: { name?: string }[];
+  };
+}
+
+/** kick.com/api/v2/clips/<id> - undocumented, the fields the card reads. */
+export interface KickClipResponse {
+  clip?: {
+    title?: string;
+    thumbnail_url?: string;
+    duration?: number; // seconds
+    views?: number;
+    category?: { name?: string };
+    channel?: { username?: string };
+  };
+}
+
 export interface PrintablesGraphQLResponse {
   data?: {
     print?: {

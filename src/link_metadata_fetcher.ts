@@ -9,7 +9,7 @@ import {
    HackerNewsUser,
    NodeHttps,
    NodeZlib,
-   BitbucketRepoResponse, CratesIoOwnersResponse, CratesIoResponse, RubyGemsResponse, DailymotionVideoResponse, DockerHubRepoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   BitbucketRepoResponse, CratesIoOwnersResponse, CratesIoResponse, RubyGemsResponse, DailymotionVideoResponse, DockerHubRepoResponse, KickClipResponse, KickVideoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, TrelloCardResponse, JiraIssueResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
@@ -103,6 +103,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isVimeoUrl(url)) return this.fetchVimeo(url);
       if (CheckIf.isDailymotionUrl(url)) return this.fetchDailymotion(url);
       if (CheckIf.isTwitchUrl(url)) return this.fetchTwitch(url);
+      if (CheckIf.isKickUrl(url)) return this.fetchKick(url);
       if (CheckIf.isTedUrl(url)) return this.fetchTed(url);
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url, refresh);
       if (CheckIf.isXUrl(url)) return this.fetchX(url);
@@ -178,6 +179,7 @@ export class LinkMetadataFetcher {
       "vimeo.com": "Vimeo",
       "dailymotion.com": "Dailymotion",
       "twitch.tv": "Twitch",
+      "kick.com": "Kick",
       "ted.com": "TED",
       "reddit.com": "Reddit",
       "imdb.com": "IMDb",
@@ -465,22 +467,22 @@ export class LinkMetadataFetcher {
       // remembered for the session either way - the agent that worked, or that none did.
       // A host that refused every agent is not asked again this session; one whose remembered
       // agent was refused lost that memory above, so every agent is tried again here.
-      if (LinkMetadataFetcher.isChallenge(res) && LinkMetadataFetcher.previewAgentFor.get(host) !== null) {
-         for (const agent of LinkMetadataFetcher.PREVIEW_AGENTS) {
       // "Refused them all" is remembered only when every agent was refused outright: a timeout
       // or a network error may pass, and remembering it cost Booking a whole session - after
       // one bad moment every refresh skipped the agents and ended on the URL card, until
       // Obsidian was reloaded (2026-09-21). The same rule as Node's above.
-            const retry = await this.request(url, { "User-Agent": agent }, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+      if (LinkMetadataFetcher.isChallenge(res) && LinkMetadataFetcher.previewAgentFor.get(host) !== null) {
          let allRefused = true;
+         for (const agent of LinkMetadataFetcher.PREVIEW_AGENTS) {
+            const retry = await this.request(url, { "User-Agent": agent }, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
             if (retry && !LinkMetadataFetcher.isChallenge(retry) && [200, 401, 404, 410].includes(retry.status)) {
                res = retry;
                LinkMetadataFetcher.previewAgentFor.set(host, agent);
                break;
             }
+            if (!LinkMetadataFetcher.isChallenge(retry)) allRefused = false;
          }
          if (LinkMetadataFetcher.isChallenge(res) && allRefused) LinkMetadataFetcher.previewAgentFor.set(host, null);
-            if (!LinkMetadataFetcher.isChallenge(retry)) allRefused = false;
       }
 
       if (!res || res.status !== 200) {
@@ -1064,6 +1066,92 @@ export class LinkMetadataFetcher {
          favicon: "https://www.dailymotion.com/favicon.ico",
          image: data.thumbnail_720_url,
          duration: this.formatDuration(data.duration),
+         indent: 0,
+      };
+   }
+
+   /* --- KICK --- */
+
+   /**
+    * Measured 2026-09-21. A channel and a clip read on the generic path: the Chrome UA gets a
+    * 79-byte 403, and the plugin's own UA, Facebook's, Slackbot and WhatsApp all get the page.
+    * Three things do not read, and they are all this code does:
+    *
+    * - A1(b): a channel or category that does not exist answers **200** titled "Channel Not
+    *   Found - Kick Streaming" / "Not Found - Kick Streaming", with the site's social logo.
+    *   That suffix is the tell; the card is built from the URL, the logo riding along.
+    * - A1(a)+(b): a VOD page, `/<channel>/videos/<uuid>`, is the same empty app shell - no
+    *   title, no og tags - live or not, so it goes straight to `kick.com/api/v1/video/<uuid>`,
+    *   which answers a missing one with 404 "No query results". Its only thumbnail is an S3 URL
+    *   signed for 300 seconds, so the card has no image (D3) rather than one that breaks.
+    * - A clip page, `/<channel>/clips/<id>`, is empty for a missing clip and, three pastes of
+    *   three, for some live ones too (trainwreckstv's clip_01H6V5QHN7VMYHKNYVY7B6FRWW), so the
+    *   page is read first (A3) and `kick.com/api/v2/clips/<id>` asked only when it is empty:
+    *   404 "Clip not found" is proof, a clip is a card of its own.
+    *
+    * Both endpoints are undocumented (the documented API at api.kick.com wants OAuth).
+    * Site template (B6, A5), three of three for each (xQc, AdinRoss, Amouranth): a channel is
+    * "<Name> Stream - Watch Live on Kick", a clip "<Name> - Watch clips on Kick"; the name is
+    * the author when it is the URL's channel. Titles stay whole.
+    */
+   private async fetchKick(url: string): Promise<LinkMetadata | undefined> {
+      const [, channel = "", route, id = ""] = url.match(/kick\.com\/([^/?#]+)(?:\/(videos|clips)\/([^/?#]+))?/i) ?? [];
+      if (route === "videos") return this.fetchKickVideo(url, id);
+
+      const metadata = await this.fetchGeneric(url, {
+         goneCard: (page) => /Not Found - Kick Streaming$/.test(page.title.trim())
+            ? this.withPageFurniture(this.buildUrlCard(url), page)
+            : undefined,
+         fallback: route === "clips" ? () => this.fetchKickClip(url, id) : undefined,
+      });
+      const name = metadata?.title.match(/^(.+?)(?: Stream - Watch Live| - Watch clips) on Kick$/)?.[1];
+      if (!metadata || metadata.author || name?.toLowerCase() !== channel.toLowerCase()) return metadata;
+      return { ...metadata, author: name };
+   }
+
+   private async fetchKickVideo(url: string, uuid: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(`https://kick.com/api/v1/video/${uuid}`);
+      if (res?.status === 404) {
+         console.debug(`Kick has no video ${uuid}; building a card from the URL.`);
+         return this.notFound({ ...this.buildUrlCard(url), title: uuid });
+      }
+      let data: KickVideoResponse | undefined;
+      try { data = res?.status === 200 ? JSON.parse(res.text) as KickVideoResponse : undefined; } catch { /* below */ }
+      const stream = data?.livestream;
+      if (!stream?.session_title) return this.fetchFallback(url);
+      const category = stream.categories?.[0]?.name;
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(stream.session_title) ?? stream.session_title,
+         author: stream.channel?.user?.username,
+         description: [category, data?.views !== undefined ? this.countLabel(data.views, "view") : undefined]
+            .filter(Boolean).join(" · ") || undefined,
+         host: "kick.com",
+         favicon: "https://kick.com/favicon.ico",
+         duration: this.formatDuration(stream.duration ? Math.round(stream.duration / 1000) : undefined),
+         indent: 0,
+      };
+   }
+
+   private async fetchKickClip(url: string, id: string): Promise<LinkMetadata | undefined> {
+      const res = await this.request(`https://kick.com/api/v2/clips/${id}`);
+      if (res?.status === 404) {
+         console.debug(`Kick has no clip ${id}; building a card from the URL.`);
+         return this.notFound({ ...this.buildUrlCard(url), title: id });
+      }
+      let clip: KickClipResponse["clip"];
+      try { clip = res?.status === 200 ? (JSON.parse(res.text) as KickClipResponse).clip : undefined; } catch { /* below */ }
+      if (!clip?.title) return this.fetchFallback(url);
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(clip.title) ?? clip.title,
+         author: clip.channel?.username,
+         description: [clip.category?.name, clip.views !== undefined ? this.countLabel(clip.views, "view") : undefined]
+            .filter(Boolean).join(" · ") || undefined,
+         host: "kick.com",
+         favicon: "https://kick.com/favicon.ico",
+         image: clip.thumbnail_url,
+         duration: this.formatDuration(clip.duration),
          indent: 0,
       };
    }
