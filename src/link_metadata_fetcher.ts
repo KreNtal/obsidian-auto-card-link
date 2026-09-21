@@ -217,6 +217,9 @@ export class LinkMetadataFetcher {
       // wins. A dead article or story is a real 404 declaring nothing, so these label its card.
       "dev.to": "DEV Community",
       "lobste.rs": "Lobsters",
+      // Generic path. A profile declares "CodePen", a pen declares no og:site_name at all
+      // (2026-09-21), so this labels every pen, live or dead.
+      "codepen.io": "CodePen",
       // Generic path for `/_/<name>`, this fetcher for `/r/`, and hub.docker.com declares
       // no og:site_name on either - the official images name the site in their <title>
       // instead. Scoped to the `hub.` subdomain: docs.docker.com and docker.com are the
