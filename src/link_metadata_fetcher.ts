@@ -9,7 +9,7 @@ import {
    HackerNewsUser,
    NodeHttps,
    NodeZlib,
-   BitbucketRepoResponse, CratesIoOwnersResponse, CratesIoResponse, RubyGemsResponse, DailymotionVideoResponse, DockerHubRepoResponse, KickClipResponse, KickVideoResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   BitbucketRepoResponse, CratesIoOwnersResponse, CratesIoResponse, RubyGemsResponse, DailymotionVideoResponse, DockerHubRepoResponse, KickClipResponse, KickVideoResponse, WiktionaryDefinitionResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, TrelloCardResponse, JiraIssueResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
@@ -149,6 +149,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isMediumUrl(url)) return this.fetchMedium(url);
       if (CheckIf.isSpotifyUrl(url)) return this.fetchSpotify(url);
       if (CheckIf.isWikipediaUrl(url)) return this.fetchWikipedia(url);
+      if (CheckIf.isEnWiktionaryEntryUrl(url)) return this.fetchWiktionary(url);
       if (CheckIf.isArxivUrl(url)) return this.fetchArxiv(url);
       if (CheckIf.isDoiUrl(url)) return this.fetchDoi(url);
       if (CheckIf.isPubMedArticleUrl(url)) return this.fetchPubMed(url);
@@ -184,6 +185,9 @@ export class LinkMetadataFetcher {
       "kick.com": "Kick",
       "rumble.com": "Rumble",
       "odysee.com": "Odysee",
+      "wikidata.org": "Wikidata",
+      "en.wiktionary.org": "Wiktionary",
+      "commons.wikimedia.org": "Wikimedia Commons",
       "ted.com": "TED",
       "reddit.com": "Reddit",
       "imdb.com": "IMDb",
@@ -4609,6 +4613,45 @@ export class LinkMetadataFetcher {
       return descriptor.match(/(?:by|di|de|von|par|de la)\s+(.+)$/i)?.[1]?.trim();
    }
 
+   /* --- WIKTIONARY --- */
+
+   /**
+    * A1(d), measured 2026-09-21. An English Wiktionary entry reads with nothing but a title,
+    * "serendipity - Wiktionary, the free dictionary": no description, no image, to the Chrome
+    * UA and the plugin's alike. A missing word is a real 404. The Wikimedia REST API's
+    * `page/definition/<word>` has the entry's definitions, by language code and in page order,
+    * and 404 for a missing word; it answers on en.wiktionary only (501 on it., and `summary`
+    * is "Domain not allowed" on every Wiktionary), so only en has code (A2).
+    *
+    * Page first (A3); the endpoint only when the page gave no description. The first entry
+    * whose language is English - en.wiktionary is the English dictionary, and the page often
+    * opens with a Translingual symbol ("run": an ISO 639 code) - else the first entry; its
+    * first definition that is not empty. Composed as "<language> · <part of speech> ·
+    * <definition>" (C3): "English · Noun · The phenomenon of making an unplanned, fortunate
+    * discovery…". Site template (B6, three of three: serendipity, run, a missing word): the
+    * " - Wiktionary, the free dictionary" site-name segment is dropped.
+    */
+   private async fetchWiktionary(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      const word = url.match(/wiktionary\.org\/wiki\/([^?#]+)/i)?.[1];
+      if (!metadata || metadata.status || !word) return metadata;
+
+      const suffix = " - Wiktionary, the free dictionary";
+      const title = metadata.title.endsWith(suffix) ? metadata.title.slice(0, -suffix.length) : metadata.title;
+      if (metadata.description) return { ...metadata, title };
+
+      const res = await this.request(`https://en.wiktionary.org/api/rest_v1/page/definition/${word}`);
+      let data: WiktionaryDefinitionResponse | undefined;
+      try { data = res?.status === 200 ? JSON.parse(res.text) as WiktionaryDefinitionResponse : undefined; } catch { /* below */ }
+      const entries = Object.values(data ?? {}).flat();
+      const entry = entries.find((e) => e.language === "English") ?? entries[0];
+      const definition = entry?.definitions?.map((d) => LinkMetadataFetcher.plainText(d.definition)).find(Boolean);
+      const description = definition
+         ? [entry?.language, entry?.partOfSpeech, definition].filter(Boolean).join(" · ")
+         : undefined;
+      return { ...metadata, title, description };
+   }
+
    /* --- WIKIPEDIA --- */
    private async fetchWikipedia(url: string): Promise<LinkMetadata | undefined> {
       const parsed = new URL(url);
@@ -4723,7 +4766,11 @@ export class LinkMetadataFetcher {
    /** Text out of the markup an endpoint may carry in a field: Crossref's JATS, an `<i>` in a title. */
    private static plainText(markup: string | undefined): string | undefined {
       if (!markup) return undefined;
-      const text = new DOMParser().parseFromString(markup, "text/html").body.textContent;
+      const body = new DOMParser().parseFromString(markup, "text/html").body;
+      // An inline <style> is text to the DOM: Wiktionary's definition of 猫 opened with
+      // ".mw-parser-output .defdate{font-size:smaller}" (2026-09-21).
+      body.querySelectorAll("style, script").forEach((el) => el.remove());
+      const text = body.textContent;
       return text?.replace(/\s+/g, " ").trim() || undefined;
    }
 

@@ -372,6 +372,10 @@ export class CheckIf {
     return /^https?:\/\/[a-z]{2,}\.wikipedia\.org\/wiki\//.test(url);
   }
 
+  public static isEnWiktionaryEntryUrl(url: string): boolean {
+    return /^https?:\/\/en\.(m\.)?wiktionary\.org\/wiki\/[^?#]/i.test(url);
+  }
+
   public static isArxivUrl(url: string): boolean {
     // A paper, or the site root — the homepage carries no og:* tags at all, so it needs the
     // dedicated path just to get a thumbnail.

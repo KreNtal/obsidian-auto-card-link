@@ -65,6 +65,13 @@ export interface KickClipResponse {
   };
 }
 
+/** en.wiktionary.org/api/rest_v1/page/definition/<word> - entries by language code, in page order. */
+export type WiktionaryDefinitionResponse = Record<string, {
+  partOfSpeech?: string;
+  language?: string;
+  definitions?: { definition?: string }[];
+}[]>;
+
 export interface PrintablesGraphQLResponse {
   data?: {
     print?: {
