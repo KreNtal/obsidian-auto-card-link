@@ -121,6 +121,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
       if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
       if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
+      if (CheckIf.isCults3dUrl(url)) return this.fetchCults3d(url);
       if (CheckIf.isEbayUrl(url)) return this.fetchEbay(url);
       if (CheckIf.isItchGameUrl(url)) return this.fetchItch(url);
       if (CheckIf.isEpicProductUrl(url)) return this.fetchEpic(url);
@@ -2469,6 +2470,23 @@ export class LinkMetadataFetcher {
       const author = shop?.slice(1).find(Boolean)
          ?? (shopName && title.toLowerCase() === shopName.toLowerCase() ? title : undefined);
       return { ...metadata, title, author: author ?? metadata.author };
+   }
+
+   /* --- CULTS3D --- */
+
+   /**
+    * Cults3D, read as Facebook's link preview (A1(c)). Measured in Obsidian's console
+    * 2026-09-21: Cloudflare answers `requestUrl` with a 403 "Just a moment..." to Obsidian's own
+    * UA and the plugin's, so every link went to Microlink, which gave back a slug and nothing
+    * else. `facebookexternalhit` and Slackbot get the real page - `og:title`, the maker's own
+    * description - and a real **404** for a model that does not exist. WhatsApp, Twitterbot and
+    * Discordbot are refused like a browser (by script). Many models declare a preview video as
+    * their only image, which the parser skips (a `.mp4`, measured to be `video/mp4`): those
+    * cards have no image, as the site gives none (D3). UA sniffing, the fragile category (A6):
+    * should it stop working, links go back to Microlink as before.
+    */
+   private async fetchCults3d(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, { headers: { "User-Agent": LinkMetadataFetcher.CRAWLER_UA } });
    }
 
    /* --- EBAY --- */

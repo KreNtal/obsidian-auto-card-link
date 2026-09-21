@@ -195,6 +195,12 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?etsy\.com(\/|$)/i.test(url);
   }
 
+  public static isCults3dUrl(url: string): boolean {
+    // The whole host: Cloudflare refuses every ordinary request, and facebookexternalhit gets
+    // the real page on models and the home page alike - checked 2026-09-21.
+    return /^https?:\/\/(www\.)?cults3d\.com(\/|$)/i.test(url);
+  }
+
   public static isEbayUrl(url: string): boolean {
     // Every eBay marketplace (ebay.com, ebay.it, ebay.co.uk, …): Akamai refuses them all the
     // same way, and the request that gets through works on items, search and the home page.
