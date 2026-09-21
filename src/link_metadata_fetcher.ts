@@ -104,6 +104,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isDailymotionUrl(url)) return this.fetchDailymotion(url);
       if (CheckIf.isTwitchUrl(url)) return this.fetchTwitch(url);
       if (CheckIf.isKickUrl(url)) return this.fetchKick(url);
+      if (CheckIf.isRumbleVideoUrl(url)) return this.fetchRumble(url);
       if (CheckIf.isTedUrl(url)) return this.fetchTed(url);
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url, refresh);
       if (CheckIf.isXUrl(url)) return this.fetchX(url);
@@ -180,6 +181,7 @@ export class LinkMetadataFetcher {
       "dailymotion.com": "Dailymotion",
       "twitch.tv": "Twitch",
       "kick.com": "Kick",
+      "rumble.com": "Rumble",
       "ted.com": "TED",
       "reddit.com": "Reddit",
       "imdb.com": "IMDb",
@@ -1152,6 +1154,65 @@ export class LinkMetadataFetcher {
          favicon: "https://kick.com/favicon.ico",
          image: clip.thumbnail_url,
          duration: this.formatDuration(clip.duration),
+         indent: 0,
+      };
+   }
+
+   /* --- RUMBLE --- */
+
+   /**
+    * A1(c), measured 2026-09-21. A video page, `/v<id>-<slug>.html`, answers every request with
+    * a **307 to itself** that sets an `RNSC` cookie holding the client's IP, and serves the page
+    * only to a request carrying it. requestUrl does not keep cookies across redirects: in
+    * Obsidian's console every UA ended on `net::ERR_TOO_MANY_REDIRECTS` after several seconds,
+    * live and dead alike, and the paste went to Microlink. A made-up cookie value is refused.
+    *
+    * On desktop the page is read first (A3) through Node's https, which now carries a redirect's
+    * cookies to the next hop: one redirect, the full page - title, description, thumbnail, the
+    * declared favicon, `og:site_name` - and a real 404 for a missing video. On mobile, where
+    * there is no Node, requestUrl would only loop, so it is not asked.
+    *
+    * Then the oEmbed endpoint the page declares (`<link rel=alternate type=application/json+oembed>`),
+    * which needs no cookie: the channel as `author` and the duration, which the page does not
+    * declare (Microlink scraped "Russell Brand Verified 2.19M followers" from its text). Where the
+    * page was not read it is the whole card - title, channel, 1280px thumbnail, duration, no
+    * description - and its 404 "Media not found" is the proof of a missing video (J1). Embed
+    * URLs go to it directly. The rest of the site - channels, `/c/<name>` - answers 200 or a
+    * real 404 and stays generic (A2).
+    */
+   private async fetchRumble(url: string): Promise<LinkMetadata | undefined> {
+      const deadCard = (u: string): LinkMetadata => {
+         const card = this.buildUrlCard(u);
+         const slug = u.match(/rumble\.com\/v[a-z0-9]+-([^/?#]+)\.html/i)?.[1];
+         return { ...card, title: LinkMetadataFetcher.deslug(slug) ?? card.title };
+      };
+
+      let page: LinkMetadata | undefined;
+      if (Platform.isDesktopApp && !/rumble\.com\/embed\//i.test(url)) {
+         const res = await this.requestViaNode(url, {}, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+         const html = res ? await this.decodeHtmlContent(res.arrayBuffer, res.text) : "";
+         if (res && [401, 404, 410].includes(res.status)) return this.errorPageCard(url, html, deadCard);
+         if (res?.status === 200) page = await new LinkMetadataParser(url, html).parse();
+         if (page && LinkMetadataFetcher.looksLikeInterstitial(page)) page = undefined;
+      }
+
+      const res = await this.request(`https://rumble.com/api/Media/oembed.json?url=${encodeURIComponent(url)}`);
+      if (res?.status === 404 && !page) {
+         console.debug(`Rumble has no video at ${url}; building a card from the URL.`);
+         return this.notFound(deadCard(url));
+      }
+      let data: OEmbedResponse | undefined;
+      try { data = res?.status === 200 ? JSON.parse(res.text) as OEmbedResponse : undefined; } catch { /* below */ }
+      if (page) return { ...page, author: page.author ?? data?.author_name, duration: this.formatDuration(data?.duration) };
+      if (!data?.title) return this.fetchFallback(url);
+      return {
+         url,
+         title: LinkMetadataParser.sanitizeText(data.title) ?? data.title,
+         author: data.author_name ?? undefined,
+         host: "rumble.com",
+         favicon: "https://rumble.com/favicon.ico",
+         image: data.thumbnail_url,
+         duration: this.formatDuration(data.duration),
          indent: 0,
       };
    }

@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 9 page + endpoint, 11 page, 17 hook.
+the same commit. Counts today: 22 endpoint, 10 page + endpoint, 11 page, 17 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -57,6 +57,7 @@ the same commit. Counts today: 22 endpoint, 9 page + endpoint, 11 page, 17 hook.
 | bioRxiv | the page; `api.biorxiv.org/details/biorxiv/<doi>` only when it is the "\| bioRxiv" `/node` page, which reads as no preprint | 1–2 | — | that page, then `collection: []` from the API | low — documented API |
 | Jira, self-hosted | the page; `<base>/rest/api/2/issue/<key>` only when its title does not open with "[KEY]" - a "Loading..." shell or the instance's sign-in page | 1–2 | refresh | none: Jira's `errorMessages` ("Issue Does Not Exist", "You do not have the permission…") read as a wall → the key, unmarked | low — documented, versioned API; any host, so a non-Jira `/browse/X-1` page costs one extra request |
 | Kick | the page, with a `goneCard` on "… Not Found - Kick Streaming"; a VOD straight from `kick.com/api/v1/video/<uuid>`, as its page is always empty; a clip's `kick.com/api/v2/clips/<id>` only when its page is empty; the channel from the title template into `author` (B6) | 1–2 | — | the not-found page's title; a **404** from either endpoint | **high** — two undocumented internal endpoints |
+| Rumble | a video's page through Node's `https` on desktop, carrying the `RNSC` cookie its 307-to-itself sets; then the declared oEmbed `rumble.com/api/Media/oembed.json` for the author and duration. On mobile and for `/embed/` URLs the oEmbed alone | 2 (1 on mobile) | — | the page's own **404**, or the oEmbed's **404** "Media not found" | low — declared oEmbed; the page read is desktop-only |
 
 ## Page — our own request, our own headers and parsing, no endpoint
 
