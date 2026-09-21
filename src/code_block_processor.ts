@@ -2,7 +2,6 @@ import { App, parseYaml, Notice, ButtonComponent, getLinkpath } from "obsidian";
 
 import { YamlParseError, NoRequiredParamsError } from "./errors";
 import { LinkMetadata } from "./interfaces";
-import { CheckIf } from "./checkif";
 import { CodeBlockGenerator } from "./code_block_generator";
 import { ObsidianAutoCardLinkSettings } from "./settings";
 
@@ -170,8 +169,7 @@ export class CodeBlockProcessor {
     const hostEl = mainEl.createDiv({ cls: "auto-card-link-host" });
 
     if (data.favicon) {
-      if (!CheckIf.isUrl(data.favicon))
-        data.favicon = this.getLocalImagePath(data.favicon);
+      data.favicon = this.getLocalImagePath(data.favicon);
 
       const faviconEl = hostEl.createEl("img", {
         cls: "auto-card-link-favicon",
@@ -198,8 +196,7 @@ export class CodeBlockProcessor {
     }
 
     if (data.image) {
-      if (!CheckIf.isUrl(data.image))
-        data.image = this.getLocalImagePath(data.image);
+      data.image = this.getLocalImagePath(data.image);
 
       const thumbnailWrapEl = cardEl.createDiv({ cls: "auto-card-link-thumbnail-wrap" });
 
@@ -233,6 +230,11 @@ export class CodeBlockProcessor {
   }
 
   private getLocalImagePath(link: string): string {
+    // Only a "[[wikilink]]" is a vault file - what the generator writes for a downloaded image.
+    // Anything else is used as it stands: a remote URL that fails CheckIf.isUrl, such as
+    // MyMiniFactory's image with spaces in its file name, used to lose two characters at each
+    // end here and never render.
+    if (!/^\[\[.*\]\]$/.test(link)) return link;
     link = link.slice(2, -2); // remove [[]]
     const imageRelativePath = this.app.metadataCache.getFirstLinkpathDest(
       getLinkpath(link),
