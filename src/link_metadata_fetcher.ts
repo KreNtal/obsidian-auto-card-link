@@ -561,6 +561,9 @@ export class LinkMetadataFetcher {
       // request that did not keep the cookie it was just set lands on. Wiley's DOIs answered
       // it in Obsidian (2026-09-18).
       "error - cookies turned off",
+      // A site's own Cloudflare Turnstile gate, answered with a 200 to every request - every
+      // UA, Node, Microlink - on yeggi.com, measured in Obsidian's console 2026-09-21.
+      "please wait a moment while we check whether you are human or a bot. you will then be automatically redirected.",
    ];
 
    /** A raw answer that is an anti-bot wall: any 403, or a 200 whose whole title is one. */
