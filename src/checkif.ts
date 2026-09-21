@@ -40,6 +40,12 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?rumble\.com\/(v[a-z0-9]+-[^/?#]*\.html|embed\/v[a-z0-9]+)/i.test(url);
   }
 
+  public static isOdyseeClaimUrl(url: string): boolean {
+    // A channel or a video - any path but the app's own `/$/` routes, which are titled "Odysee"
+    // alive (`/$/trending`, `/$/discover`).
+    return /^https?:\/\/(www\.)?odysee\.com\/(?!\$|%24)[^/?#]/i.test(url);
+  }
+
   public static isTedUrl(url: string): boolean {
     return /^https?:\/\/(www\.)?ted\.com\/talks\//.test(url);
   }

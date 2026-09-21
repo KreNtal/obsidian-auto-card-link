@@ -105,6 +105,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isTwitchUrl(url)) return this.fetchTwitch(url);
       if (CheckIf.isKickUrl(url)) return this.fetchKick(url);
       if (CheckIf.isRumbleVideoUrl(url)) return this.fetchRumble(url);
+      if (CheckIf.isOdyseeClaimUrl(url)) return this.fetchOdysee(url);
       if (CheckIf.isTedUrl(url)) return this.fetchTed(url);
       if (CheckIf.isRedditUrl(url)) return this.fetchReddit(url, refresh);
       if (CheckIf.isXUrl(url)) return this.fetchX(url);
@@ -182,6 +183,7 @@ export class LinkMetadataFetcher {
       "twitch.tv": "Twitch",
       "kick.com": "Kick",
       "rumble.com": "Rumble",
+      "odysee.com": "Odysee",
       "ted.com": "TED",
       "reddit.com": "Reddit",
       "imdb.com": "IMDb",
@@ -1215,6 +1217,27 @@ export class LinkMetadataFetcher {
          duration: this.formatDuration(data.duration),
          indent: 0,
       };
+   }
+
+   /* --- ODYSEE --- */
+
+   /**
+    * Not a fetcher: a channel and a video read in full on the generic path, to every UA - their
+    * own `og:title`, description, thumbnail, `og:site_name` "Odysee", and the channel as the
+    * top-level JSON-LD `author` (F1). Measured 2026-09-21.
+    *
+    * A1(b): a channel, a video or any claim that does not exist answers **200** titled "Odysee"
+    * with the site's blurb ("Explore a whole universe of videos…") and share image - a
+    * confident card for the platform. That whole title is the tell, on claim URLs only: the
+    * app's `/$/` routes and the home page are titled "Odysee" alive. The card is built from the
+    * URL, the blurb and image riding along (C5, D4).
+    */
+   private fetchOdysee(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, {
+         goneCard: (page) => page.title.trim() === "Odysee"
+            ? this.withPageFurniture(this.buildUrlCard(url), page)
+            : undefined,
+      });
    }
 
    /* --- TWITCH --- */

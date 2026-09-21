@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 10 page + endpoint, 11 page, 17 hook.
+the same commit. Counts today: 22 endpoint, 10 page + endpoint, 11 page, 18 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -85,6 +85,7 @@ No extra request, nothing site-specific to break.
 | Google Maps | `goneCard`; the place name comes from the URL, the map thumbnail rides along | 1 | — | `og:title` "Google Maps" — the product, not the place | none — no endpoint exists for place data |
 | Bandcamp | a `siteName` floor, nothing else (`requestUrl` is challenged by Cloudflare; `fetchGeneric`'s Node retry reads it on desktop) | 1 | sticky | a real **404** | medium — the Node retry is desktop-only; on mobile the challenge goes to Microlink, which reads it (pasted on a phone, 2026-09-18); the Cloudflare-interstitial check it used to carry now runs in `fetchGeneric` for every link |
 | Medium | `goneCard` | 1 | — | a title that is nothing but the site name | none |
+| Odysee | `goneCard`, claim URLs only - any path but the home page and the app's `/$/` routes, which are titled "Odysee" alive | 1 | — | a 200 titled nothing but "Odysee", with the site's blurb and share image | low — a reworded not-found page only brings back the platform card |
 | GOG | `goneCard`, `/game/` URLs only; " \| GOG.com" dropped from a live title (B6) | 1 | — | a 200 titled "Best Video games, DRM-free \| GOG.COM" — the catalog a missing game redirects to | low — a reworded catalog title only brings back the catalog card |
 | AliExpress | `emptyPage`, `/item/<id>.html` only; " - AliExpress \<number>" dropped from a live title (B6) | 1 | — | a 200 whose `og:title` is declared empty | low — a changed empty page only brings back the Microlink call |
 | Epic Games Store | `goneCard`, `/p/<slug>` URLs only | 1 | — | a 200 with no description and no image — the not-found page, its `<h1>` translated | low — a live page that stopped declaring both would be taken for dead |
