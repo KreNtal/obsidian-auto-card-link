@@ -467,14 +467,20 @@ export class LinkMetadataFetcher {
       // agent was refused lost that memory above, so every agent is tried again here.
       if (LinkMetadataFetcher.isChallenge(res) && LinkMetadataFetcher.previewAgentFor.get(host) !== null) {
          for (const agent of LinkMetadataFetcher.PREVIEW_AGENTS) {
+      // "Refused them all" is remembered only when every agent was refused outright: a timeout
+      // or a network error may pass, and remembering it cost Booking a whole session - after
+      // one bad moment every refresh skipped the agents and ended on the URL card, until
+      // Obsidian was reloaded (2026-09-21). The same rule as Node's above.
             const retry = await this.request(url, { "User-Agent": agent }, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+         let allRefused = true;
             if (retry && !LinkMetadataFetcher.isChallenge(retry) && [200, 401, 404, 410].includes(retry.status)) {
                res = retry;
                LinkMetadataFetcher.previewAgentFor.set(host, agent);
                break;
             }
          }
-         if (LinkMetadataFetcher.isChallenge(res)) LinkMetadataFetcher.previewAgentFor.set(host, null);
+         if (LinkMetadataFetcher.isChallenge(res) && allRefused) LinkMetadataFetcher.previewAgentFor.set(host, null);
+            if (!LinkMetadataFetcher.isChallenge(retry)) allRefused = false;
       }
 
       if (!res || res.status !== 200) {
