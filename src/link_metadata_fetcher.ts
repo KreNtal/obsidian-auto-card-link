@@ -402,11 +402,23 @@ export class LinkMetadataFetcher {
       const fallback = checks?.fallback ?? (() => this.fetchFallback(url));
       const firstHeaders = { "Referer": "https://www.google.com/", ...checks?.headers };
       // The page read gets longer than the default 5 s: Cults3D answered facebookexternalhit in
+      // A host a link-preview agent already got past this session is asked with that agent
+      // straight away (see the cascade below): the refusals before it would only be paid again
+      // on every paste. A caller's own User-Agent and Node's path are left alone. Refused
+      // after all, the memory goes and the read starts over from the top, every agent included.
+      const host = new URL(url).hostname;
+      const remembered = checks?.headers?.["User-Agent"] || checks?.viaNode
+         ? undefined : LinkMetadataFetcher.previewAgentFor.get(host);
       // 5.9 s once and in 0.3-0.6 s the next four times (Obsidian's console, 2026-09-21), and
       // that one slow answer sent a page we read to Microlink.
       let res = checks?.viaNode && Platform.isDesktopApp
          ? await this.requestViaNode(url, firstHeaders)
-         : await this.request(url, firstHeaders, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+         : await this.request(url, remembered ? { ...firstHeaders, "User-Agent": remembered } : firstHeaders,
+            LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+      if (remembered && LinkMetadataFetcher.isChallenge(res)) {
+         LinkMetadataFetcher.previewAgentFor.delete(host);
+         res = await this.request(url, firstHeaders, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+      }
 
       // A browser User-Agent that arrives without the rest of a browser's headers is itself
       // the tell some bot protection refuses. Measured in Obsidian's console 2026-09-16:
@@ -434,7 +446,6 @@ export class LinkMetadataFetcher {
       // A host that refused Node too is not asked again this session: on the sites only the
       // preview agents read (NYT, Quora) and on DataDome's, Node met a 403 on every paste. A
       // network error or timeout is not remembered - it may pass.
-      const host = new URL(url).hostname;
       if (Platform.isDesktopApp && !checks?.viaNode && LinkMetadataFetcher.isChallenge(res)
          && !LinkMetadataFetcher.nodeRefusedHosts.has(host)) {
          const viaNode = await this.requestViaNode(url, firstHeaders);
@@ -454,18 +465,17 @@ export class LinkMetadataFetcher {
       // gave the same card Microlink does. Only a 200 or a 401/404/410 is kept; the rest goes
       // on to Microlink as before. About a sixth of the sites refused them all, so the host is
       // remembered for the session either way - the agent that worked, or that none did.
-      if (LinkMetadataFetcher.isChallenge(res)) {
-         const known = LinkMetadataFetcher.previewAgentFor.get(host);
-         if (known !== null) {
-            for (const agent of known ? [known] : LinkMetadataFetcher.PREVIEW_AGENTS) {
-               const retry = await this.request(url, { "User-Agent": agent }, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
-               if (retry && !LinkMetadataFetcher.isChallenge(retry) && [200, 401, 404, 410].includes(retry.status)) {
-                  res = retry;
-                  LinkMetadataFetcher.previewAgentFor.set(host, agent);
-                  break;
-               }
+      // A host that refused every agent is not asked again this session; one whose remembered
+      // agent was refused lost that memory above, so every agent is tried again here.
+      if (LinkMetadataFetcher.isChallenge(res) && LinkMetadataFetcher.previewAgentFor.get(host) !== null) {
+         for (const agent of LinkMetadataFetcher.PREVIEW_AGENTS) {
+            const retry = await this.request(url, { "User-Agent": agent }, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+            if (retry && !LinkMetadataFetcher.isChallenge(retry) && [200, 401, 404, 410].includes(retry.status)) {
+               res = retry;
+               LinkMetadataFetcher.previewAgentFor.set(host, agent);
+               break;
+         if (LinkMetadataFetcher.isChallenge(res)) LinkMetadataFetcher.previewAgentFor.set(host, null);
             }
-            if (LinkMetadataFetcher.isChallenge(res)) LinkMetadataFetcher.previewAgentFor.set(host, null);
          }
       }
 
