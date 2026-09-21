@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 8 page + endpoint, 13 page, 17 hook.
+the same commit. Counts today: 22 endpoint, 8 page + endpoint, 11 page, 17 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -63,8 +63,6 @@ the same commit. Counts today: 22 endpoint, 8 page + endpoint, 13 page, 17 hook.
 | --- | --- | --- | --- | --- | --- |
 | Etsy | `fetchGeneric` with the WhatsApp UA, the whole host; " - Etsy …" dropped from the title, the shop read out of a listing's description or a shop page's title (B6, F4) | 1 | — | the page's own **404** | **high** — UA sniffing; every other UA is 403, Microlink `EPROXYNEEDED` |
 | eBay | `fetchGeneric` with `viaNode`: on desktop the first request goes through Node's `https`, a current Chrome UA and its Client Hints (`sec-ch-ua`, which Electron drops from `requestUrl`); " \| eBay" dropped from an item's title (B6) | 1 | — | the page's own **404**; a bare `/itm/<id>` titled "eBay item" | **high** — header sniffing, and Node on desktop; mobile's own requestUrl read a listing too (2026-09-18) |
-| Cults3D | `fetchGeneric` with `facebookexternalhit`, the whole host; a preview `.mp4`, often the only image declared, is skipped by the parser | 1 | — | the page's own **404** | **high** — UA sniffing; the browser and the plugin's UA get Cloudflare's 403 |
-| Booking.com | `fetchGeneric` with `facebookexternalhit`, the whole host; the page answers in the URL's own language, and a `/Share-<id>` link lands on the hotel | 1 | — | the page's own **404** | **high** — UA sniffing; every other request gets a 202 JavaScript challenge, Microlink a 400 |
 | Yelp | `fetchGeneric` on `yelp.co.uk` for a `/biz/` link on `.com` or `.ca`, same path and query; the card keeps the pasted URL and host | 1 | — | the mirror's own **404** | medium — an undocumented difference between Yelp's hosts; `.com` and `.ca` are DataDome to every request |
 | Twitch | the page, 3 attempts with rotating user agents, 9s timeout | 1–3 | — | the shell → card from the URL plus furniture | **high** — UA sniffing and retries |
 | TED | the page + speaker and ISO-8601 duration pulled from the HTML | 1 | — | non-200 → generic, so a real **404** | medium — HTML scraping for two fields |

@@ -121,8 +121,6 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
       if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
       if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
-      if (CheckIf.isCults3dUrl(url)) return this.fetchCults3d(url);
-      if (CheckIf.isBookingUrl(url)) return this.fetchBooking(url);
       if (CheckIf.isYelpBizUrl(url)) return this.fetchYelp(url);
       if (CheckIf.isTripAdvisorReviewUrl(url)) return this.fetchTripAdvisor(url);
       if (CheckIf.isEbayUrl(url)) return this.fetchEbay(url);
@@ -402,6 +400,8 @@ export class LinkMetadataFetcher {
       const fallback = checks?.fallback ?? (() => this.fetchFallback(url));
       const firstHeaders = { "Referer": "https://www.google.com/", ...checks?.headers };
       // The page read gets longer than the default 5 s: Cults3D answered facebookexternalhit in
+      // 5.9 s once and in 0.3-0.6 s the next four times (Obsidian's console, 2026-09-21), and
+      // that one slow answer sent a page we read to Microlink.
       // A host a link-preview agent already got past this session is asked with that agent
       // straight away (see the cascade below): the refusals before it would only be paid again
       // on every paste. A caller's own User-Agent and Node's path are left alone. Refused
@@ -409,8 +409,6 @@ export class LinkMetadataFetcher {
       const host = new URL(url).hostname;
       const remembered = checks?.headers?.["User-Agent"] || checks?.viaNode
          ? undefined : LinkMetadataFetcher.previewAgentFor.get(host);
-      // 5.9 s once and in 0.3-0.6 s the next four times (Obsidian's console, 2026-09-21), and
-      // that one slow answer sent a page we read to Microlink.
       let res = checks?.viaNode && Platform.isDesktopApp
          ? await this.requestViaNode(url, firstHeaders)
          : await this.request(url, remembered ? { ...firstHeaders, "User-Agent": remembered } : firstHeaders,
@@ -474,9 +472,9 @@ export class LinkMetadataFetcher {
                res = retry;
                LinkMetadataFetcher.previewAgentFor.set(host, agent);
                break;
-         if (LinkMetadataFetcher.isChallenge(res)) LinkMetadataFetcher.previewAgentFor.set(host, null);
             }
          }
+         if (LinkMetadataFetcher.isChallenge(res)) LinkMetadataFetcher.previewAgentFor.set(host, null);
       }
 
       if (!res || res.status !== 200) {
@@ -2558,44 +2556,6 @@ export class LinkMetadataFetcher {
       const author = shop?.slice(1).find(Boolean)
          ?? (shopName && title.toLowerCase() === shopName.toLowerCase() ? title : undefined);
       return { ...metadata, title, author: author ?? metadata.author };
-   }
-
-   /* --- CULTS3D --- */
-
-   /**
-    * Cults3D, read as Facebook's link preview (A1(c)). Measured in Obsidian's console
-    * 2026-09-21: Cloudflare answers `requestUrl` with a 403 "Just a moment..." to Obsidian's own
-    * UA and the plugin's, so every link went to Microlink, which gave back a slug and nothing
-    * else. `facebookexternalhit` and Slackbot get the real page - `og:title`, the maker's own
-    * description - and a real **404** for a model that does not exist. WhatsApp, Twitterbot and
-    * Discordbot are refused like a browser (by script). Many models declare a preview video as
-    * their only image, which the parser skips (a `.mp4`, measured to be `video/mp4`): those
-    * cards have no image, as the site gives none (D3). UA sniffing, the fragile category (A6):
-    * should it stop working, links go back to Microlink as before.
-    */
-   private async fetchCults3d(url: string): Promise<LinkMetadata | undefined> {
-      return this.fetchGeneric(url, { headers: { "User-Agent": LinkMetadataFetcher.CRAWLER_UA } });
-   }
-
-   /* --- BOOKING.COM --- */
-
-   /**
-    * Booking.com, read as Facebook's link preview (A1(c)). Measured in Obsidian's console
-    * 2026-09-21: Obsidian's own UA, the plugin's, Slackbot and Node's `https` get a 3.9 KB
-    * **202** with an empty title - a JavaScript challenge - which `fetchGeneric` sent on to
-    * Microlink, and Microlink answers every Booking URL with a 400. `facebookexternalhit` gets
-    * the real hotel page (`og:title` "Hotel Artemide, Rome (updated prices 2026)", the
-    * description, a 1200x630 photo) and a real **404** for a hotel that does not exist. In the
-    * URL's own language: `/hotel/it/<name>.it.html` answers in Italian. A shared `/Share-<id>`
-    * link and a browser link with its search parameters both land on the hotel page. WhatsApp
-    * works too, but answers in the language it guesses and rewrites the URL for it, so the
-    * crawler UA is the one used. UA sniffing, the fragile category (A6): should it stop
-    * working, links go back to the card built from the URL. Known gap: by script a hotel slug
-    * that may have been delisted (`/hotel/fr/ritz-paris.html`) redirected to its city's page,
-    * which reads as a confident "10 Best Paris Hotels" card - one example, not handled (A2).
-    */
-   private async fetchBooking(url: string): Promise<LinkMetadata | undefined> {
-      return this.fetchGeneric(url, { headers: { "User-Agent": LinkMetadataFetcher.CRAWLER_UA } });
    }
 
    /* --- YELP --- */

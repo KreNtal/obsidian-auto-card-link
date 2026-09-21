@@ -195,18 +195,6 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?etsy\.com(\/|$)/i.test(url);
   }
 
-  public static isCults3dUrl(url: string): boolean {
-    // The whole host: Cloudflare refuses every ordinary request, and facebookexternalhit gets
-    // the real page on models and the home page alike - checked 2026-09-21.
-    return /^https?:\/\/(www\.)?cults3d\.com(\/|$)/i.test(url);
-  }
-
-  public static isBookingUrl(url: string): boolean {
-    // The whole host: every ordinary request gets a JavaScript challenge, and
-    // facebookexternalhit gets the real page on hotels and shared links alike - 2026-09-21.
-    return /^https?:\/\/(www\.)?booking\.com(\/|$)/i.test(url);
-  }
-
   public static isYelpBizUrl(url: string): boolean {
     // A business on the two hosts DataDome guards; the other national hosts read as they are.
     return /^https?:\/\/(www\.)?yelp\.(com|ca)\/biz\/[^/?#]+/i.test(url);

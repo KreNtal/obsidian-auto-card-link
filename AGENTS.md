@@ -78,7 +78,15 @@ for (const u of urls) for (const [k, ua] of Object.entries(uas)) {
 
 1. **Site-specific code is the exception, not the rule.** Whether a site gets any code of
    its own, and what that code may do to each field, is decided by the field rules below —
-   section A first.
+   section A first. **Paste a new site before writing anything.** The generic path is more
+   than one request: on a refusal (a 403, a 429, an empty 202, a challenge page) it retries
+   with the plugin's own UA, then Node's `https` on desktop, then the link-preview agents
+   sites let through - `facebookexternalhit`, Slackbot, WhatsApp - remembering per host for
+   the session which one worked (2026-09-21). A site that reads that way gets no code, and a
+   handler whose only job would be to pick a User-Agent is not written: Cults3D's and
+   Booking's were removed the day the cascade made them redundant. What still needs code is
+   what the cascade cannot see - a 200 that parses but is not about the link (a shell, a
+   sign-in wall, a homepage), a site template, an endpoint with data the page lacks.
 2. **When an endpoint proves a link is dead, build the card from the URL — never hand it to
    `fetchGeneric`**, which cannot tell "gone" from "blocked" and would spend a Microlink
    request (quota ~25/day) rendering a page that says nothing. An API's *empty answer* is
@@ -163,7 +171,8 @@ exception exists only if it is written here, or recorded with its evidence in
     wall, a challenge, the site's homepage;
   - (b) a dead link's page does not prove it is dead (a 200, or a redirect to something that
     parses as a confident card), and an endpoint does;
-  - (c) the plugin cannot read the page — confirmed in Obsidian, not by a script — and an
+  - (c) the plugin cannot read the page — after the whole generic path, preview agents
+    included (rule 1), confirmed in Obsidian, not by a script — and an
     endpoint answers;
   - (d) the generic read's description and image are both generic or absent, and a
     documented endpoint has data specific to the item.
