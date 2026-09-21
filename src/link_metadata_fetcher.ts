@@ -155,6 +155,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isHackerNewsUrl(url)) return this.fetchHackerNews(url);
       if (CheckIf.isBlueskyUrl(url)) return this.fetchBluesky(url);
       if (CheckIf.isAniListUrl(url)) return this.fetchAniList(url, refresh);
+      if (CheckIf.isJiraServerIssueUrl(url)) return this.fetchJiraServer(url, refresh);
 
       return this.fetchGeneric(url);
    }
@@ -3727,39 +3728,91 @@ export class LinkMetadataFetcher {
     */
    private async fetchJiraIssue(url: string, refresh = false): Promise<LinkMetadata> {
       const m = url.match(/^https?:\/\/([a-z0-9-]+\.atlassian\.net)\/browse\/([a-z][a-z0-9_]*-\d+)/i)!;
-      const host = m[1]!.toLowerCase();
+      const base = `https://${m[1]!.toLowerCase()}`;
       const key = m[2]!;
-      const cacheKey = `${host}/${key.toUpperCase()}`;
-      const cached = LinkMetadataFetcher.jiraCache.get(cacheKey);
+      const fallback: LinkMetadata = { ...this.buildUrlCard(url), title: key, siteName: "Jira" };
+      const cached = LinkMetadataFetcher.jiraCache.get(`${base}/${key.toUpperCase()}`);
       if (cached && !refresh) return { ...cached, url };
 
-      const fallback: LinkMetadata = { ...this.buildUrlCard(url), title: key, siteName: "Jira" };
-      const res = await this.request(
-         `https://${host}/rest/api/2/issue/${encodeURIComponent(key)}?fields=summary,description,project&expand=renderedFields`,
-         { "Accept": "application/json" }
-      );
-      if (!res || res.status !== 200) {
-         console.debug(`Jira API for ${key} on ${host} returned ${res?.status}; building from the URL.`);
+      const data = await this.askJira(base, key);
+      return data && data !== "error" ? this.jiraCard(base, key, data, fallback) : fallback;
+   }
+
+   /**
+    * Self-hosted Jira (Data Center / Server), on any host: `<base>/browse/<KEY>-<n>`, where
+    * the base may carry a context path (`issues.apache.org/jira`). Measured in Obsidian's
+    * console on 2026-09-18, `requestUrl` following every redirect:
+    *
+    * - A live issue reads on some instances ("[HADOOP-1] initial import of code from Nutch -
+    *   ASF Jira") and is a shell titled "Loading..." on others (jira.mongodb.org,
+    *   jira.atlassian.com).
+    * - A missing or restricted issue lands on the instance's own sign-in page, each titled its
+    *   own way: "Log in - ASF Jira", "SAML Login - MongoDB Jira - MongoDB Jira", "Log in with
+    *   Atlassian account" - a confident card about signing in (A1(a)).
+    *
+    * No title tell covers all three, and matching hosts is out (A4). What every real issue
+    * page shares is Jira's title shape, "[KEY] summary - <site>". So the page is read first
+    * (A3); only when its title does not open with "[KEY]" is the same REST API v2 as Jira
+    * Cloud's asked, at the same base. A summary: the card as Jira Cloud's. An error Jira
+    * itself phrases (`errorMessages` - "Issue Does Not Exist", "You do not have the
+    * permission…") is a wall, as on Cloud: the key, unmarked, the sign-in page's furniture.
+    * Anything else - no JSON, a site that merely has a `/browse/` route - keeps the generic
+    * card untouched.
+    */
+   private async fetchJiraServer(url: string, refresh = false): Promise<LinkMetadata | undefined> {
+      const m = url.match(/^(https?:\/\/[^/?#]+(?:\/[^?#]*?)?)\/browse\/([a-z][a-z0-9_]*-\d+)\/?(?:[?#]|$)/i)!;
+      const base = m[1]!;
+      const key = m[2]!;
+      const cached = LinkMetadataFetcher.jiraCache.get(`${base}/${key.toUpperCase()}`);
+      if (cached && !refresh) return { ...cached, url };
+
+      const page = await this.fetchGeneric(url);
+      if (!page || page.status || page.title.toUpperCase().startsWith(`[${key.toUpperCase()}]`)) return page;
+
+      const data = await this.askJira(base, key);
+      if (!data) return page;
+      const fallback: LinkMetadata = {
+         ...this.withPageFurniture(this.buildUrlCard(url), page), title: key, siteName: "Jira",
+      };
+      if (data === "error") {
+         console.debug(`Jira at ${base} will not show ${key} anonymously; building from the URL.`);
          return fallback;
       }
+      return this.jiraCard(base, key, data, { ...fallback, description: undefined, image: undefined });
+   }
 
+   /**
+    * `<base>/rest/api/2/issue/<key>`: the issue when there is a summary, "error" when Jira
+    * itself answered with `errorMessages` (missing, or not visible anonymously - it will not
+    * say which), undefined when the answer is not Jira's at all or never came.
+    */
+   private async askJira(base: string, key: string): Promise<JiraIssueResponse | "error" | undefined> {
+      const res = await this.request(
+         `${base}/rest/api/2/issue/${encodeURIComponent(key)}?fields=summary,description,project&expand=renderedFields`,
+         { "Accept": "application/json" }
+      );
+      if (!res) return undefined;
       let data: JiraIssueResponse;
       try {
          data = JSON.parse(res.text) as JiraIssueResponse;
       } catch {
-         return fallback;
+         return undefined;
       }
-      const title = LinkMetadataParser.sanitizeText(data.fields?.summary, 300);
-      if (!title) return fallback;
+      if (data.fields?.summary) return data;
+      console.debug(`Jira API for ${key} at ${base} returned ${res.status}.`);
+      return Array.isArray(data.errorMessages) ? "error" : undefined;
+   }
 
+   /** Title the summary, author the project, description the rendered one as text. Cached. */
+   private jiraCard(base: string, key: string, data: JiraIssueResponse, fallback: LinkMetadata): LinkMetadata {
       const card: LinkMetadata = {
          ...fallback,
-         title,
+         title: LinkMetadataParser.sanitizeText(data.fields?.summary, 300) ?? key,
          author: LinkMetadataParser.sanitizeText(data.fields?.project?.name, 300),
          description: LinkMetadataParser.sanitizeText(
             LinkMetadataFetcher.plainText(data.renderedFields?.description ?? undefined)),
       };
-      LinkMetadataFetcher.jiraCache.set(cacheKey, card);
+      LinkMetadataFetcher.jiraCache.set(`${base}/${key.toUpperCase()}`, card);
       return card;
    }
 

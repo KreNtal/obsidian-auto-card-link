@@ -150,6 +150,8 @@ export interface TrelloCardResponse {
 export interface JiraIssueResponse {
   fields?: { summary?: string; project?: { name?: string } };
   renderedFields?: { description?: string | null } | null;
+  /** Jira's own error answer: "Issue Does Not Exist", "You do not have the permission…". */
+  errorMessages?: string[];
 }
 
 /** One `appids=<id>` entry of `store.steampowered.com/api/appdetails`. */

@@ -286,6 +286,13 @@ export class CheckIf {
     return /^https?:\/\/[a-z0-9-]+\.atlassian\.net\/browse\/[a-z][a-z0-9_]*-\d+\/?([?#]|$)/i.test(url);
   }
 
+  public static isJiraServerIssueUrl(url: string): boolean {
+    // Self-hosted Jira on any host, `<base>/browse/<KEY>-<n>`, the base allowed a context path
+    // (`issues.apache.org/jira`). Checked last in the dispatch: the handler reads the page first
+    // and asks Jira's API only when the title is not Jira's "[KEY] summary" - checked 2026-09-18.
+    return /^https?:\/\/[^/?#]+(\/[^?#]*)?\/browse\/[a-z][a-z0-9_]*-\d+\/?([?#]|$)/i.test(url);
+  }
+
   public static isConfluenceCloudUrl(url: string): boolean {
     // Confluence Cloud, `<site>.atlassian.net/wiki/...`: a live page reads, but a missing page
     // or space is a 200 titled "Page Not Found - Confluence" and a site closed to anonymous
