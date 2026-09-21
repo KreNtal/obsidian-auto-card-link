@@ -401,22 +401,28 @@ export class LinkMetadataFetcher {
    ): Promise<LinkMetadata | undefined> {
       const fallback = checks?.fallback ?? (() => this.fetchFallback(url));
       const firstHeaders = { "Referer": "https://www.google.com/", ...checks?.headers };
+      // The page read gets longer than the default 5 s: Cults3D answered facebookexternalhit in
+      // 5.9 s once and in 0.3-0.6 s the next four times (Obsidian's console, 2026-09-21), and
+      // that one slow answer sent a page we read to Microlink.
       let res = checks?.viaNode && Platform.isDesktopApp
          ? await this.requestViaNode(url, firstHeaders)
-         : await this.request(url, firstHeaders);
+         : await this.request(url, firstHeaders, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
 
       // A browser User-Agent that arrives without the rest of a browser's headers is itself
       // the tell some bot protection refuses. Measured in Obsidian's console 2026-09-16:
       // codeberg.org answered our Chrome/124 UA with 403 "Access denied" and sourceforge.net
       // answered it - and Obsidian's own real UA - with Cloudflare's 403 "Just a moment...",
       // while the plugin naming itself got 200 and the real page on both. Both then went to
-      // Microlink for a page we could have read. One retry, only on a 403, so nothing that
-      // reads today changes; a 403 that stays a 403 goes on to the fallback as before. Any
+      // Microlink for a page we could have read. One retry, only on a refusal, so nothing that
+      // reads today changes; a refusal that stays one goes on to the fallback as before. Any
       // other answer is taken - a dead repo refused as a bot is a real 404 underneath, and
       // that is the proof errorPageCard needs to keep Microlink out of it.
-      if (res?.status === 403) {
+      // Any refusal, not only a 403 (2026-09-21, the same console): PerimeterX answered the
+      // Chrome/124 request with a 429 on Wayfair and a 200 "Robot or human?" on Walmart, and
+      // the plugin's own UA with the real page on both.
+      if (LinkMetadataFetcher.isChallenge(res)) {
          const retry = await this.request(url, { "User-Agent": LinkMetadataFetcher.PLUGIN_UA });
-         if (retry && retry.status !== 403) res = retry;
+         if (retry && !LinkMetadataFetcher.isChallenge(retry)) res = retry;
       }
 
       // Still a challenge: once more through Node's https, on desktop. Cloudflare challenges
@@ -428,6 +434,34 @@ export class LinkMetadataFetcher {
       if (Platform.isDesktopApp && !checks?.viaNode && LinkMetadataFetcher.isChallenge(res)) {
          const viaNode = await this.requestViaNode(url, firstHeaders);
          if (viaNode && !LinkMetadataFetcher.isChallenge(viaNode)) res = viaNode;
+      }
+
+      // Still refused: the link-preview agents sites let through so that their links preview
+      // well - which is what this plugin does with them. Measured 2026-09-21, 92 sites by script
+      // and the candidates in Obsidian's console: facebookexternalhit read Cults3D, Booking and
+      // the New York Times; Slackbot read Quora, Discogs, the FT, Glassdoor, Canva and
+      // Kickstarter where Facebook and WhatsApp were refused; WhatsApp read Etsy and immobiliare
+      // (listings included). They also turned 403s on missing pages into real 404s (NYT, Quora,
+      // Discogs) - the proof a challenge never gives. Facebook's first, as it keeps the URL's
+      // language; WhatsApp after Slackbot, as it guesses a language and may rewrite the URL.
+      // redditbot was tried and dropped: it read Bloomberg, which refused the other three, but
+      // gave the same card Microlink does. Only a 200 or a 401/404/410 is kept; the rest goes
+      // on to Microlink as before. About a sixth of the sites refused them all, so the host is
+      // remembered for the session either way - the agent that worked, or that none did.
+      if (LinkMetadataFetcher.isChallenge(res)) {
+         const host = new URL(url).hostname;
+         const known = LinkMetadataFetcher.previewAgentFor.get(host);
+         if (known !== null) {
+            for (const agent of known ? [known] : LinkMetadataFetcher.PREVIEW_AGENTS) {
+               const retry = await this.request(url, { "User-Agent": agent }, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+               if (retry && !LinkMetadataFetcher.isChallenge(retry) && [200, 401, 404, 410].includes(retry.status)) {
+                  res = retry;
+                  LinkMetadataFetcher.previewAgentFor.set(host, agent);
+                  break;
+               }
+            }
+            if (LinkMetadataFetcher.isChallenge(res)) LinkMetadataFetcher.previewAgentFor.set(host, null);
+         }
       }
 
       if (!res || res.status !== 200) {
@@ -567,13 +601,43 @@ export class LinkMetadataFetcher {
       // A site's own Cloudflare Turnstile gate, answered with a 200 to every request - every
       // UA, Node, Microlink - on yeggi.com, measured in Obsidian's console 2026-09-21.
       "please wait a moment while we check whether you are human or a bot. you will then be automatically redirected.",
+      // PerimeterX (HUMAN), measured in Obsidian's console 2026-09-21: Walmart answered
+      // facebookexternalhit with a 200 "Robot or human?", Wayfair the crawlers with a 429
+      // "Access to this page has been denied" - the same product's two block pages.
+      "robot or human?",
+      "access to this page has been denied",
    ];
 
-   /** A raw answer that is an anti-bot wall: any 403, or a 200 whose whole title is one. */
+   /**
+    * The link-preview agents fetchGeneric tries on a refusal, in order - see there. A getter
+    * because two of them are declared further down the class, with their sites.
+    */
+   private static get PREVIEW_AGENTS(): string[] {
+      return [
+         LinkMetadataFetcher.CRAWLER_UA,
+         "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+         LinkMetadataFetcher.WHATSAPP_UA,
+      ];
+   }
+
+   /** How long a page read waits - fetchGeneric's first request and its link-preview agents. */
+   private static readonly PAGE_TIMEOUT_MS = 10000;
+
+   /**
+    * Per host, for the session: the link-preview agent that got past a refusal, or null when
+    * none did - so a host that refuses everything costs its two extra requests only once.
+    */
+   private static readonly previewAgentFor = new Map<string, string | null>();
+
+   /**
+    * A raw answer that is an anti-bot wall: any 403 or 429, a 200 whose whole title is one, or
+    * a 202 with no title at all - Booking's JavaScript challenge, 3.9 KB (2026-09-21).
+    */
    private static isChallenge(res?: { status: number; text: string }): boolean {
       if (!res) return false;
-      if (res.status === 403) return true;
+      if (res.status === 403 || res.status === 429) return true;
       const title = res.text.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1];
+      if (res.status === 202) return !title?.trim();
       return res.status === 200 && !!title
          && LinkMetadataFetcher.INTERSTITIAL_TITLES.includes(title.trim().toLowerCase().replace(/\s+/g, " "));
    }
