@@ -61,6 +61,7 @@ export class LinkMetadataParser {
       siteName: siteName,
       favicon: favicon,
       image: image,
+      duration: this.getDuration(),
       indent: 0,
     };
   }
@@ -246,6 +247,45 @@ export class LinkMetadataParser {
 
     const cited = citationAuthors.filter(usable).map((n) => n.trim());
     return cited.length ? LinkMetadataParser.sanitizeText(join(cited)) : undefined;
+  }
+
+  /**
+   * The length a video page declares, for every site - parsing, as F1 is for the author.
+   * Until 2026-09-21 only a fetcher ever set a duration, so Odysee (`og:video:duration` 65,
+   * JSON-LD "PT1M5S") and Nebula (`video:duration` 1130) cards had none. OpenGraph's
+   * `video:duration` in seconds first, as its spec names it and Nebula writes it, then
+   * `og:video:duration`, then a top-level JSON-LD `VideoObject`'s ISO 8601 `duration`.
+   */
+  private getDuration(): string | undefined {
+    const seconds = Number(this.ogContent("video:duration") ?? this.ogContent("og:video:duration"));
+    if (seconds > 0) return LinkMetadataParser.formatDuration(Math.round(seconds));
+
+    for (const script of Array.from(this.htmlDoc.querySelectorAll("script[type='application/ld+json']"))) {
+      let content: unknown;
+      try { content = JSON.parse(script.textContent ?? ""); } catch { continue; }
+      const top: unknown[] = Array.isArray(content) ? (content as unknown[]) : [content];
+      for (const node of top.flatMap((n): unknown[] => {
+        const inner = (n as { "@graph"?: unknown; } | null)?.["@graph"];
+        return Array.isArray(inner) ? (inner as unknown[]) : [n];
+      })) {
+        const video = node as { "@type"?: unknown; duration?: unknown; } | null;
+        if (video?.["@type"] !== "VideoObject" || typeof video.duration !== "string") continue;
+        const iso = video.duration.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/);
+        const total = iso ? Number(iso[1] ?? 0) * 3600 + Number(iso[2] ?? 0) * 60 + Math.round(Number(iso[3] ?? 0)) : 0;
+        if (total > 0) return LinkMetadataParser.formatDuration(total);
+      }
+    }
+    return undefined;
+  }
+
+  /** "1:02:05", or "4:05" under an hour. */
+  static formatDuration(seconds: number): string {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return h > 0
+      ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+      : `${m}:${String(s).padStart(2, "0")}`;
   }
 
   private getJsonLdData(): unknown {

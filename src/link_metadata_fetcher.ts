@@ -1205,7 +1205,7 @@ export class LinkMetadataFetcher {
       }
       let data: OEmbedResponse | undefined;
       try { data = res?.status === 200 ? JSON.parse(res.text) as OEmbedResponse : undefined; } catch { /* below */ }
-      if (page) return { ...page, author: page.author ?? data?.author_name, duration: this.formatDuration(data?.duration) };
+      if (page) return { ...page, author: page.author ?? data?.author_name, duration: this.formatDuration(data?.duration) ?? page.duration };
       if (!data?.title) return this.fetchFallback(url);
       return {
          url,
@@ -5127,12 +5127,7 @@ export class LinkMetadataFetcher {
    /* --- SHARED HELPERS --- */
    private formatDuration(seconds: number | undefined): string | undefined {
       if (!seconds || isNaN(seconds)) return undefined;
-      const h = Math.floor(seconds / 3600);
-      const m = Math.floor((seconds % 3600) / 60);
-      const s = seconds % 60;
-      return h > 0
-         ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
-         : `${m}:${String(s).padStart(2, "0")}`;
+      return LinkMetadataParser.formatDuration(seconds);
    }
 
    private extractIso8601Duration(html: string): string | undefined {
