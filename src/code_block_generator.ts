@@ -33,7 +33,10 @@ export class CodeBlockGenerator {
 
     const { metadata, text, startPos, endPos } = located;
     const prefix = this.buildPrefix(text, startPos);
-    const block = this.genCodeBlock(metadata, options?.trailingNewline ?? true);
+    let block = this.genCodeBlock(metadata, options?.trailingNewline ?? true);
+    // Text after the URL on the same line would follow the closing fence, which then no longer
+    // closes: the block swallows everything below it. The prefix already breaks the line before.
+    if (!block.endsWith("\n") && this.editor.getLine(endPos.line).slice(endPos.ch).trim()) block += "\n";
     this.editor.replaceRange(prefix + block, startPos, endPos);
     return true;
   }
