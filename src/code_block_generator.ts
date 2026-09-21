@@ -231,9 +231,9 @@ export class CodeBlockGenerator {
 
   private static escapeMarkdownLinkText(title: string): string {
     return title
-      // Titles arrive escaped for the card block's YAML (LinkMetadataParser.sanitizeText
-      // turns a quote into an escaped quote, and a backslash into two). That escaping is
-      // wrong in a markdown link, where the text is literal, so undo it first.
+      // Cards written before 2026-09-21 carry titles escaped twice (sanitizeText escaped a
+      // quote and a backslash, and yamlQuote escaped them again), so a converted card still
+      // holds `\"`. Undo that; a title with a real backslash before a quote is the price.
       .replace(/\\(["\\])/g, "$1")
       .replace(/[\r\n\t]+/g, " ")
       .replace(/ {2,}/g, " ")
