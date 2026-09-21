@@ -6100,7 +6100,17 @@ export class LinkMetadataFetcher {
             const location = res.headers.location;
             if (status >= 300 && status < 400 && typeof location === "string" && hops > 0) {
                res.resume();
-               resolve(this.requestViaNode(new URL(location, url).toString(), customHeaders, timeoutMs, hops - 1));
+               // The cookies a redirect sets go with the next hop on the same host, as a browser's
+               // would: Rumble answers a video with a 307 to itself that sets one, and serves the
+               // page only to a request carrying it (2026-09-21). Without them that is a loop.
+               const next = new URL(location, url);
+               const setCookie = res.headers["set-cookie"];
+               const cookies = (Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [])
+                  .map((c) => c.split(";")[0]!.trim()).filter(Boolean);
+               const nextHeaders = cookies.length && next.hostname === new URL(url).hostname
+                  ? { ...customHeaders, "Cookie": [customHeaders["Cookie"], ...cookies].filter(Boolean).join("; ") }
+                  : customHeaders;
+               resolve(this.requestViaNode(next.toString(), nextHeaders, timeoutMs, hops - 1));
                return;
             }
             const chunks: Uint8Array[] = [];
