@@ -431,9 +431,15 @@ export class LinkMetadataFetcher {
       // 403 "Just a moment...", live and dead links alike - while Node with the same headers,
       // inside Obsidian too, got the real page and the real 404. That 404 is the proof a
       // challenge can never give (J1), and the page is one Microlink need not be asked for.
-      if (Platform.isDesktopApp && !checks?.viaNode && LinkMetadataFetcher.isChallenge(res)) {
+      // A host that refused Node too is not asked again this session: on the sites only the
+      // preview agents read (NYT, Quora) and on DataDome's, Node met a 403 on every paste. A
+      // network error or timeout is not remembered - it may pass.
+      const host = new URL(url).hostname;
+      if (Platform.isDesktopApp && !checks?.viaNode && LinkMetadataFetcher.isChallenge(res)
+         && !LinkMetadataFetcher.nodeRefusedHosts.has(host)) {
          const viaNode = await this.requestViaNode(url, firstHeaders);
          if (viaNode && !LinkMetadataFetcher.isChallenge(viaNode)) res = viaNode;
+         else if (viaNode) LinkMetadataFetcher.nodeRefusedHosts.add(host);
       }
 
       // Still refused: the link-preview agents sites let through so that their links preview
@@ -449,7 +455,6 @@ export class LinkMetadataFetcher {
       // on to Microlink as before. About a sixth of the sites refused them all, so the host is
       // remembered for the session either way - the agent that worked, or that none did.
       if (LinkMetadataFetcher.isChallenge(res)) {
-         const host = new URL(url).hostname;
          const known = LinkMetadataFetcher.previewAgentFor.get(host);
          if (known !== null) {
             for (const agent of known ? [known] : LinkMetadataFetcher.PREVIEW_AGENTS) {
@@ -619,6 +624,9 @@ export class LinkMetadataFetcher {
          LinkMetadataFetcher.WHATSAPP_UA,
       ];
    }
+
+   /** Hosts whose refusal Node's https met as well, not retried through Node for the session. */
+   private static readonly nodeRefusedHosts = new Set<string>();
 
    /** How long a page read waits - fetchGeneric's first request and its link-preview agents. */
    private static readonly PAGE_TIMEOUT_MS = 10000;
