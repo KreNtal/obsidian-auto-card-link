@@ -12,7 +12,7 @@ body:
 
         Every site already checked is listed in [docs/domain-coverage.md](https://github.com/KreNtal/obsidian-auto-card-link/blob/main/docs/domain-coverage.md), with what it returns and why it is handled the way it is. Please look there first.
 
-        What makes a request useful is two real links and the cards you got for them. Please fill in everything marked as required.
+        What makes a request useful is real links and the cards you got for them. Please fill in everything marked as required.
 
   - type: input
     id: site
@@ -38,20 +38,22 @@ body:
     validations:
       required: true
 
-  - type: input
+  - type: textarea
     id: live_link
     attributes:
-      label: A link that works
-      description: A real, public link on that site, one that opens in a private browser window without signing in. Please do not make one up.
-      placeholder: https://example.com/items/12345
+      label: Links that work
+      description: One or more real, public links on that site, one per line - links that open in a private browser window without signing in. Please do not make them up. Links of different kinds (a profile, a post, a video...) help.
+      placeholder: |
+        https://example.com/items/12345
+        https://example.com/users/someone
     validations:
       required: true
 
   - type: textarea
     id: live_card
     attributes:
-      label: The card you got for it
-      description: Paste the whole `cardlink` block as it appears in your note (switch to source mode to copy it).
+      label: The cards you got for them
+      description: Paste the whole `cardlink` block of each, as it appears in your note (switch to source mode to copy it).
       render: yaml
     validations:
       required: true
@@ -123,7 +125,7 @@ body:
     attributes:
       label: Before you send
       options:
-        - label: The link that works is public, and I did not make it up.
+        - label: The links that work are public, and I did not make them up.
           required: true
         - label: I looked for the site in docs/domain-coverage.md and in the existing issues.
           required: true
