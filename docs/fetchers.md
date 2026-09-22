@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 13 page + endpoint, 11 page, 22 hook.
+the same commit. Counts today: 22 endpoint, 13 page + endpoint, 11 page, 23 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -67,7 +67,6 @@ the same commit. Counts today: 22 endpoint, 13 page + endpoint, 11 page, 22 hook
 | Site | Source | Req. | Cache | Dead link | Fragility (A6) |
 | --- | --- | --- | --- | --- | --- |
 | Etsy | `fetchGeneric` with the WhatsApp UA, the whole host; " - Etsy …" dropped from the title, the shop read out of a listing's description or a shop page's title (B6, F4) | 1 | — | the page's own **404** | **high** — UA sniffing; every other UA is 403, Microlink `EPROXYNEEDED` |
-| Booking.com | `fetchGeneric` on a `/hotel/` link, with a `goneCard` on the page's `og:url` or canonical pointing at `/city/` or `/searchresults` - where a closed listing is redirected | 1–6 | — | that redirect; the page's own **404** | **high** — the cascade's crawler UA past a 202 challenge, and an undocumented redirect |
 | eBay | `fetchGeneric` with `viaNode`: on desktop the first request goes through Node's `https`, a current Chrome UA and its Client Hints (`sec-ch-ua`, which Electron drops from `requestUrl`); " \| eBay" dropped from an item's title (B6) | 1 | — | the page's own **404**; a bare `/itm/<id>` titled "eBay item" | **high** — header sniffing, and Node on desktop; mobile's own requestUrl read a listing too (2026-09-18) |
 | Yelp | `fetchGeneric` on `yelp.co.uk` for a `/biz/` link on `.com` or `.ca`, same path and query; the card keeps the pasted URL and host | 1 | — | the mirror's own **404** | medium — an undocumented difference between Yelp's hosts; `.com` and `.ca` are DataDome to every request |
 | Twitch | the page, 3 attempts with rotating user agents, 9s timeout | 1–3 | — | the shell → card from the URL plus furniture | **high** — UA sniffing and retries |
@@ -107,6 +106,7 @@ No extra request, nothing site-specific to break.
 | JSFiddle | plain generic on `…/show/` result views, then a result titled "Log in …" - the sign-in page every live one redirects to - reads the fiddle's own page (the path without `/show/`) instead, keeping the pasted URL; if that fails too, the fiddle's id from the URL with the sign-in page's blurb | 1–2 | — | a real **404**, from the first request | low — a reworded sign-in title only brings back the "Log in" card |
 | Replit | plain generic on `/@<user>` profiles, then a result titled "Sign Up" - the page every existing profile redirects to - becomes a card from the URL: the handle verbatim, with the sign-up page's blurb and image | 1 | — | a real **404** for a missing user; an existing profile's card is unmarked | low — a reworded sign-up title only brings back the "Sign Up" card |
 | Coda / Superhuman Docs | plain generic on `/d/` docs, then a result titled nothing but "Login", with no description or image - the sign-in page a private or missing doc redirects to - becomes a card from the URL: the doc's name, else the page's | 1 | — | none: private and missing land on the same sign-in page, so the card is unmarked | low — a reworded sign-in page only brings back the "Login" card |
+| Booking.com | `fetchGeneric` on a `/hotel/` link, with a `goneCard` on the page's `og:url` or canonical pointing at `/city/` or `/searchresults` - where a closed listing is redirected | 1–6 | — | that redirect; the page's own **404** | **high** — the cascade's crawler UA past a 202 challenge, and an undocumented redirect |
 
 ## Where the rest lives
 

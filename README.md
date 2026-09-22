@@ -2,10 +2,10 @@
 
 Automatically generate beautiful <u>card-styled links</u> from URLs by fetching their metadata, thumbnails and favicons, and turning them into a YAML `cardlink` code block or into a compact inline Markdown link carrying the fetched title.
 
-It includes tailored handling for over twenty sites — YouTube, Vimeo, Reddit, X, GitHub, GitLab, npm, Wikipedia, arXiv, Spotify, Stack Exchange, LinkedIn, Hacker News, Bluesky, IMDb, Notion, Discord and more — plus options for thumbnail quality, local image saving and multiple card styles.
+It includes tailored handling for over sixty sites — YouTube, Reddit, X, TikTok, Facebook, LinkedIn, Pinterest, GitHub, Stack Exchange, Wikipedia, Spotify, Steam, Google Maps, Notion, Discord and more — plus options for thumbnail quality, local image saving and multiple card styles.
 
 <p align="center">
-    <img src="docs/marketing/demo2.gif">
+    <img src="docs/marketing/demo3.gif">
 </p>
 
 ## Features
@@ -33,7 +33,7 @@ It includes tailored handling for over twenty sites — YouTube, Vimeo, Reddit, 
 
 This plugin needs internet access to fetch link metadata. To be transparent about what it sends and where:
 
-- **By default**, it fetches metadata **directly from the site you are linking to** (the same request your browser would make to load that page). Nothing is sent to any other third party.
+- **By default**, it fetches metadata **directly from the site you are linking to** (the same request your browser would make to load that page). If the site refuses that request, the plugin asks the same site again the way link previews do — as Facebook's, Slack's or WhatsApp's link-preview agent — still directly and to that site only. Nothing is sent to any other third party.
 - **Optionally**, if you enable **"Use external service for blocked sites"** in the settings, the plugin will — **only when a direct fetch fails** — send the link's URL to the third-party service [microlink.io](https://microlink.io) to retrieve metadata from sites that block direct access (e.g. Cloudflare-protected pages). This setting is **off by default**, and no data is ever sent to microlink.io unless you turn it on.
 
 > [!IMPORTANT]

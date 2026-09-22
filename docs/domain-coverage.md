@@ -259,9 +259,9 @@ checked in Obsidian; add a row above with caveats if anything is odd.
 - [x] Mastodon — **no fetcher, and no `SITE_NAMES` entry either**: the generic path reads every instance correctly and a dead link is a real 404. Federation is why the map would hurt rather than help — each instance declares its own name.
 - [x] Discord — **dedicated fetcher**, first via the documented `/api/v10/invites/` endpoint, reading the page alone since 2026-09-11 (the page declares everything the endpoint gave, and the shell is recognisable by its missing `og:url`). Raised in place of Mastodon and turned out to be the same class of bug as Notion: an expired invite and every `/channels/` link answer 200 with Discord's marketing front page.
 
-## Backlog for 1.7
+## Backlog for 1.7 and 1.8
 
-Found while closing 1.6, none of them started.
+Found while closing 1.6, none of them started. **1.7.0 was tagged on 2026-09-18** with the first part of this list; everything closed after it - from Jira Cloud's REST API to Booking's closed listings, 2026-09-22 - ships as **1.8.0**.
 
 **The shape to look for first is no longer “does the site block us”.** 1.6 spent most of its effort on that question and it was the wrong one: MyMiniFactory, Thangs, Medium, npmjs.com, Instagram and Threads were all suspected of blocking us and all read perfectly. The failure that actually costs the reader something is a site that **answers, and answers with something else** — a marketing shell, a sign-in wall, its own homepage — because parsing that *succeeds*, so nothing downstream, Microlink included, ever gets a chance to notice. So the test for a new domain is two pastes, not one: the live thing, and a URL that cannot exist. If the dead one comes back with a title, read it carefully.
 
