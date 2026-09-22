@@ -239,6 +239,14 @@ export class CheckIf {
     return /^https?:\/\/([a-z]{2,3}\.)?aliexpress\.com\/item\/\d+\.html/i.test(url);
   }
 
+  public static telegramHandle(url: string): { handle: string; post?: string } | undefined {
+    // `t.me/<handle>` and `t.me/<handle>/<n>`, also on telegram.me. A username is 5-32
+    // characters, so the app's short routes (`/s/`, `/c/<id>/<n>`, `/+<invite>`) never match;
+    // the longer ones (`/joinchat/`, `/addstickers/`) match but never meet either check.
+    const m = url.match(/^https?:\/\/(?:www\.)?(?:t|telegram)\.me\/([a-z]\w{3,31})(?:\/(\d+))?\/?(?:[?#]|$)/i);
+    return m?.[1] ? { handle: m[1], post: m[2] } : undefined;
+  }
+
   public static isPinterestUrl(url: string): boolean {
     // The whole host, www. or a country subdomain (it., uk.), and the country domains
     // (pinterest.de, pinterest.co.uk), which redirect to those subdomains. Read generically;

@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 11 page + endpoint, 11 page, 22 hook.
+the same commit. Counts today: 22 endpoint, 12 page + endpoint, 11 page, 22 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -55,6 +55,7 @@ the same commit. Counts today: 22 endpoint, 11 page + endpoint, 11 page, 22 hook
 | RubyGems | the page + `rubygems.org/api/v1/gems/<name>.json` (v2 for a version) for the description and authors; " \| RubyGems.org \| your community gem host" dropped (B6) | 1–2 | — | the page's own **404** — the endpoint is never reached | low — documented API |
 | DOI | the page the DOI lands on; when it cannot be read, CSL-JSON from `doi.org` by content negotiation instead of Microlink - the endpoint replaces a failed read rather than adding a field | 1–4 | — | doi.org's own **404** → the DOI as title | low — documented content negotiation, Crossref and DataCite alike |
 | bioRxiv | the page; `api.biorxiv.org/details/biorxiv/<doi>` only when it is the "\| bioRxiv" `/node` page, which reads as no preprint | 1–2 | — | that page, then `collection: []` from the API | low — documented API |
+| Telegram | the page; a post's embed `t.me/<handle>/<n>?embed=1` after it, for the proof only; a handle's dead page is a `goneCard` on its `og:title` | 1 (2 for a post) | — | `og:title` "Telegram: Contact @\<handle>"; the embed's "Post not found" or "Channel with username … not found" | low — the embed is Telegram's published widget; a reworded error only brings back the channel's card |
 | Wiktionary (English) | the page; `en.wiktionary.org/api/rest_v1/page/definition/<word>` only when it gave no description, which it never does today - the first English entry's first definition, composed with its language and part of speech; " - Wiktionary, the free dictionary" dropped (B6) | 2 | — | the page's own **404** — the endpoint is never reached | low — documented Wikimedia REST API, en.wiktionary only |
 | Jira, self-hosted | the page; `<base>/rest/api/2/issue/<key>` only when its title does not open with "[KEY]" - a "Loading..." shell or the instance's sign-in page | 1–2 | refresh | none: Jira's `errorMessages` ("Issue Does Not Exist", "You do not have the permission…") read as a wall → the key, unmarked | low — documented, versioned API; any host, so a non-Jira `/browse/X-1` page costs one extra request |
 | Kick | the page, with a `goneCard` on "… Not Found - Kick Streaming"; a VOD straight from `kick.com/api/v1/video/<uuid>`, as its page is always empty; a clip's `kick.com/api/v2/clips/<id>` only when its page is empty; the channel from the title template into `author` (B6) | 1–2 | — | the not-found page's title; a **404** from either endpoint | **high** — two undocumented internal endpoints |

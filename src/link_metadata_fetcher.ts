@@ -124,6 +124,8 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
       if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
       if (CheckIf.isPinterestUrl(url)) return this.fetchPinterest(url);
+      const telegram = CheckIf.telegramHandle(url);
+      if (telegram) return this.fetchTelegram(url, telegram.handle, telegram.post);
       if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
       if (CheckIf.isYelpBizUrl(url)) return this.fetchYelp(url);
       if (CheckIf.isTripAdvisorReviewUrl(url)) return this.fetchTripAdvisor(url);
@@ -190,6 +192,8 @@ export class LinkMetadataFetcher {
       "rumble.com": "Rumble",
       "odysee.com": "Odysee",
       "pinterest.com": "Pinterest",
+      "t.me": "Telegram",
+      "telegram.me": "Telegram",
       "wikidata.org": "Wikidata",
       "en.wiktionary.org": "Wiktionary",
       "commons.wikimedia.org": "Wikimedia Commons",
@@ -2900,6 +2904,41 @@ export class LinkMetadataFetcher {
       return this.fetchGeneric(url, {
          emptyPage: (html) => /<title>\s*<\/title>/i.test(html) ? this.buildUrlCard(url) : undefined,
       });
+   }
+
+   /* --- TELEGRAM --- */
+
+   /**
+    * Not a fetcher: a channel (`t.me/durov`), a person (`t.me/Nhatty_prime`), a bot and a post
+    * (`t.me/durov/548`) read in full on the generic path, to Chrome/124, the plugin's UA,
+    * `facebookexternalhit`, Slackbot and WhatsApp alike - a post titled with its channel's name,
+    * its text as the description (measured 2026-09-22). Two dead shapes do not, A1(b):
+    *
+    * A handle that does not exist answers **200** with `og:title` "Telegram: Contact @<handle>",
+    * an empty description and Telegram's logo. A live person's page has that `<title>` too, but
+    * its `og:title` is the person's name - so only the template as `og:title`, on this URL's own
+    * handle, is the tell. Not localised (it, de, ru measured).
+    *
+    * A post that does not exist (`t.me/durov/99999999`) answers **200** with its channel's page -
+    * name, bio, avatar - a confident card about something else. The page alone cannot tell: a
+    * live post carries a `telegram-post=` widget the dead one lacks, but so does a live service
+    * message (`t.me/durov/1`, "Channel created"). The embed Telegram publishes for every post,
+    * `?embed=1`, can: "Post not found" for a dead post, "Channel with username … not found" for
+    * a dead channel, the message itself otherwise. One request on every post, after the page
+    * (A3); only those two errors are proof, and the page's furniture rides along (C5).
+    */
+   private async fetchTelegram(url: string, handle: string, post?: string): Promise<LinkMetadata | undefined> {
+      const card = await this.fetchGeneric(url, {
+         goneCard: (page) => page.title.toLowerCase() === `telegram: contact @${handle.toLowerCase()}`
+            ? this.withPageFurniture(this.buildUrlCard(url), page)
+            : undefined,
+      });
+      if (!post || !card || card.status) return card;
+      const embed = await this.request(`https://t.me/${handle}/${post}?embed=1`);
+      return embed?.status === 200
+         && /tgme_widget_message_error[^>]*>\s*(Post not found|Channel with username)/.test(embed.text)
+         ? this.notFound(this.withPageFurniture(this.buildUrlCard(url), card))
+         : card;
    }
 
    /* --- EPIC GAMES STORE --- */
