@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 11 page + endpoint, 11 page, 19 hook.
+the same commit. Counts today: 22 endpoint, 11 page + endpoint, 11 page, 20 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -100,6 +100,7 @@ No extra request, nothing site-specific to break.
 | ClickUp | plain generic on the app hosts, then a result titled nothing but "ClickUp" or "ClickUp Docs" - the shell every task and doc answers - becomes a card from the URL with the shell's blurb and image: a doc's slug, a task's custom id, else "ClickUp doc" / "ClickUp task" | 1 | — | none: live and missing are the same shell, so the card is unmarked | low — a reworded shell only brings back the "ClickUp" card |
 | TripAdvisor | plain generic on `<Type>_Review-g…-d…-Reviews-` pages, with its own `urlCard` and a `fallback` that is that card instead of Microlink: the name after `-Reviews-` ("Hotel Reginella"), `siteName` "Tripadvisor" | 1 | — | a real **404** would build the same card, marked; DataDome's 403 is a wall, unmarked | none — the name is the URL's own |
 | JSFiddle | plain generic on `…/show/` result views, then a result titled "Log in …" - the sign-in page every live one redirects to - reads the fiddle's own page (the path without `/show/`) instead, keeping the pasted URL; if that fails too, the fiddle's id from the URL with the sign-in page's blurb | 1–2 | — | a real **404**, from the first request | low — a reworded sign-in title only brings back the "Log in" card |
+| Replit | plain generic on `/@<user>` profiles, then a result titled "Sign Up" - the page every existing profile redirects to - becomes a card from the URL: the handle verbatim, with the sign-up page's blurb and image | 1 | — | a real **404** for a missing user; an existing profile's card is unmarked | low — a reworded sign-up title only brings back the "Sign Up" card |
 | Coda / Superhuman Docs | plain generic on `/d/` docs, then a result titled nothing but "Login", with no description or image - the sign-in page a private or missing doc redirects to - becomes a card from the URL: the doc's name, else the page's | 1 | — | none: private and missing land on the same sign-in page, so the card is unmarked | low — a reworded sign-in page only brings back the "Login" card |
 
 ## Where the rest lives

@@ -141,6 +141,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isClickUpAppUrl(url)) return this.fetchClickUp(url);
       if (CheckIf.isCodaDocUrl(url)) return this.fetchCoda(url);
       if (CheckIf.isJsfiddleShowUrl(url)) return this.fetchJsfiddleShow(url);
+      if (CheckIf.isReplitProfileUrl(url)) return this.fetchReplitProfile(url);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
@@ -224,6 +225,9 @@ export class LinkMetadataFetcher {
       // Generic path. A fiddle declares "JSFiddle"; a profile (`/u/<user>/`) and the 404 a
       // missing fiddle answers declare none (2026-09-22), so this labels their cards.
       "jsfiddle.net": "JSFiddle",
+      // A repl declares "replit" and wins (E1); the name the site titles its pages with labels
+      // the cards that declare nothing - a profile behind the sign-up page, a real 404.
+      "replit.com": "Replit",
       // Generic path for `/_/<name>`, this fetcher for `/r/`, and hub.docker.com declares
       // no og:site_name on either - the official images name the site in their <title>
       // instead. Scoped to the `hub.` subdomain: docs.docker.com and docker.com are the
@@ -4338,6 +4342,27 @@ export class LinkMetadataFetcher {
       if (card && !card.title?.startsWith("Log in ")) return { ...card, url };
       const id = fiddle.pathname.split("/").filter(s => s && !/^\d+$/.test(s)).pop();
       return this.withPageFurniture({ ...this.buildUrlCard(url), title: id ?? "JSFiddle fiddle" }, metadata);
+   }
+
+   /* --- REPLIT --- */
+
+   /**
+    * A Replit profile, `/@<user>`. Every one that exists redirects to
+    * `/login?source=root-profile&goto=…`, which parsed as a card titled "Sign Up" with the
+    * site's blurb and `opengraph_rebrand.jpg` (A1(a), B3(ii)), the same for the Chrome UA, the
+    * plugin's, `facebookexternalhit`, Slackbot and WhatsApp - measured 2026-09-22 on `@replit`,
+    * `@turbio` and `@templates`. A user that does not exist is a real 404. No endpoint names
+    * the user: the old `/data/profiles/` routes are gone and the GraphQL wants persisted query
+    * hashes. So the card is the handle verbatim from the URL (B4) - `deslug` would split
+    * `@replit-docs` - unmarked, as a wall proves nothing (J1), with the sign-up page's blurb
+    * and image as furniture (C5, D4). A repl (`/@<user>/<repl>`) reads and is not matched (A2).
+    */
+   private async fetchReplitProfile(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      if (metadata?.title !== "Sign Up") return metadata;
+      console.debug(`Replit sent ${url} to its sign-up page; building from the URL.`);
+      const handle = new URL(url).pathname.split("/")[1];
+      return this.withPageFurniture({ ...this.buildUrlCard(url), title: handle || "Replit profile" }, metadata);
    }
 
    /* --- GOOGLE DOCS / DRIVE --- */

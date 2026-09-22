@@ -354,6 +354,12 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?jsfiddle\.net(\/[\w-]+){1,3}\/show\/?([?#]|$)/i.test(url);
   }
 
+  public static isReplitProfileUrl(url: string): boolean {
+    // A profile, `/@<user>[/][?tab=…]`: every one that exists redirects to the sign-up page, a
+    // missing one is a real 404 - checked 2026-09-22. A repl, `/@<user>/<repl>`, reads.
+    return /^https?:\/\/(www\.)?replit\.com\/@[\w.-]+\/?([?#]|$)/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,
