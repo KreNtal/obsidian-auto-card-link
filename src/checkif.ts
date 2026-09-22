@@ -130,8 +130,14 @@ export class CheckIf {
 
   public static isCratesIoCrateUrl(url: string): boolean {
     // A crate, its tabs and a version under it. Every crates.io route answers the same shell,
-    // but only a crate has an endpoint worth asking; users, keywords and the rest stay generic.
+    // and a crate has its own fetcher; users, teams, keywords and categories have the next one.
     return /^https?:\/\/(www\.)?crates\.io\/crates\/[^/?#]+/i.test(url);
+  }
+
+  public static cratesIoPage(url: string): { kind: string; id: string } | undefined {
+    // The other crates.io routes an API names. Search and the rest have none and stay generic.
+    const m = url.match(/^https?:\/\/(?:www\.)?crates\.io\/(users|teams|keywords|categories)\/([^/?#]+)/i);
+    return m?.[1] && m[2] ? { kind: m[1].toLowerCase(), id: m[2] } : undefined;
   }
 
   public static isRubyGemsGemUrl(url: string): boolean {

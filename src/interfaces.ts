@@ -125,6 +125,13 @@ export interface CratesIoResponse {
   version?: { crate?: string; description?: string | null; };
 }
 
+export interface CratesIoPageResponse {
+  user?: { login?: string; name?: string | null; avatar?: string | null; };
+  team?: { login?: string; name?: string | null; avatar?: string | null; };
+  keyword?: { keyword?: string; };
+  category?: { category?: string; description?: string | null; };
+}
+
 export interface CratesIoOwnersResponse {
   users?: { login?: string; }[];
 }

@@ -9,7 +9,7 @@ import {
    HackerNewsUser,
    NodeHttps,
    NodeZlib,
-   BitbucketRepoResponse, CratesIoOwnersResponse, CratesIoResponse, RubyGemsResponse, DailymotionVideoResponse, DockerHubRepoResponse, KickClipResponse, KickVideoResponse, WiktionaryDefinitionResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
+   BitbucketRepoResponse, CratesIoOwnersResponse, CratesIoPageResponse, CratesIoResponse, RubyGemsResponse, DailymotionVideoResponse, DockerHubRepoResponse, KickClipResponse, KickVideoResponse, WiktionaryDefinitionResponse, GitHubRepoResponse, GitLabProjectResponse, ImdbSuggestionResponse, LinkMetadata, MicrolinkResponse, NpmPackageResponse, OEmbedResponse,
    OsmElementResponse,
    PrintablesGraphQLResponse, StackExchangeSite, SteamAppDetailsResponse, TikTokOEmbedResponse, TrelloBoardResponse, TrelloCardResponse, JiraIssueResponse, WikipediaSummaryResponse, XSyndicationResponse
 } from "./interfaces";
@@ -117,6 +117,8 @@ export class LinkMetadataFetcher {
       if (CheckIf.isNpmUrl(url)) return this.fetchNpm(url, refresh);
       if (CheckIf.isDockerHubRepoUrl(url)) return this.fetchDockerHub(url);
       if (CheckIf.isCratesIoCrateUrl(url)) return this.fetchCratesIo(url, refresh);
+      const cratesPage = CheckIf.cratesIoPage(url);
+      if (cratesPage) return this.fetchCratesIoPage(url, cratesPage.kind, cratesPage.id);
       if (CheckIf.isRubyGemsGemUrl(url)) return this.fetchRubyGems(url);
       if (CheckIf.isPackagistPackageUrl(url)) return this.fetchPackagist(url);
       if (CheckIf.isHashnodeProfileOrTagUrl(url)) return this.fetchHashnode(url);
@@ -3610,6 +3612,55 @@ export class LinkMetadataFetcher {
       };
       LinkMetadataFetcher.cratesCache.set(key, card);
       return card;
+   }
+
+   /**
+    * A crates.io user, team, keyword or category, through the same documented API as a crate.
+    *
+    * A1(a) and A1(b), measured 2026-09-22: `/users/dtolnay`, `/teams/github:tokio-rs:core`,
+    * `/keywords/serde` and `/categories/encoding` - and the same routes for an id that cannot exist -
+    * all answer the 5050-byte shell titled "crates.io: Rust Package Registry", with the registry's
+    * blurb and generic `og:image`, for Chrome/124, the plugin's UA, facebookexternalhit, Slackbot and
+    * WhatsApp alike. `/api/v1/<kind>/<id>` tells them apart: 200 with the item, or 404.
+    *
+    * The page is still read, in parallel, for its furniture. Titles: a user's or a team's `name`
+    * from the endpoint (B4), else the login, and the same as author (F4); a keyword and a category
+    * as the site's own frontend titles them, "serde - Keywords" and "Encoding - Categories", with
+    * its site-name segment dropped (B6). A user's or team's avatar is their image (D1), a
+    * category's `description` its description (C1). Search has no endpoint and stays generic (A2).
+    */
+   private async fetchCratesIoPage(url: string, kind: string, id: string): Promise<LinkMetadata> {
+      const [page, res] = await Promise.all([
+         this.request(url),
+         this.request(`https://crates.io/api/v1/${kind}/${id}`,
+            { "Accept": "application/json", "User-Agent": LinkMetadataFetcher.PLUGIN_UA }),
+      ]);
+      const parsed = page?.status === 200
+         ? await new LinkMetadataParser(url, await this.decodeHtmlContent(page.arrayBuffer, page.text)).parse()
+         : undefined;
+      const fromUrl = this.withPageFurniture(this.buildUrlCard(url), parsed);
+      if (res?.status === 404) return this.notFound(fromUrl);
+
+      let data: CratesIoPageResponse | undefined;
+      try {
+         data = res?.status === 200 ? JSON.parse(res.text) as CratesIoPageResponse : undefined;
+      } catch { /* no usable answer: the card from the URL */ }
+
+      const person = data?.user ?? data?.team;
+      if (person) {
+         const name = person.name || person.login || id;
+         return { ...fromUrl, title: name, author: name, image: person.avatar || fromUrl.image };
+      }
+      if (data?.keyword) return { ...fromUrl, title: `${data.keyword.keyword ?? id} - Keywords` };
+      if (data?.category) {
+         return {
+            ...fromUrl,
+            title: `${data.category.category ?? id} - Categories`,
+            description: LinkMetadataParser.sanitizeText(data.category.description ?? undefined) ?? fromUrl.description,
+         };
+      }
+      console.debug(`crates.io API for ${kind}/${id} returned ${res?.status}; building from the URL.`);
+      return fromUrl;
    }
 
    /* --- RUBYGEMS --- */
