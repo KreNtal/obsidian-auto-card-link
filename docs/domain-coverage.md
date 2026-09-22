@@ -102,6 +102,8 @@ path) is a separate spot-check — see the list at the bottom.
 
 **Durations are read from the page (2026-09-21).** Until then only a fetcher ever set a duration, so a video site on the generic path had none even when it declared one: Odysee (`og:video:duration` 65 and a JSON-LD `VideoObject` "PT1M5S") and Nebula (`video:duration` 1130), found during the video-platform round after Kick's endpoint gave one. The parser now reads OpenGraph's `video:duration` in seconds, then `og:video:duration`, then the ISO 8601 `duration` of a top-level JSON-LD `VideoObject` - a podcast episode's nested duration (Apple Podcasts' show page) is not one. A fetcher's own duration still wins, so Twitch's rule of no duration for a live stream stands. Pasted in Obsidian: Odysee 1:05, Nebula 18:50, and Rumble, Twitch, Apple Podcasts and TED unchanged.
 
+**Whitespace is collapsed in every text field (2026-09-22).** B2 lists normalising whitespace among the parser's universal cleanups, but `sanitizeText` only turned each line break into a space and left runs alone: Tumblr's `<title>` for a NASA post gave "Pew! Pew! Pew!  Imagine…" (two spaces, found pasting the Tumblr round), and a description with a blank line in it got two spaces the same way. Any run of whitespace is now one space, for every site and every fetcher that goes through it. The card's HTML already rendered runs as one space, so what changes is the text stored in the note.
+
 ## Generic path — verified
 
 Go through `fetchGeneric` (og/twitter/JSON-LD tags), with the microlink fallback if the

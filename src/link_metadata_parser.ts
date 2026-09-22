@@ -439,7 +439,9 @@ export class LinkMetadataParser {
       .replace(/&gt;/g, ">")
       .replace(/&quot;/g, '"')
       .replace(/&#039;/g, "'")
-      .replace(/\r\n|\n|\r/g, " ")
+      // Any run of whitespace, line breaks included, is one space (B2): Tumblr's `<title>` for a
+      // NASA post read "Pew! Pew! Pew!  Imagine…", and two line breaks used to become two spaces.
+      .replace(/\s+/g, " ")
       // No quote or backslash escaping here: the card block's writer quotes every text field
       // itself (CodeBlockGenerator.yamlQuote), and escaping twice left literal backslashes in
       // the card - Yeggi's title `"benchy" 3D Models to Print - yeggi` rendered as
