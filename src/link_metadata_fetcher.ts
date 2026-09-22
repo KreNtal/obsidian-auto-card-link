@@ -423,7 +423,7 @@ export class LinkMetadataFetcher {
          refine?: (metadata: LinkMetadata, html: string) => LinkMetadata;
       }
    ): Promise<LinkMetadata | undefined> {
-      const fallback = checks?.fallback ?? (() => this.fetchFallback(url));
+      const fallback = checks?.fallback ?? (() => this.fetchFallback(url, checks?.goneCard));
       const firstHeaders = { "Referer": "https://www.google.com/", ...checks?.headers };
       // The page read gets longer than the default 5 s: Cults3D answered facebookexternalhit in
       // 5.9 s once and in 0.3-0.6 s the next four times (Obsidian's console, 2026-09-21), and
@@ -725,7 +725,9 @@ export class LinkMetadataFetcher {
       }
    }
 
-   private async fetchFallback(url: string): Promise<LinkMetadata> {
+   private async fetchFallback(
+      url: string, goneCard?: (metadata: LinkMetadata) => LinkMetadata | undefined
+   ): Promise<LinkMetadata> {
       // Direct fetch failed (or yielded no usable metadata). If the user opted in,
       // try the external microlink.io service, which renders the page with a headless
       // browser and can get past Cloudflare-style challenges that requestUrl cannot.
@@ -755,7 +757,14 @@ export class LinkMetadataFetcher {
          if (result.metadata) {
             // Its headless browser can be handed the interstitial as readily as we are, and
             // its answer counts as a read of the page (field rule I1), so it gets the same
-            // two tests rather than a blind accept.
+            // two tests rather than a blind accept. And the site's own not-found tell, when
+            // fetchGeneric had one (I1): a page refused to us can reach Microlink as the
+            // site's "gone" page with a 200 - a Goodreads book behind its 202 throttle - and
+            // a tell that is proof on a direct read is proof on this one too. Seen on Zhihu
+            // (2026-09-22), whose missing article reached Microlink as its 200 not-found page;
+            // Zhihu itself has no tell, by choice (see its row).
+            const gone = goneCard?.(result.metadata);
+            if (gone) return this.notFound(gone);
             if (!this.looksLikePlaceholder(result.metadata, url)
                && !LinkMetadataFetcher.looksLikeInterstitial(result.metadata)) return result.metadata;
             console.debug(`Microlink result for ${url} looked like a placeholder title:`, result.metadata.title);
