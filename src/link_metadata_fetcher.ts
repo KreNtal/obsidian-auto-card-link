@@ -126,6 +126,8 @@ export class LinkMetadataFetcher {
       if (CheckIf.isPinterestUrl(url)) return this.fetchPinterest(url);
       const telegram = CheckIf.telegramHandle(url);
       if (telegram) return this.fetchTelegram(url, telegram.handle, telegram.post);
+      const tumblr = CheckIf.tumblrBlog(url);
+      if (tumblr) return this.fetchTumblr(url, tumblr.blog, tumblr.post);
       if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
       if (CheckIf.isYelpBizUrl(url)) return this.fetchYelp(url);
       if (CheckIf.isTripAdvisorReviewUrl(url)) return this.fetchTripAdvisor(url);
@@ -194,6 +196,7 @@ export class LinkMetadataFetcher {
       "pinterest.com": "Pinterest",
       "t.me": "Telegram",
       "telegram.me": "Telegram",
+      "tumblr.com": "Tumblr",
       "wikidata.org": "Wikidata",
       "en.wiktionary.org": "Wiktionary",
       "commons.wikimedia.org": "Wikimedia Commons",
@@ -414,6 +417,8 @@ export class LinkMetadataFetcher {
           * would rather ask (A3 - the page first, the endpoint only when it fails).
           */
          fallback?: () => Promise<LinkMetadata | undefined>;
+         /** A touch-up of a page that read, with its HTML in hand - for what only the markup says. */
+         refine?: (metadata: LinkMetadata, html: string) => LinkMetadata;
       }
    ): Promise<LinkMetadata | undefined> {
       const fallback = checks?.fallback ?? (() => this.fetchFallback(url));
@@ -554,6 +559,7 @@ export class LinkMetadataFetcher {
          return fallback();
       }
 
+      if (metadata && checks?.refine) return checks.refine(metadata, decodedText);
       return metadata ?? fallback();
    }
 
@@ -2939,6 +2945,56 @@ export class LinkMetadataFetcher {
          && /tgme_widget_message_error[^>]*>\s*(Post not found|Channel with username)/.test(embed.text)
          ? this.notFound(this.withPageFurniture(this.buildUrlCard(url), card))
          : card;
+   }
+
+   /* --- TUMBLR --- */
+
+   /**
+    * Not a fetcher for most of Tumblr: a blog and a post read in full to Chrome/124, the plugin's
+    * UA, `facebookexternalhit`, Slackbot and WhatsApp alike, and a missing blog, or a missing post
+    * on the blog's own subdomain, is a real **404** (measured 2026-09-22 on `staff`).
+    *
+    * A blog's `og:title` is a site template (B6), seven blogs in Italian and English: "@staff"
+    * and "@pepurika" for a blog with no name of its own, "NASA (@nasa) su Tumblr" and
+    * "hello there (@stealingpotatoes) on Tumblr" otherwise. On a blog's own page (F4) the name
+    * becomes the author - the handle, "@staff", when that is all there is - and the site-name
+    * segment " su Tumblr" goes; the "(@<handle>)" must be the URL's own. No extra request (A5).
+    *
+    * A1(b): a post that does not exist in the tumblr.com form, `www.tumblr.com/staff/<id>`,
+    * answers **200** with its blog's page - that same `og:title`, the "Follow @staff…" blurb,
+    * `og:url` the blog - a confident card about the blog. A live post is titled "Post by @staff
+    * · 4 images", "Post by @staff" or "Reblog by @staff", never the blog's template, so that
+    * template on a post URL is the suspicion, and only then is Tumblr's oEmbed asked (A3): 404
+    * for the missing post is the proof, 200 with the post for a live one. The card is the path
+    * verbatim, marked, the blog's blurb riding along (C5). Any other oEmbed answer leaves the
+    * blog's card as it was.
+    *
+    * A live post's `og:title` names nothing but its blog and a count - "Post di @pepurika · 8
+    * immagini", "Post by @staff", "Reblog by @staff" - while its `<title>` is a template carrying
+    * the post's own text, "<text> – @pepurika su Tumblr", six posts of six. Under B7 that text is
+    * the title, and "@pepurika", the byline both templates give, the author (F2). Only when both
+    * match exactly, on the URL's own blog; a text Tumblr truncated itself ("…This type of...")
+    * stays as Tumblr wrote it.
+    */
+   private async fetchTumblr(url: string, blog: string, post?: string): Promise<LinkMetadata | undefined> {
+      const card = await this.fetchGeneric(url, {
+         refine: (page, html) => {
+            if (!post || !new RegExp(`^(?:\\S+ ){1,3}@${blog}(?: · .*)?$`, "i").test(page.title)) return page;
+            const text = new DOMParser().parseFromString(html, "text/html").querySelector("title")?.textContent
+               ?.match(new RegExp(`^([\\s\\S]+) – @${blog} \\S+ Tumblr$`, "i"))?.[1];
+            const title = LinkMetadataParser.sanitizeText(text);
+            return title ? { ...page, title, author: `@${blog}` } : page;
+         },
+      });
+      const page = card?.title.match(new RegExp(`^(?:@${blog}|(.+) \\(@${blog}\\) \\S+ Tumblr)$`, "i"));
+      if (!card || card.status || !page) return card;
+      if (post) {
+         const oembed = await this.request(`https://www.tumblr.com/oembed/1.0?url=${encodeURIComponent(url)}`);
+         return oembed?.status === 404 ? this.notFound(this.withPageFurniture(this.buildUrlCard(url), card)) : card;
+      }
+      return page[1]
+         ? { ...card, title: `${page[1]} (@${blog})`, author: page[1] }
+         : { ...card, author: card.title };
    }
 
    /* --- EPIC GAMES STORE --- */

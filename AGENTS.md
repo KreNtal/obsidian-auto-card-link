@@ -215,7 +215,7 @@ exception exists only if it is written here, or recorded with its evidence in
   (identifiers verbatim, prose through `deslug`) → a label from the URL's shape
   ("Discord channel").
 - **B5.** Code that is justified does not rewrite a readable page's title — not with an
-  endpoint's cleaner name, not translated (no `name:<lang>`). Only B2 and B6 apply.
+  endpoint's cleaner name, not translated (no `name:<lang>`). Only B2, B6 and B7 apply.
 - **B6.** A *site template* is a fixed shape a site builds its title or description with,
   shown on at least three links and recorded with the examples. On sites that have code,
   it allows exactly four operations: move the author segment into `author`; drop the
@@ -227,6 +227,13 @@ exception exists only if it is written here, or recorded with its evidence in
   exactly as often as the template says. Either is enough - a display name the handle does
   not spell ("Graeme Borland" on `graebor.itch.io`) is still the author when the split is
   unambiguous (Roberto, 2026-09-16).
+- **B7.** On a site with code, a declared title that is itself a site template naming nothing
+  but the author and a count ("Post di @pepurika · 8 immagini", "Reblog by @staff") yields to
+  the page's `<title>`, when that follows a template of its own carrying the item's text
+  ("<text> – @pepurika su Tumblr"). Both templates must be shown on at least three links and
+  recorded, and both must match exactly, the author segment being the handle the URL carries;
+  the `<title>`'s text becomes the title and the author segment moves to `author`. Anything
+  that does not match keeps the declared title (Roberto, 2026-09-22, on Tumblr's posts).
 
 **C. Description**
 

@@ -247,6 +247,14 @@ export class CheckIf {
     return m?.[1] ? { handle: m[1], post: m[2] } : undefined;
   }
 
+  public static tumblrBlog(url: string): { blog: string; post?: string } | undefined {
+    // A blog or a post on tumblr.com itself, `www.tumblr.com/<blog>[/<id>[/<slug>]]`. The app's
+    // own routes (`/explore`, `/tagged/<tag>`) match too and never meet the title checks. The
+    // blog's subdomain form answers a missing post with a real 404, and is not matched.
+    const m = url.match(/^https?:\/\/(?:www\.)?tumblr\.com\/([a-z0-9-]+)(?:\/(\d+))?(?:[/?#]|$)/i);
+    return m?.[1] ? { blog: m[1], post: m[2] } : undefined;
+  }
+
   public static isPinterestUrl(url: string): boolean {
     // The whole host, www. or a country subdomain (it., uk.), and the country domains
     // (pinterest.de, pinterest.co.uk), which redirect to those subdomains. Read generically;
