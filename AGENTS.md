@@ -315,8 +315,10 @@ exception exists only if it is written here, or recorded with its evidence in
   title is untouched.
 - **H3.** No known site name, no suffix — never the host.
 - **H4.** The same link gets the same label whichever way it was made — pasted as a link or
-  converted from a card. Not true yet: a card block stores neither `siteName` nor
-  `linkTitle`, so conversion falls back to `SITE_NAMES` alone.
+  converted from a card. A conversion fetches the link again, as a paste would, so the
+  label also reflects the page as it is now (2026-09-22). Storing `siteName` and
+  `linkTitle` in the block instead was tried and rejected: the block keeps to its visible
+  fields.
 
 **I. Across all fields**
 

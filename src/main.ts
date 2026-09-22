@@ -621,45 +621,12 @@ export default class ObsidianAutoCardLink extends Plugin {
   }
 
   /**
-   * The inverse of "Convert URL to a card link": collapses the fenced block back to
-   * `[title](url)` via a fresh fetch, the same title-only path the Markdown-link paste
-   * mode uses (never spends microlink.io quota). A live fetch rather than reusing the
-   * card's own stored title/host is deliberate: Twitch and Spotify build a richer label
-   * (channel name, a localized phrase) that only their fetch handler produces and that
-   * never gets persisted in the block, so reconstructing offline would silently downgrade
-   * those every time.
-   */
-  /**
-   * Reads one field out of a cardlink block's YAML. Title and the other text fields are
-   * written JSON-quoted (see CodeBlockGenerator.yamlQuote), so a quoted value is parsed as
-   * JSON rather than stripped naively - a title containing quotes survives intact.
-   */
-  private parseCardlinkField(lines: string[], blockStart: number, blockEnd: number, key: string): string | undefined {
-    const re = new RegExp(`^${key}:\\s*(.+)$`);
-
-    for (let i = blockStart + 1; i < blockEnd; i++) {
-      const match = re.exec(lines[i] ?? "");
-      if (!match) continue;
-
-      const raw = (match[1] ?? "").trim();
-      if (raw.startsWith(String.fromCharCode(34))) {
-        try { return JSON.parse(raw) as string; } catch { /* fall through to a plain strip */ }
-      }
-      return raw.replace(/^["']|["']$/g, "");
-    }
-    return undefined;
-  }
-
-  /**
-   * Turns a card back into `[title](url)`.
-   *
-   * Rebuilt from the block's own fields, with no request: a conversion changes the shape of
-   * what is there, it does not go looking for newer data - that is what the refresh entries
-   * are for. It also keeps the link saying exactly what the card said a moment earlier.
-   *
-   * The exception is the handful of sites whose inline label a fetch builds differently from
-   * the card's title, which the block never records. Those re-fetch, and get the original
-   * card block back untouched if that fails.
+   * Turns a card back into `[title](url)` by fetching the link again, the same title-only
+   * path a paste as a markdown link takes - so the label is the one a paste would write
+   * (field rule H4), `linkTitle` and declared site name included, and reflects the page as
+   * it is now rather than when the card was made. A block stores neither of those two, and
+   * storing them was tried and rejected (2026-09-22): the maintainer would rather keep the
+   * block to its visible fields. If the fetch fails, the original block comes back untouched.
    */
   private async convertCardlinkToMarkdownLink(
     editor: Editor,
@@ -670,32 +637,11 @@ export default class ObsidianAutoCardLink extends Plugin {
 
     // Only the fenced lines themselves - unlike delete/refetch, a plain link needs none of
     // the blank-line padding a card wants, so leave what follows untouched.
-    const lines = editor.getValue().split(/\r?\n/);
-    const fenceLine = lines[range.blockEnd] ?? "";
-    const blockEndPos = { line: range.blockEnd, ch: fenceLine.length };
-
-    if (LinkMetadataFetcher.buildsRicherInlineLabel(range.url)) {
-      // The selection doubles as convertUrlToMarkdownLink's restore-on-failure text
-      editor.setSelection(range.startPos, blockEndPos);
-      const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
-      await codeBlockGenerator.convertUrlToMarkdownLink(range.url);
-      return;
-    }
-
-    const blockStart = range.startPos.line;
-    const title = CodeBlockGenerator.notFoundTitle(
-      this.parseCardlinkField(lines, blockStart, range.blockEnd, "title") ?? range.url,
-      this.parseCardlinkField(lines, blockStart, range.blockEnd, "status"),
-      this.settings
-    );
-    const host = this.parseCardlinkField(lines, blockStart, range.blockEnd, "host");
-    const siteName = host ? LinkMetadataFetcher.siteNameFor(host) : undefined;
-
-    editor.replaceRange(
-      CodeBlockGenerator.buildMarkdownLink(title, range.url, siteName),
-      range.startPos,
-      blockEndPos
-    );
+    const fenceLine = editor.getLine(range.blockEnd);
+    // The selection doubles as convertUrlToMarkdownLink's restore-on-failure text
+    editor.setSelection(range.startPos, { line: range.blockEnd, ch: fenceLine.length });
+    const codeBlockGenerator = new CodeBlockGenerator(editor, this.app, this.settings);
+    await codeBlockGenerator.convertUrlToMarkdownLink(range.url);
   }
 
   private deleteCardlink(

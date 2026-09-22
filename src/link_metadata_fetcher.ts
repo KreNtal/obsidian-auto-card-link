@@ -314,24 +314,8 @@ export class LinkMetadataFetcher {
    };
 
    /**
-    * Whether fetching would yield a better inline label than a card's own stored fields.
-    *
-    * True only for the handlers that set `linkTitle`: a Twitch card holds the stream title
-    * while its link wants the channel name, and Spotify writes its own localized phrasing.
-    * Neither is persisted in the block, so those two are the only cards worth re-fetching
-    * when turning one back into a link - everywhere else the stored title and host rebuild
-    * the very same string, instantly and for free.
-    *
-    * Keep this in step with the handlers below: another one starting to set `linkTitle`
-    * without being listed here would quietly lose that label on conversion.
-    */
-   static buildsRicherInlineLabel(url: string): boolean {
-      return CheckIf.isTwitchUrl(url) || CheckIf.isSpotifyUrl(url) || CheckIf.isApplePodcastsUrl(url);
-   }
-
-   /**
-    * Pure lookup, no request involved — safe to reuse anywhere a card's stored `host`
-    * needs turning back into a display name (e.g. converting a card back to a plain link).
+    * Pure lookup, no request involved — safe to reuse anywhere a host needs turning into a
+    * display name.
     */
    static siteNameFor(host: string): string | undefined {
       const clean = host.toLowerCase().replace(/^www[.]/, "");
@@ -3011,8 +2995,7 @@ export class LinkMetadataFetcher {
     * "Podcast Episode · \<show> · \<date> · \<duration>" (sometimes with an extra segment,
     * "Subscribers Only", between the date and the duration). The show name is reliably the
     * second segment regardless, so it becomes `author` - the Spotify/Twitch shape, an
-    * inline label a card's own stored fields can't already rebuild, hence
-    * `buildsRicherInlineLabel` re-fetching for it on conversion too. A show-level page's own
+    * inline label with the show's name in it. A show-level page's own
     * description never starts with "Podcast Episode", so this is a no-op there.
     */
    private async fetchApplePodcasts(url: string): Promise<LinkMetadata | undefined> {
