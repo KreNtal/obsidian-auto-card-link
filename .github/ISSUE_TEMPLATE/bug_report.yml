@@ -1,0 +1,142 @@
+name: Bug report
+description: Something in the plugin does not work as it should.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+
+        If the problem is the card one particular site produces - a wrong title, the site's homepage or a sign-in page instead of the link - please use the **Site support request** form instead.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen?
+      multiple: true
+      options:
+        - Pasting or dropping a URL
+        - Converting URLs already in a note
+        - The right-click menu or a command
+        - Refreshing a card or a Markdown link
+        - Turning a card into a Markdown link, or back
+        - How a card looks
+        - Saving images and favicons locally
+        - Settings
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: To reproduce
+      description: The steps that lead to the problem, and the link you used, if any.
+      placeholder: |
+        1. Paste https://example.com/page into a note
+        2. Right-click the card and choose "..."
+        3. See the error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: cardlink
+    attributes:
+      label: The card block (optional)
+      description: If the bug involves a card, paste its whole `cardlink` block as it appears in your note (switch to source mode to copy it).
+      render: yaml
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots (optional)
+      description: If applicable, drag screenshots or a screen recording here.
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Console errors (optional)
+      description: Any red lines in the developer console (Ctrl+Shift+I, or Cmd+Option+I on macOS) when the problem happens.
+      render: text
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android
+        - iOS / iPadOS
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and OS version (mobile only)
+      placeholder: e.g. iPhone 15, iOS 18.2
+
+  - type: dropdown
+    id: card_style
+    attributes:
+      label: Card style
+      description: Settings → Auto Card Link Enhanced → Card style.
+      options:
+        - Classic
+        - Modern
+        - Glass
+        - Compact
+    validations:
+      required: true
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version
+      description: Settings → Community plugins.
+      placeholder: "1.8.0"
+    validations:
+      required: true
+
+  - type: input
+    id: obsidian_version
+    attributes:
+      label: Obsidian version
+      description: Settings → General.
+      placeholder: "1.9.12"
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else about the problem - whether it used to work, other plugins that might be involved, your theme.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I looked for this bug in the existing issues.
+          required: true
