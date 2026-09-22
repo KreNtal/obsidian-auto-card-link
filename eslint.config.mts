@@ -37,5 +37,8 @@ export default tseslint.config(
 		"version-bump.mjs",
 		"versions.json",
 		"main.js",
+		// Node-side tools, never bundled into the plugin
+		"scripts",
+		"tests",
 	]),
 );

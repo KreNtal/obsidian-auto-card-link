@@ -12,7 +12,9 @@ expensive and fragile end (rule A6). Ask which group a proposal lands in before 
 **Requests** is the happy path, excluding the image download and the Microlink fallback.
 **Dead link** is what proves the thing is gone — the invariant it serves: an API's *empty answer*
 is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a refresh bypasses it,
-"sticky" when the cached card wins even on a refresh.
+"sticky" when the cached card wins even on a refresh. The tells of TikTok (profiles and
+tags), Etsy, Booking.com, eBay, Twitch, Kick and Rumble are checked by `npm run check-sites`
+(`scripts/check-fragile-sites.mjs`) before each release; a fragile handler can add its own there.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
 the same commit. Counts today: 22 endpoint, 13 page + endpoint, 11 page, 23 hook.

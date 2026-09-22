@@ -402,13 +402,21 @@ HTML parsing in `src/link_metadata_parser.ts`.
   pipes per row against its header — a broken row has been shipped before.
 - Watch for invisible non-ASCII characters in regexes; a literal nbsp has already failed
   ESLint with "Irregular whitespace".
-- Before handing anything over: `npx tsc --noEmit`, `npx eslint src/`, `npm run build`, all
-  three clean.
+- Before handing anything over: `npx tsc --noEmit`, `npx eslint src/`, `npm run build` and
+  `npm test`, all four clean. `npm test` runs `tests/rules.test.ts`: the rules that hold for
+  every site (J2, B2, J4, H1-H3, the B6 templates on top of `fetchGeneric`), no network. A
+  change to one of them updates its case there, in the same commit.
 
 ### Release discipline
 
 - **No version bump mid-release.** `manifest.json` stays put until the release is finished
   and the maintainer says so.
+- Before tagging: `npm run check-sites`. It asks the sites of the fragile handlers listed in
+  `docs/fetchers.md` whether they still answer the way the code expects, on real live and dead links,
+  and prints only what changed. A script is a lower bound (rule 4): a failure where it used to
+  pass is a lead to confirm in Obsidian's console, not proof. A `WALL` line is eBay's bot
+  wall, which it puts up for scripts now and then while Obsidian reads the same item: it is
+  not counted as a failure and proves nothing - rerun later, or paste the link.
 - Cutting a release: `npm version <x.y.z>` updates `manifest.json`, `package.json` and
   `versions.json`, commits, and creates the annotated tag. Pushing the tag triggers the
   workflow, which builds from source and creates a **draft** GitHub release with
