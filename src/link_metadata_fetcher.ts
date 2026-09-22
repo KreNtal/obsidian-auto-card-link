@@ -228,6 +228,10 @@ export class LinkMetadataFetcher {
       // A repl declares "replit" and wins (E1); the name the site titles its pages with labels
       // the cards that declare nothing - a profile behind the sign-up page, a real 404.
       "replit.com": "Replit",
+      // A project's docs on `<project>.readthedocs.io`: Sphinx pages declare no og tags, only a
+      // "<page> — <Project> <version> documentation" <title>, so this is the floor, as
+      // "substack.com" is for its publications (2026-09-22). Docs on their own domain keep none.
+      "readthedocs.io": "Read the Docs",
       // Generic path for `/_/<name>`, this fetcher for `/r/`, and hub.docker.com declares
       // no og:site_name on either - the official images name the site in their <title>
       // instead. Scoped to the `hub.` subdomain: docs.docker.com and docker.com are the
