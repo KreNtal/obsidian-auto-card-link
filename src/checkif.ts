@@ -169,6 +169,13 @@ export class CheckIf {
       || /^https?:\/\/(www\.)?(discord|discordapp)\.com\/(invite\/[^/?#]|channels\/)/i.test(url);
   }
 
+  public static isFacebookUrl(url: string): boolean {
+    // The whole domain: a real page reads generically and is untouched, and the shell check
+    // in fetchFacebook only ever fires on the exact bare-title, no-description shape, so a
+    // broad match here costs nothing on any route it doesn't apply to (2026-09-22).
+    return /^https?:\/\/(www\.|m\.)?facebook\.com\//i.test(url);
+  }
+
   public static isBandcampUrl(url: string): boolean {
     // An album or track on any artist's own subdomain. A live one already reads fine
     // generically - this exists only so Cloudflare's interstitial, when it shows up, is

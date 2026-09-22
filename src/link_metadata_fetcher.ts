@@ -160,6 +160,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isLinkedInUrl(url)) return this.fetchLinkedIn(url);
       if (CheckIf.isNotionUrl(url)) return this.fetchNotion(url);
       if (CheckIf.isDiscordUrl(url)) return this.fetchDiscord(url);
+      if (CheckIf.isFacebookUrl(url)) return this.fetchFacebook(url);
       if (CheckIf.isHackerNewsUrl(url)) return this.fetchHackerNews(url);
       if (CheckIf.isBlueskyUrl(url)) return this.fetchBluesky(url);
       if (CheckIf.isAniListUrl(url)) return this.fetchAniList(url, refresh);
@@ -311,6 +312,9 @@ export class LinkMetadataFetcher {
       "discord.com": "Discord",
       "discord.gg": "Discord",
       "discordapp.com": "Discord",
+      // No og:site_name on any Facebook page, real content included - checked on live pages
+      // as well as the login-wall shell (2026-09-22).
+      "facebook.com": "Facebook",
    };
 
    /**
@@ -6143,6 +6147,37 @@ export class LinkMetadataFetcher {
       if (!res || res.status !== 200) return card;
       const html = await this.decodeHtmlContent(res.arrayBuffer, res.text);
       return this.withParsedFurniture(card, url, html);
+   }
+
+   /* --- FACEBOOK --- */
+
+   /**
+    * Not a fetcher: a public page (`/nasa`, `/BBCNews`) reads in full generically - real
+    * `og:title` ("NASA - National Aeronautics and Space Administration"), a description with
+    * the follower count (rule C4), an image - to the plugin's own UA, `facebookexternalhit`,
+    * Slackbot and WhatsApp alike (only a Chrome/124 UA gets a bare 400 "Error"). None of that
+    * is touched. No `og:site_name` on any Facebook page, so `SITE_NAMES` carries a floor.
+    *
+    * What breaks is everything an anonymous request cannot see: a page that never existed,
+    * and any route that needs a session - `/login`, `/settings`, `/messages`, `/friends`,
+    * `/requests`, `/games`, `/notifications`, `/bookmarks` all measured, 2026-09-22 - end on
+    * the same shell, directly or (`/messages`) through a 302 to `login.php`: `<title>Facebook</title>`,
+    * no `og:*` tags, no description. `/requests` and a dead page are the same bytes, not one
+    * string in either that the other lacks. Other reserved routes (`/watch`, `/marketplace`,
+    * `/groups`, `/help`, `/policies`, `/terms`, `/about`, `/ads`) declare their own real
+    * title and are untouched by the check below - it never fires on them.
+    *
+    * That bare shell is not proof of anything gone - a wall answers exactly like a page that
+    * was never there, and the two cannot be told apart here - so this is an unconditional
+    * title replacement on a live card, the Google Maps shape, never a `goneCard`: rule J1 is
+    * explicit that a sign-in wall is not a dead link. The card is built from the URL, its
+    * last path segment kept verbatim or deslugged like any generic title (J2/B4), with the
+    * shell's own furniture - none, on every route measured - riding along.
+    */
+   private async fetchFacebook(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      if (!metadata || !LinkMetadataFetcher.isBareSiteName(metadata, "Facebook")) return metadata;
+      return this.withPageFurniture(this.buildUrlCard(url), metadata);
    }
 
    private static deslug(segment?: string, casing: "sentence" | "title" = "sentence"): string | undefined {

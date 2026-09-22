@@ -15,7 +15,7 @@ is proof, an API's *failure to answer* is not. **Cache** says "refresh" when a r
 "sticky" when the cached card wins even on a refresh.
 
 Keep this in step with the dispatch: a handler added, removed or changed in kind belongs here in
-the same commit. Counts today: 22 endpoint, 11 page + endpoint, 11 page, 20 hook.
+the same commit. Counts today: 22 endpoint, 11 page + endpoint, 11 page, 21 hook.
 
 ## Endpoint — answers from an API, oEmbed or JSON feed, never reads the page HTML
 
@@ -83,6 +83,7 @@ No extra request, nothing site-specific to break.
 | Site | Source | Req. | Cache | Dead link | Fragility (A6) |
 | --- | --- | --- | --- | --- | --- |
 | Goodreads | `goneCard` | 1 | — | a 200 whose `og:title` is nothing but "Goodreads" | none |
+| Facebook | not `goneCard` - a bare "Facebook" title (no og tags) is replaced from the URL, but never marked not-found: the same shell answers a dead page and any route needing a session alike (2026-09-22) | 1 | — | none - J1 bars marking it, since a wall gives the identical shell | none |
 | Google Maps | the place name comes from the URL, the map thumbnail rides along; a `maps.app.goo.gl` share link has no name in its own URL, so its resolved page is re-read for the one its UI carries (2026-09-22) | 1–2 | — | `og:title` "Google Maps" — the product, not the place | none — no endpoint exists for place data; the second request only on a short link |
 | Bandcamp | a `siteName` floor, nothing else (`requestUrl` is challenged by Cloudflare; `fetchGeneric`'s Node retry reads it on desktop) | 1 | sticky | a real **404** | medium — the Node retry is desktop-only; on mobile the challenge goes to Microlink, which reads it (pasted on a phone, 2026-09-18); the Cloudflare-interstitial check it used to carry now runs in `fetchGeneric` for every link |
 | Medium | `goneCard` | 1 | — | a title that is nothing but the site name | none |
