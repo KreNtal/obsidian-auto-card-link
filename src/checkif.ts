@@ -216,6 +216,12 @@ export class CheckIf {
     return /^https?:\/\/store\.epicgames\.com\/([a-z]{2}(-[a-z]{2})?\/)?p\/[^/?#]+\/?([?#]|$)/i.test(url);
   }
 
+  public static isBookingHotelUrl(url: string): boolean {
+    // A property page, `/hotel/<cc>/<slug>[.<lang>].html` - the one route a closed listing
+    // was measured to redirect away from (2026-09-22).
+    return /^https?:\/\/(www\.)?booking\.com\/hotel\//i.test(url);
+  }
+
   public static isEtsyUrl(url: string): boolean {
     // The whole host: Etsy refuses every ordinary request, and the WhatsApp UA that gets
     // through works on listings, shops, categories and the localised home page alike.

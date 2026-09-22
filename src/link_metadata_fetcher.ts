@@ -131,6 +131,7 @@ export class LinkMetadataFetcher {
       const tumblr = CheckIf.tumblrBlog(url);
       if (tumblr) return this.fetchTumblr(url, tumblr.blog, tumblr.post);
       if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
+      if (CheckIf.isBookingHotelUrl(url)) return this.fetchBookingHotel(url);
       if (CheckIf.isYelpBizUrl(url)) return this.fetchYelp(url);
       if (CheckIf.isTripAdvisorReviewUrl(url)) return this.fetchTripAdvisor(url);
       if (CheckIf.isEbayUrl(url)) return this.fetchEbay(url);
@@ -404,7 +405,8 @@ export class LinkMetadataFetcher {
       url: string,
       checks?: {
          isUnusable?: (metadata: LinkMetadata) => boolean;
-         goneCard?: (metadata: LinkMetadata) => LinkMetadata | undefined;
+         /** `html` is the page's, for a tell only the markup carries; Microlink's answer has none. */
+         goneCard?: (metadata: LinkMetadata, html?: string) => LinkMetadata | undefined;
          /** The card a real 404/410 is built from, where the path alone names nothing. */
          urlCard?: (url: string) => LinkMetadata;
          /**
@@ -552,7 +554,7 @@ export class LinkMetadataFetcher {
 
       // Before isUnusable: this one is the site *telling* us the thing is gone, which is a
       // fact about the link, not a failure to read it. No fallback, no Microlink.
-      const gone = metadata && checks?.goneCard?.(metadata);
+      const gone = metadata && checks?.goneCard?.(metadata, decodedText);
       if (gone) {
          console.debug(`Fetch for ${url} returned the site's own not-found page; building from the URL.`);
          return this.notFound(gone);
@@ -2766,6 +2768,35 @@ export class LinkMetadataFetcher {
       const author = shop?.slice(1).find(Boolean)
          ?? (shopName && title.toLowerCase() === shopName.toLowerCase() ? title : undefined);
       return { ...metadata, title, author: author ?? metadata.author };
+   }
+
+   /* --- BOOKING.COM --- */
+
+   /**
+    * A Booking.com property page. It reads on the generic path - the crawler cascade reaches
+    * `facebookexternalhit` past the 202 challenge, and a hotel that never existed is a real
+    * 404 (2026-09-21). A **closed** listing is neither: measured 2026-09-22 on
+    * `/hotel/fr/ritz-paris.html`, it answers 301 to `/searchresults.html?dest_id=…&dest_type=city`
+    * - WhatsApp's copy of the chain carries `closed_msg=293222`, Booking's own word for it - and
+    * on to the city page, 200, a confident "10 Best Paris Hotels, France (From US$86)" card, "I
+    * 10 migliori hotel di Parigi…" for the `.it.html` form (A1(b)). The title follows the
+    * language, so the tell is the address the page declares: `og:url` or the canonical link on
+    * `/city/` or `/searchresults`, never a property's. That is Booking saying the hotel is not
+    * there, so the card is built from the URL and marked (J1), with the city page's furniture.
+    * Only one closed listing was found to measure; the chain it takes is the tell's whole basis.
+    */
+   private async fetchBookingHotel(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, {
+         goneCard: (page, html) => {
+            const declared = [
+               html?.match(/property=["']og:url["'][^>]*content=["']([^"']*)/i)?.[1],
+               html?.match(/rel=["']canonical["'][^>]*href=["']([^"']*)/i)?.[1],
+            ];
+            return declared.some((d) => d && /booking\.com\/(city|searchresults)[./]/i.test(d))
+               ? this.withPageFurniture(this.buildUrlCard(url), page)
+               : undefined;
+         },
+      });
    }
 
    /* --- YELP --- */
