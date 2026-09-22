@@ -1,0 +1,129 @@
+name: Site support request
+description: A site gives a wrong, empty or misleading card. Ask for it to be checked.
+title: "[Site] "
+labels: ["site support"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a site.
+
+        **Most sites need no special handling.** The plugin reads the title, description and image each page declares for link previews, and a site gets code of its own only when that is not enough: when a link that works comes back as the site's homepage, a sign-in page or a "Just a moment..." check, or when a link to something deleted still looks like a normal card. A title you would phrase differently, or a smaller image than you hoped for, is usually what the site itself declares, and is kept as it is.
+
+        Every site already checked is listed in [docs/domain-coverage.md](https://github.com/KreNtal/obsidian-auto-card-link/blob/main/docs/domain-coverage.md), with what it returns and why it is handled the way it is. Please look there first.
+
+        What makes a request useful is two real links and the cards you got for them. Please fill in everything marked as required.
+
+  - type: input
+    id: site
+    attributes:
+      label: Site
+      description: The site's address.
+      placeholder: example.com
+    validations:
+      required: true
+
+  - type: dropdown
+    id: problem
+    attributes:
+      label: What is wrong with the card?
+      options:
+        - It shows the site's homepage, or a generic page, instead of the link
+        - It shows a sign-in, sign-up or cookie page
+        - It shows a "checking your browser" or "access denied" page
+        - A deleted or missing item looks like a normal card
+        - The title, description or image is missing
+        - No card at all, or an error
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: live_link
+    attributes:
+      label: A link that works
+      description: A real, public link on that site, one that opens in a private browser window without signing in. Please do not make one up.
+      placeholder: https://example.com/items/12345
+    validations:
+      required: true
+
+  - type: textarea
+    id: live_card
+    attributes:
+      label: The card you got for it
+      description: Paste the whole `cardlink` block as it appears in your note (switch to source mode to copy it).
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What the page shows in your browser - its title, and a description or image if it has one.
+    validations:
+      required: true
+
+  - type: input
+    id: dead_link
+    attributes:
+      label: A link that cannot exist (optional, but very helpful)
+      description: The same kind of link with a made-up name or number, e.g. `https://example.com/items/99999999999`. It tells us whether the site says "not found" or pretends the page is there.
+      placeholder: https://example.com/items/99999999999
+
+  - type: textarea
+    id: dead_card
+    attributes:
+      label: The card you got for that link
+      render: yaml
+
+  - type: dropdown
+    id: external_service
+    attributes:
+      label: Is "Use external service for blocked sites" turned on?
+      description: Settings → Auto Card Link Enhanced.
+      options:
+        - "No"
+        - "Yes"
+        - I don't know
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where did you try it?
+      multiple: true
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Android
+        - iOS / iPadOS
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      description: Settings → Community plugins.
+      placeholder: "1.8.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Other links of the same kind, whether it used to work, or what the developer console shows (Ctrl+Shift+I, or Cmd+Option+I on macOS) - all optional.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: The link that works is public, and I did not make it up.
+          required: true
+        - label: I looked for the site in docs/domain-coverage.md and in the existing issues.
+          required: true
