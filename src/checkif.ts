@@ -405,10 +405,18 @@ export class CheckIf {
 
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
-    // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,
-    // discover, search) is deliberately left unmatched rather than half-handled: it still
-    // hits the same login wall on the generic path, a separate gap.
+    // routes TikTok's oEmbed can answer for a creator. The other routes behind the same login
+    // wall are `tiktokPage`'s.
     return /^https?:\/\/(www\.)?tiktok\.com\/@[^/?#]+(\/video\/\d+)?\/?([?#]|$)/i.test(url);
+  }
+
+  public static tiktokPage(url: string): { kind: string; id: string; handle?: string } | undefined {
+    // The routes measured behind the login wall on 2026-09-22: a tag, a discover page, a
+    // LIVE, a photo post. Search and the rest were not, and stay generic.
+    const tag = url.match(/^https?:\/\/(?:www\.)?tiktok\.com\/(tag|discover)\/([^/?#]+)/i);
+    if (tag?.[1] && tag[2]) return { kind: tag[1].toLowerCase(), id: tag[2] };
+    const own = url.match(/^https?:\/\/(?:www\.)?tiktok\.com\/@([^/?#]+)\/(live|photo)(?:\/(\d+))?\/?([?#]|$)/i);
+    return own?.[1] && own[2] ? { kind: own[2].toLowerCase(), id: own[3] ?? "", handle: own[1] } : undefined;
   }
 
   public static isSteamUrl(url: string): boolean {

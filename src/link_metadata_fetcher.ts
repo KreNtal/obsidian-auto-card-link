@@ -139,6 +139,8 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGooglePlayIdUrl(url)) return this.fetchGooglePlay(url);
       if (CheckIf.isHuggingFaceRepoUrl(url)) return this.fetchHuggingFace(url);
       if (CheckIf.isTikTokUrl(url)) return this.fetchTikTok(url);
+      const tiktokPage = CheckIf.tiktokPage(url);
+      if (tiktokPage) return this.fetchTikTokPage(url, tiktokPage.kind, tiktokPage.id, tiktokPage.handle);
       if (CheckIf.isSteamUrl(url)) return this.fetchSteam(url, refresh);
       if (CheckIf.isTrelloBoardUrl(url)) return this.fetchTrello(url, refresh);
       if (CheckIf.isTrelloCardUrl(url)) return this.fetchTrelloCard(url, refresh);
@@ -3921,6 +3923,68 @@ export class LinkMetadataFetcher {
       if (!page?.description?.toLowerCase().startsWith(`@${handle.toLowerCase()} `)) return undefined;
       const name = page.title.match(/^(.+) \S+ TikTok$/)?.[1]?.trim();
       return { ...page, url, title: name ?? page.title, author: name };
+   }
+
+   /**
+    * The other routes behind TikTok's login wall: a tag, a discover page, a LIVE, a photo
+    * post. Measured 2026-09-22, by script and in Obsidian's console: the Chrome UA and the
+    * plugin's are redirected to `/login` on every one of them, live or not, and read as a
+    * confident card titled "Log in | TikTok" (A1(a)). The wall is a 200, so the preview-agent
+    * cascade never runs.
+    *
+    * A tag reads with the crawler UA, as a profile does: `og:title` "#nasa on TikTok" ("#nasa
+    * su TikTok" in Italian), a description naming the tag and TikTok's stock hashtag image. The
+    * title is the profile's template (B6), split only when the name is the URL's own tag; the
+    * site-name segment goes. A tag that does not exist gets "Visit TikTok to discover
+    * hashtags!" instead, and oEmbed answers it **400** where a real tag gets 200 with its
+    * `#name` - the proof, as for a video (J1). oEmbed is asked only when the page does not
+    * hold; its 200 gives the name alone.
+    *
+    * Discover, LIVE and photo have no endpoint: oEmbed answers 400 to a live discover page and
+    * a live LIVE alike, the crawler UA gets the wall on discover and the same "TikTok | Make
+    * Your Day" for a real LIVE and a missing one. So the wall is read as a wall: a card from
+    * the URL, unmarked, with the wall's furniture (C5), never Microlink. Its title is the
+    * discover page's slug as prose, or a label from the URL's shape for the other two (B4),
+    * after "TikTok video by @…". No real photo post was found to test oEmbed with; a photo
+    * post's link stays a wall until one is. If the generic read ever gets past the wall, it
+    * is kept as it is.
+    */
+   private async fetchTikTokPage(url: string, kind: string, id: string, handle?: string): Promise<LinkMetadata | undefined> {
+      let label: string;
+      if (kind === "tag") {
+         let tag = id;
+         try { tag = decodeURIComponent(id); } catch { /* kept as written */ }
+         label = `#${tag}`;
+         const res = await this.request(url, { "User-Agent": LinkMetadataFetcher.CRAWLER_UA });
+         const page = res?.status === 200
+            ? await new LinkMetadataParser(url, await this.decodeHtmlContent(res.arrayBuffer, res.text)).parse()
+            : undefined;
+         const name = page?.title.match(/^(#\S+) \S+ TikTok$/)?.[1];
+         if (page && name?.toLowerCase() === label.toLowerCase()) return { ...page, url, title: name };
+
+         const oembed = await this.request(
+            `https://www.tiktok.com/oembed?url=${encodeURIComponent(`https://www.tiktok.com/tag/${id}`)}`,
+            { "Accept": "application/json" }
+         );
+         if (oembed?.status === 400) {
+            return this.notFound(this.withPageFurniture({ ...this.buildUrlCard(url), title: label }, page));
+         }
+         if (oembed?.status === 200) {
+            try {
+               const title = (JSON.parse(oembed.text) as TikTokOEmbedResponse).title;
+               return { ...this.buildUrlCard(url), title: title || label };
+            } catch { /* proves nothing - read it as the wall below */ }
+         }
+      } else if (kind === "discover") {
+         label = LinkMetadataFetcher.deslug(id) ?? "TikTok discover page";
+      } else {
+         label = `TikTok ${kind === "live" ? "LIVE" : "photo"} by @${handle ?? ""}`;
+      }
+
+      const metadata = await this.fetchGeneric(url);
+      if (metadata?.title !== "Log in | TikTok") return metadata;
+      console.debug(`TikTok sent ${url} to its login page; building from the URL.`);
+      return this.withPageFurniture({ ...this.buildUrlCard(url), title: label }, metadata);
    }
 
    /**
