@@ -123,6 +123,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isGoodreadsUrl(url)) return this.fetchGoodreads(url);
       if (CheckIf.isGogGameUrl(url)) return this.fetchGog(url);
       if (CheckIf.isAliExpressItemUrl(url)) return this.fetchAliExpress(url);
+      if (CheckIf.isPinterestUrl(url)) return this.fetchPinterest(url);
       if (CheckIf.isEtsyUrl(url)) return this.fetchEtsy(url);
       if (CheckIf.isYelpBizUrl(url)) return this.fetchYelp(url);
       if (CheckIf.isTripAdvisorReviewUrl(url)) return this.fetchTripAdvisor(url);
@@ -188,6 +189,7 @@ export class LinkMetadataFetcher {
       "kick.com": "Kick",
       "rumble.com": "Rumble",
       "odysee.com": "Odysee",
+      "pinterest.com": "Pinterest",
       "wikidata.org": "Wikidata",
       "en.wiktionary.org": "Wiktionary",
       "commons.wikimedia.org": "Wikimedia Commons",
@@ -2876,6 +2878,28 @@ export class LinkMetadataFetcher {
       const tail = title?.match(/ - AliExpress \d+$/);
       if (!metadata || !title || !tail || title.indexOf(" - AliExpress ") !== tail.index) return metadata;
       return { ...metadata, title: title.slice(0, tail.index) };
+   }
+
+   /* --- PINTEREST --- */
+
+   /**
+    * Not a fetcher: a pin, a profile and a board read in full on the generic path, to Chrome/124,
+    * the plugin's UA, `facebookexternalhit`, Slackbot and WhatsApp alike (measured 2026-09-22 on
+    * two pins the maintainer pasted and a profile).
+    *
+    * A1(b): a pin, profile or board that does **not** exist answers **200** with an empty
+    * `<title></title>` and nothing but `og:site_name` - so the parser finds no title and the
+    * link went to Microlink, which came back titled with the bare id. That empty title is the
+    * tell. It is not a wall (J1): the routes behind a login redirect to the home page, titled
+    * "Pinterest - Italia", and so do the site's own pages. Forty requests to live pins never
+    * got it - Pinterest's throttle is a 429, which never reaches `emptyPage`. The oEmbed
+    * endpoint was rejected as proof: its 400 "Url was not found" also answers live routes such
+    * as `/ideas/` and `/search/`.
+    */
+   private fetchPinterest(url: string): Promise<LinkMetadata | undefined> {
+      return this.fetchGeneric(url, {
+         emptyPage: (html) => /<title>\s*<\/title>/i.test(html) ? this.buildUrlCard(url) : undefined,
+      });
    }
 
    /* --- EPIC GAMES STORE --- */

@@ -239,6 +239,14 @@ export class CheckIf {
     return /^https?:\/\/([a-z]{2,3}\.)?aliexpress\.com\/item\/\d+\.html/i.test(url);
   }
 
+  public static isPinterestUrl(url: string): boolean {
+    // The whole host, www. or a country subdomain (it., uk.), and the country domains
+    // (pinterest.de, pinterest.co.uk), which redirect to those subdomains. Read generically;
+    // only a *missing* pin, profile or board needs recognising, since Pinterest answers one
+    // with a 200 - checked 2026-09-22.
+    return /^https?:\/\/([a-z]{2,3}\.)?pinterest\.(com|co\.[a-z]{2}|com\.[a-z]{2}|[a-z]{2})([/?#]|$)/i.test(url);
+  }
+
   public static isItchGameUrl(url: string): boolean {
     // `<creator>.itch.io/<slug>` and nothing deeper: a game, tool or asset page, the shape
     // titled "<title> by <creators>". Profiles, devlogs and itch.io itself stay generic.
