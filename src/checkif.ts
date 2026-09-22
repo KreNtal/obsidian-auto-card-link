@@ -347,6 +347,13 @@ export class CheckIf {
     return /^https?:\/\/(www\.)?(coda\.io|docs\.superhuman\.com)\/d\/[^/?#]+/i.test(url);
   }
 
+  public static isJsfiddleShowUrl(url: string): boolean {
+    // A fiddle's result view, `[/<user>]/<id>[/<version>]/show[/]`: every live one redirects to
+    // the sign-in page, a missing one is a real 404 - checked 2026-09-22. The fiddle's own
+    // page, without `/show/`, reads.
+    return /^https?:\/\/(www\.)?jsfiddle\.net(\/[\w-]+){1,3}\/show\/?([?#]|$)/i.test(url);
+  }
+
   public static isTikTokUrl(url: string): boolean {
     // A creator profile (`@handle`) or a single video (`@handle/video/<id>`) - the two
     // routes TikTok's oEmbed can answer. Anything past that (`/photo/`, `/live`, a tag,

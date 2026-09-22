@@ -140,6 +140,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isLinearUrl(url)) return this.fetchLinear(url);
       if (CheckIf.isClickUpAppUrl(url)) return this.fetchClickUp(url);
       if (CheckIf.isCodaDocUrl(url)) return this.fetchCoda(url);
+      if (CheckIf.isJsfiddleShowUrl(url)) return this.fetchJsfiddleShow(url);
       if (CheckIf.isGoogleMapsUrl(url)) return this.fetchGoogleMaps(url);
       if (CheckIf.isGoogleDocsUrl(url)) return this.fetchGoogleDocs(url);
       if (CheckIf.isSoundCloudResourceUrl(url)) return this.fetchSoundCloud(url);
@@ -220,6 +221,9 @@ export class LinkMetadataFetcher {
       // Generic path. A profile declares "CodePen", a pen declares no og:site_name at all
       // (2026-09-21), so this labels every pen, live or dead.
       "codepen.io": "CodePen",
+      // Generic path. A fiddle declares "JSFiddle"; a profile (`/u/<user>/`) and the 404 a
+      // missing fiddle answers declare none (2026-09-22), so this labels their cards.
+      "jsfiddle.net": "JSFiddle",
       // Generic path for `/_/<name>`, this fetcher for `/r/`, and hub.docker.com declares
       // no og:site_name on either - the official images name the site in their <title>
       // instead. Scoped to the `hub.` subdomain: docs.docker.com and docker.com are the
@@ -4308,6 +4312,32 @@ export class LinkMetadataFetcher {
          ...card,
          title: LinkMetadataFetcher.deslug(doc) ?? LinkMetadataFetcher.deslug(page) ?? "Superhuman Docs doc",
       };
+   }
+
+   /* --- JSFIDDLE --- */
+
+   /**
+    * A fiddle's result view, `…/show/`. Every live one redirects to `/user/login/`, which
+    * parsed as a card titled "Log in − JSFiddle - React, Tailwind, and code Playground" with
+    * the site's blurb (A1(a), B3(ii), measured 2026-09-22 on `/NmudS/3467/show/`,
+    * `/zalun/uc2oyafr/show/` and `/zalun/uc2oyafr/7/show/`); a missing one is a real 404. The
+    * fiddle's own page, the same path without `/show/`, reads in full, so on the sign-in page
+    * it is read instead, as an endpoint would be (B4), and the card keeps the pasted URL
+    * (rule 5), as Yelp's does. The page is still asked first (A3): should JSFiddle open the
+    * view again, it reads as it is. If the fiddle's page fails too, the card is the fiddle's
+    * id from the URL (`NmudS`, `uc2oyafr` - the segment before `/show/`, past a numeric
+    * version), unmarked - a wall proves nothing (J1) - with the sign-in page's furniture.
+    */
+   private async fetchJsfiddleShow(url: string): Promise<LinkMetadata | undefined> {
+      const metadata = await this.fetchGeneric(url);
+      if (!metadata?.title?.startsWith("Log in ")) return metadata;
+      console.debug(`JSFiddle sent ${url} to its sign-in page; reading the fiddle itself.`);
+      const fiddle = new URL(url);
+      fiddle.pathname = fiddle.pathname.replace(/show\/?$/, "");
+      const card = await this.fetchGeneric(fiddle.href, { fallback: () => Promise.resolve(undefined) });
+      if (card && !card.title?.startsWith("Log in ")) return { ...card, url };
+      const id = fiddle.pathname.split("/").filter(s => s && !/^\d+$/.test(s)).pop();
+      return this.withPageFurniture({ ...this.buildUrlCard(url), title: id ?? "JSFiddle fiddle" }, metadata);
    }
 
    /* --- GOOGLE DOCS / DRIVE --- */
