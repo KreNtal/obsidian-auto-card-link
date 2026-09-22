@@ -280,12 +280,18 @@ export class CheckIf {
     // Every Maps page - a real place, a search, or one that cannot exist - declares
     // og:title "Google Maps" and nothing else names what was pasted; only the URL does.
     // Scoped to the shapes that carry a name or query there: /maps/place/<name>/…,
-    // /maps/search/<query>/…, and a bare ?q=<query> on either host Maps answers to. A
-    // goo.gl / maps.app.goo.gl share link carries no name at all - a separate, unresolved
-    // gap - and stays generic.
+    // /maps/search/<query>/…, and a bare ?q=<query> on either host Maps answers to - plus
+    // a maps.app.goo.gl share link, whose name lives on the page it redirects to rather
+    // than in the URL (2026-09-22). The legacy goo.gl/maps/<token> shortener is gone: it
+    // answers every token, real or not, with a plain 404 and no Location header.
     return /^https?:\/\/(www\.|maps\.)?google\.[a-z.]{2,}\/maps\/(place|search)\/[^/?#]+/i.test(url)
       || /^https?:\/\/(www\.)?google\.[a-z.]{2,}\/maps\/?\?[^#]*\bq=/i.test(url)
-      || /^https?:\/\/maps\.google\.[a-z.]{2,}\/(maps\/?)?\?[^#]*\bq=/i.test(url);
+      || /^https?:\/\/maps\.google\.[a-z.]{2,}\/(maps\/?)?\?[^#]*\bq=/i.test(url)
+      || CheckIf.isGoogleMapsShortUrl(url);
+  }
+
+  public static isGoogleMapsShortUrl(url: string): boolean {
+    return /^https?:\/\/maps\.app\.goo\.gl\/[^/?#]+/i.test(url);
   }
 
   public static isTrelloBoardUrl(url: string): boolean {

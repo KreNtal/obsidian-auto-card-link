@@ -83,7 +83,7 @@ No extra request, nothing site-specific to break.
 | Site | Source | Req. | Cache | Dead link | Fragility (A6) |
 | --- | --- | --- | --- | --- | --- |
 | Goodreads | `goneCard` | 1 | — | a 200 whose `og:title` is nothing but "Goodreads" | none |
-| Google Maps | `goneCard`; the place name comes from the URL, the map thumbnail rides along | 1 | — | `og:title` "Google Maps" — the product, not the place | none — no endpoint exists for place data |
+| Google Maps | the place name comes from the URL, the map thumbnail rides along; a `maps.app.goo.gl` share link has no name in its own URL, so its resolved page is re-read for the one its UI carries (2026-09-22) | 1–2 | — | `og:title` "Google Maps" — the product, not the place | none — no endpoint exists for place data; the second request only on a short link |
 | Bandcamp | a `siteName` floor, nothing else (`requestUrl` is challenged by Cloudflare; `fetchGeneric`'s Node retry reads it on desktop) | 1 | sticky | a real **404** | medium — the Node retry is desktop-only; on mobile the challenge goes to Microlink, which reads it (pasted on a phone, 2026-09-18); the Cloudflare-interstitial check it used to carry now runs in `fetchGeneric` for every link |
 | Medium | `goneCard` | 1 | — | a title that is nothing but the site name | none |
 | Odysee | `goneCard`, claim URLs only - any path but the home page and the app's `/$/` routes, which are titled "Odysee" alive | 1 | — | a 200 titled nothing but "Odysee", with the site's blurb and share image | low — a reworded not-found page only brings back the platform card |

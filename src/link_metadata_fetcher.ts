@@ -4479,23 +4479,50 @@ export class LinkMetadataFetcher {
     * generic - identical for every Maps link - and rides along anyway, the same call Roberto
     * made for Steam's storefront blurb: what is wrong with a shell is its title, not its
     * furniture.
+    *
+    * A `maps.app.goo.gl` share link (2026-09-22) redirects to the same shell, but its own
+    * URL is just a random token - no name to read off it the way `/maps/place/<name>/…`
+    * has one. `requestUrl` follows the redirect transparently and Obsidian's response type
+    * exposes no final URL to parse instead, but the resolved page embeds the place's own
+    * `q=` query one more time, in a `/maps/preview/place?...` link the UI reads off - so a
+    * second, plain request re-reads the same URL and pulls the name from there. Justified by
+    * A3: only paid on this one shape, where the URL alone has nothing to give.
     */
    private async fetchGoogleMaps(url: string): Promise<LinkMetadata | undefined> {
       // Not a goneCard: every Maps page, a real place included, is titled "Google Maps", so
       // this is a title replacement on a live card, and goneCard marks its card not found (J4).
       const metadata = await this.fetchGeneric(url);
       if (!metadata || metadata.title.trim().toLowerCase() !== "google maps") return metadata;
-      return this.withPageFurniture(this.buildGoogleMapsFallback(url), metadata);
+      const name = CheckIf.isGoogleMapsShortUrl(url)
+         ? await this.googleMapsNameFromRedirect(url)
+         : LinkMetadataFetcher.googleMapsPlaceName(url);
+      return this.withPageFurniture(this.buildGoogleMapsFallback(url, name), metadata);
    }
 
-   private buildGoogleMapsFallback(url: string): LinkMetadata {
+   private buildGoogleMapsFallback(url: string, name?: string): LinkMetadata {
       const card = this.buildUrlCard(url);
-      const name = LinkMetadataFetcher.googleMapsPlaceName(url);
       // The page declares no og:site_name, and google.com hosts too many other things
       // (Docs, Drive, Search) to earn a host-wide SITE_NAMES floor - that would mislabel
       // every one of them as Maps. Set here instead, precise to a URL already known to be
       // a Maps link, so a markdown-link label still gets "- Google Maps" appended.
       return { ...card, siteName: "Google Maps", title: name ?? card.title };
+   }
+
+   /**
+    * The `q=` the resolved page's own `/maps/preview/(place|search)?...` link carries -
+    * the same value `googleMapsPlaceName` reads off a direct URL's path or query, here read
+    * off the page instead since the pasted URL has nothing. Absent when the share is a bare
+    * pin with no named place; the card then keeps the URL's own fallback, same as today.
+    */
+   private async googleMapsNameFromRedirect(url: string): Promise<string | undefined> {
+      const res = await this.request(url, {}, LinkMetadataFetcher.PAGE_TIMEOUT_MS);
+      const raw = res?.text.match(/\/maps\/preview\/(?:place|search)\?[^"]*?q=([^&"]+)/i)?.[1];
+      if (!raw) return undefined;
+      try {
+         return decodeURIComponent(raw.replace(/\+/g, " ")).trim() || undefined;
+      } catch {
+         return raw.replace(/\+/g, " ").trim() || undefined;
+      }
    }
 
    /**
