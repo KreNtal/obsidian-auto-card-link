@@ -1,7 +1,7 @@
 {
 	"id": "auto-card-link-enhanced",
 	"name": "Auto Card Link Enhanced",
-	"version": "1.8.1",
+	"version": "1.8.2",
 	"minAppVersion": "1.4.10",
 	"description": "Automatically convert URLs into beautiful card-styled or Markdown links.",
 	"author": "KreNtal",
