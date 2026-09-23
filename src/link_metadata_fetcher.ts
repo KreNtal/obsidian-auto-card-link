@@ -519,7 +519,7 @@ export class LinkMetadataFetcher {
          // same absence at the cost of one of its ~25 daily requests, so it is not asked.
          // The error page's own <title> is about the error, so the title comes from the URL -
          // but its og:image and og:description are kept: they are the site's own furniture,
-         // and a card carrying the site's graphic reads better than a bare one (Roberto's
+         // and a card carrying the site's graphic reads better than a bare one (KreNtal's
          // call, 2026-09-03).
          // A 401 is the same for an anonymous reader: huggingface.co answers a repo that does
          // not exist - or is private, which it will not tell apart - with 401 and a page titled
@@ -584,7 +584,7 @@ export class LinkMetadataFetcher {
    /**
     * A card built from the URL still keeps whatever furniture the page itself supplied.
     *
-    * Roberto's call (2026-09-03) for the description and the image: they are the site's own,
+    * KreNtal's call (2026-09-03) for the description and the image: they are the site's own,
     * and a card carrying the site's graphic reads better than a bare one. The **favicon**
     * joined them on 2026-09-07, having been missed: buildUrlCard guesses `/favicon.ico`, so a
     * removed Medium article lost the real `miro.medium.com` icon the page had just handed us.
@@ -686,7 +686,7 @@ export class LinkMetadataFetcher {
     * A raw answer that is an anti-bot wall: any 403 or 429, a 200 whose whole title is one, or
     * a 202 with no title at all - Booking's JavaScript challenge, 3.9 KB (2026-09-21).
     */
-   private static isChallenge(res?: { status: number; text: string }): boolean {
+   private static isChallenge(res?: { status: number; text: string; }): boolean {
       if (!res) return false;
       if (res.status === 403 || res.status === 429) return true;
       const title = res.text.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1];
@@ -920,17 +920,45 @@ export class LinkMetadataFetcher {
    }
 
    private async fetchYouTube(url: string): Promise<LinkMetadata | undefined> {
+      // Hashtag and search pages carry no <title> and no og:* at all (measured 2026-09-23 on
+      // `/hashtag/lofi` and `/results?search_query=lofi`), so the generic read titled them
+      // with the route word ("results"). The URL holds their name: the tag as the page
+      // itself writes it ("pageTitle":"#lofi"), and the query verbatim (B4). No request.
+      const tag = url.match(/youtube\.com\/hashtag\/([^/?#]+)/)?.[1];
+      const query = new URL(url).pathname === "/results" ? new URL(url).searchParams.get("search_query") : null;
+      if (tag || query) {
+         return { ...this.buildUrlCard(url), title: tag ? `#${decodeURIComponent(tag)}` : query!, host: "youtube.com", favicon: "https://www.youtube.com/favicon.ico" };
+      }
+
       // Channels: oEmbed doesn't support them, scrape the page directly
       if (/youtube\.com\/(@|c\/|channel\/)/.test(url)) {
          const res = await this.request(url, { "Accept-Language": "en-US,en;q=0.9" });
          if (!res || res.status !== 200) return this.fetchGeneric(url);
+         // `/@<channel>/live` while the channel is streaming answers with the stream's watch
+         // page, canonical `watch?v=<id>` (`@LofiGirl/live`, 2026-09-23), and the channel card
+         // below then gave the stream's title as the author too. Read it as that video; an
+         // offline channel's `/live` is canonical to the channel and stays a channel card.
+         const liveId = /\/live\/?(?:[?#]|$)/.test(url)
+            ? res.text.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})"/)?.[1]
+            : undefined;
+         if (liveId) return this.fetchYouTubeVideo(url, liveId);
          const metadata = await new LinkMetadataParser(url, res.text).parse();
          if (!metadata) return this.fetchGeneric(url);
          return { ...metadata, author: metadata.title ?? undefined, host: "youtube.com", favicon: "https://www.youtube.com/favicon.ico" };
       }
 
-      // Videos and playlists: both supported by oEmbed
-      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+      return this.fetchYouTubeVideo(url, this.getYouTubeVideoId(url));
+   }
+
+   /**
+    * A video or a playlist, through oEmbed. Every shape of a video URL - `/embed/`,
+    * youtube-nocookie's `/embed/`, `/live/<id>`, `m.youtube.com` - is asked about as its
+    * `watch?v=<id>`: oEmbed 404s an embed URL, and the embed page has no og:* and titles
+    * itself "YouTube" (measured 2026-09-23). The card keeps the URL as pasted (rule 5).
+    */
+   private async fetchYouTubeVideo(url: string, videoId: string | undefined): Promise<LinkMetadata | undefined> {
+      const target = videoId ? `https://www.youtube.com/watch?v=${videoId}` : url;
+      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(target)}&format=json`;
       const res = await this.request(oembedUrl);
       // oEmbed answers 400 for a video that is deleted, private or region-blocked. The watch
       // page is no help there - it carries no og:* tags at all and titles itself " - YouTube"
@@ -939,17 +967,17 @@ export class LinkMetadataFetcher {
       // 2026-09-17 on `watch?v=aaaaaaaaaaa` and a made-up playlist); a 401 may be a live video
       // with embedding turned off, and no answer proves nothing, so those stay unmarked.
       if (res?.status === 400 || res?.status === 404) return this.notFound(this.buildYouTubeFallback(url));
-      if (!res || res.status !== 200) return this.buildYouTubeFallback(url);
-
-      const data = JSON.parse(res.text) as OEmbedResponse;
-      const videoId = this.getYouTubeVideoId(url);
+      const data = res?.status === 200
+         ? JSON.parse(res.text) as OEmbedResponse
+         : await this.youTubeOEmbedFromPage(target);
+      if (!data) return this.buildYouTubeFallback(url);
 
       const image = videoId
          ? await this.getBestYouTubeThumbnail(videoId)
          : data.thumbnail_url;
 
       const isPlaylist = /youtube\.com\/playlist\?/.test(url);
-      const { description, duration: videoDuration } = await this.getYouTubePageData(url, data.author_name ?? "");
+      const { description, duration: videoDuration } = await this.getYouTubePageData(target, data.author_name ?? "");
 
       return {
          url,
@@ -964,8 +992,27 @@ export class LinkMetadataFetcher {
       };
    }
 
+   // oEmbed answers 401 for a live video whose uploader turned embedding off
+   // (`watch?v=H0HwFqBG9KE`, "playableInEmbed":false, 2026-09-23), and the card came out as a
+   // bare "YouTube video" while the watch page carries its og:title and the channel as
+   // "ownerChannelName". The page stands in for oEmbed's two fields; a page with no og:title
+   // (a failure, a consent wall) proves nothing and keeps the URL-built card.
+   private async youTubeOEmbedFromPage(url: string): Promise<OEmbedResponse | undefined> {
+      const res = await this.request(url, {
+         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+         "Accept-Language": "en-US,en;q=0.9",
+      });
+      if (!res || res.status !== 200 || !/property="og:title"/.test(res.text)) return undefined;
+      const title = (await new LinkMetadataParser(url, res.text).parse())?.title;
+      if (!title) return undefined;
+      const owner = res.text.match(/"ownerChannelName":"((?:[^"\\]|\\.)*)"/)?.[1];
+      let author: string | undefined;
+      try { author = owner ? JSON.parse(`"${owner}"`) as string : undefined; } catch { /* no author */ }
+      return { title, author_name: author };
+   }
+
    private getYouTubeVideoId(url: string): string | undefined {
-      return url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/)?.[1];
+      return url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:shorts|live|embed)\/)([a-zA-Z0-9_-]{11})/)?.[1];
    }
 
    private async getYouTubePageData(
@@ -1005,6 +1052,11 @@ export class LinkMetadataFetcher {
       let duration: string | undefined;
       const lengthMatch = res.text.match(/"lengthSeconds":"(\d+)"/);
       if (lengthMatch) duration = this.formatDuration(parseInt(lengthMatch[1]!, 10));
+      // A stream on air: "lengthSeconds" is "0", and "isLiveNow":true appears once, in the
+      // video's own liveBroadcastDetails (absent on ordinary videos, false on a finished
+      // stream; 2026-09-23). "LIVE" by the maintainer's call, which amends C4 for a declared
+      // live state - the card keeps it after the stream ends, until a refresh.
+      if (/"isLiveNow":true/.test(res.text)) duration = "LIVE";
 
       return { description, duration };
    }
@@ -1363,9 +1415,10 @@ export class LinkMetadataFetcher {
          }
 
          const title = metadata.title.replace(/\s+[-–]\s+(?:Live on )?Twitch$/i, "").trim() || metadata.title;
-         // A channel - `og:type` "profile" offline, "video.other" live; every other page
-         // declares "website" - carries its own name as the author too, the way a YouTube
-         // channel card does (field rule F4).
+         // A channel - `og:type` "profile" (a live one too, measured 2026-09-23 on otplol_;
+         // "video.other" was seen for live ones on 2026-09-11); every other page declares
+         // "website" - carries its own name as the author too, the way a YouTube channel card
+         // does (field rule F4).
          const ogType = og("og:type");
          const isChannel = ogType === "profile" || ogType === "video.other";
          return { ...metadata, title, author: isChannel ? title : undefined };
@@ -2697,7 +2750,7 @@ export class LinkMetadataFetcher {
     * dead link goes back to the catalog card - never the reverse.
     *
     * A live game's title is "<name> | GOG.com" (Cyberpunk 2077, Stardew Valley, "Disco
-    * Elysium - The Final Cut"), not localised, and the site-name segment goes (B6, Roberto
+    * Elysium - The Final Cut"), not localised, and the site-name segment goes (B6, KreNtal
     * 2026-09-16). Only when " | " occurs once, so a name holding one is never cut.
     */
    private async fetchGog(url: string): Promise<LinkMetadata | undefined> {
@@ -3085,7 +3138,7 @@ export class LinkMetadataFetcher {
     * An app's title is "<name> - <Apps on Google Play>", the tail localised and the dash an
     * en dash in some languages: "Obsidian - App su Google Play", "Obsidian – Apps bei Google
     * Play", "Obsidian - Google Play のアプリ", "Telegram - App su Google Play". That tail is
-    * the site-name segment and goes (B6, Roberto 2026-09-16) - on `/store/apps/details` only,
+    * the site-name segment and goes (B6, KreNtal 2026-09-16) - on `/store/apps/details` only,
     * only when the separator occurs once ("Duolingo: Corsi di Lingua" keeps its colon; a
     * name with its own " - " is left whole). Developer and book pages use other templates
     * ("App Android di Dynalist Inc. su Google Play") and are not touched.
@@ -3910,18 +3963,18 @@ export class LinkMetadataFetcher {
       const base = { url, host: "tiktok.com", favicon: "https://www.tiktok.com/favicon.ico", indent: 0 };
       const card: LinkMetadata = videoId
          ? {
-              ...base,
-              title: LinkMetadataParser.sanitizeText(data.title, 300)
-                 ?? data.title
-                 ?? this.buildTikTokFallback(url, handle, videoId).title,
-              author: data.author_name,
-              image: data.thumbnail_url,
-           }
+            ...base,
+            title: LinkMetadataParser.sanitizeText(data.title, 300)
+               ?? data.title
+               ?? this.buildTikTokFallback(url, handle, videoId).title,
+            author: data.author_name,
+            image: data.thumbnail_url,
+         }
          : {
-              ...base,
-              title: data.author_name || `@${handle}`,
-              author: data.author_name || undefined,
-           };
+            ...base,
+            title: data.author_name || `@${handle}`,
+            author: data.author_name || undefined,
+         };
       LinkMetadataFetcher.tiktokCache.set(key, card);
       return card;
    }
@@ -4261,7 +4314,7 @@ export class LinkMetadataFetcher {
       const res = await this.request(
          // `cover.scaled` is only filled in when the cover attachment is asked for as well.
          `https://api.trello.com/1/cards/${shortLink}?fields=name,desc,cover&board=true&board_fields=name`
-            + "&attachments=cover&attachment_fields=id",
+         + "&attachments=cover&attachment_fields=id",
          { "Accept": "application/json" }
       );
       if (!res || res.status !== 200) {
@@ -4754,7 +4807,7 @@ export class LinkMetadataFetcher {
     * better than most furniture: Maps renders a **Static Maps API** thumbnail centred on the
     * URL's own coordinates, so it is specific to this place, not generic chrome. The
     * `og:description` ("Find local businesses, view maps and get driving directions...") is
-    * generic - identical for every Maps link - and rides along anyway, the same call Roberto
+    * generic - identical for every Maps link - and rides along anyway, the same call KreNtal
     * made for Steam's storefront blurb: what is wrong with a shell is its title, not its
     * furniture.
     *
@@ -5750,7 +5803,7 @@ export class LinkMetadataFetcher {
       );
       if (res?.status !== 404) return false;
       try {
-         return (JSON.parse(res.text) as { data?: Record<string, unknown> }).data?.[type] === null;
+         return (JSON.parse(res.text) as { data?: Record<string, unknown>; }).data?.[type] === null;
       } catch {
          return false;
       }
@@ -6409,7 +6462,7 @@ export class LinkMetadataFetcher {
     * What is wrong with the shell is its **title**, which presents Discord's front page as if
     * it were the link. Its description and artwork are not wrong in the same way - they are
     * the site's own furniture on a page we have established we cannot read, which is exactly
-    * the case `errorPageCard` covers, and Roberto's call (2026-09-03) is that a card carrying
+    * the case `errorPageCard` covers, and KreNtal's call (2026-09-03) is that a card carrying
     * the site's graphic reads better than a bare one. The first version of this fetcher threw
     * that away and produced a two-line card; he asked for the furniture back on 2026-09-08.
     *
@@ -6595,9 +6648,9 @@ export class LinkMetadataFetcher {
     */
    private requestViaNode(
       url: string, customHeaders: Record<string, string | undefined> = {}, timeoutMs = 5000, hops = 5
-   ): Promise<{ status: number; text: string; arrayBuffer: ArrayBuffer } | undefined> {
+   ): Promise<{ status: number; text: string; arrayBuffer: ArrayBuffer; } | undefined> {
       // Required at call time, never imported: an import would stop the plugin loading on mobile.
-      const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
+      const nodeRequire = (window as unknown as { require: (id: string) => unknown; }).require;
       const https = nodeRequire("https") as NodeHttps;
       const zlib = nodeRequire("zlib") as NodeZlib;
       const headers = { ...this.requestHeaders(customHeaders), "Accept-Encoding": "gzip, deflate, br" };
@@ -6630,8 +6683,8 @@ export class LinkMetadataFetcher {
                   const encoding = res.headers["content-encoding"];
                   const body: Uint8Array = encoding === "gzip" ? zlib.gunzipSync(raw)
                      : encoding === "deflate" ? zlib.inflateSync(raw)
-                     : encoding === "br" ? zlib.brotliDecompressSync(raw)
-                     : raw;
+                        : encoding === "br" ? zlib.brotliDecompressSync(raw)
+                           : raw;
                   const bytes = new Uint8Array(body);
                   resolve({ status, text: new TextDecoder().decode(bytes), arrayBuffer: bytes.buffer });
                } catch (e) {

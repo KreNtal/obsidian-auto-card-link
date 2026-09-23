@@ -53,25 +53,45 @@ The template - adjust `urls`, and the regexes to the tags in question:
 
 ```js
 const uas = {
-  plugin_chrome124: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  obsidian_real: navigator.userAgent,
-  honest: "Mozilla/5.0 (compatible; ObsidianAutoCardLink/1.0; +https://github.com/KreNtal/obsidian-auto-card-link)",
-  facebook: "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
-  slack: "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
-  whatsapp: "WhatsApp/2.23.20.0",
-  none: undefined,
+	plugin_chrome124:
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+	obsidian_real: navigator.userAgent,
+	honest: "Mozilla/5.0 (compatible; ObsidianAutoCardLink/1.0; +https://github.com/KreNtal/obsidian-auto-card-link)",
+	facebook:
+		"facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+	slack: "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+	whatsapp: "WhatsApp/2.23.20.0",
+	none: undefined,
 };
-const urls = ["https://example.com/live-thing", "https://example.com/cannot-exist-xyz123"];
+const urls = [
+	"https://example.com/live-thing",
+	"https://example.com/cannot-exist-xyz123",
+];
 console.log("real UA:", navigator.userAgent);
-for (const u of urls) for (const [k, ua] of Object.entries(uas)) {
-  try {
-    const t0 = performance.now();
-    const r = await requestUrl({ url: u, headers: ua ? { "User-Agent": ua } : {}, throw: false });
-    console.log(k, r.status, `${Math.round(performance.now() - t0)} ms`, r.text.length,
-      (r.text.match(/<title[^>]*>[^<]*/i) || [""])[0],
-      "| og:", (r.text.match(/og:title["'][^>]*content=["']([^"']*)/i) || [])[1], u);
-  } catch (e) { console.log(k, "ERR", e.message, u); }
-}
+for (const u of urls)
+	for (const [k, ua] of Object.entries(uas)) {
+		try {
+			const t0 = performance.now();
+			const r = await requestUrl({
+				url: u,
+				headers: ua ? { "User-Agent": ua } : {},
+				throw: false,
+			});
+			console.log(
+				k,
+				r.status,
+				`${Math.round(performance.now() - t0)} ms`,
+				r.text.length,
+				(r.text.match(/<title[^>]*>[^<]*/i) || [""])[0],
+				"| og:",
+				(r.text.match(/og:title["'][^>]*content=["']([^"']*)/i) ||
+					[])[1],
+				u,
+			);
+		} catch (e) {
+			console.log(k, "ERR", e.message, u);
+		}
+	}
 ```
 
 ### Rules for link metadata
@@ -89,12 +109,12 @@ for (const u of urls) for (const [k, ua] of Object.entries(uas)) {
    sign-in wall, a homepage), a site template, an endpoint with data the page lacks.
 2. **When an endpoint proves a link is dead, build the card from the URL — never hand it to
    `fetchGeneric`**, which cannot tell "gone" from "blocked" and would spend a Microlink
-   request (quota ~25/day) rendering a page that says nothing. An API's *empty answer* is
-   proof; an API's *failure to answer* (429, 5xx, dead network) proves nothing and stays on
+   request (quota ~25/day) rendering a page that says nothing. An API's _empty answer_ is
+   proof; an API's _failure to answer_ (429, 5xx, dead network) proves nothing and stays on
    the normal path. Both look identical in a `!result` check — that is exactly how the bug
    got in the first time.
 3. **A page we refuse to believe still keeps its furniture.** What is wrong with a shell is
-   its *title*, which presents the site's homepage as if it were the link. Its description,
+   its _title_, which presents the site's homepage as if it were the link. Its description,
    image and favicon are the site's own furniture on a page we have established we cannot
    read, and they ride along. Do not spend an extra request to fetch furniture from a page
    already known to be empty.
@@ -135,8 +155,8 @@ for (const u of urls) for (const [k, ua] of Object.entries(uas)) {
    desktop (`requestViaNode`).
 
 **The failure to look for first is not "does this site block us".** It is a site that
-*answers, with something else* — a marketing shell, a sign-in wall, its own homepage —
-because parsing that *succeeds*, so nothing downstream, Microlink included, ever gets a
+_answers, with something else_ — a marketing shell, a sign-in wall, its own homepage —
+because parsing that _succeeds_, so nothing downstream, Microlink included, ever gets a
 chance to notice. So test a new domain with two pastes: the live thing, and a URL that
 cannot exist. If the dead one comes back with a title, read it carefully.
 
@@ -152,33 +172,35 @@ exception exists only if it is written here, or recorded with its evidence in
 `docs/domain-coverage.md`.
 
 **Terms.**
-- *Generic*: the same title, text or image comes back for two different links of the same
+
+- _Generic_: the same title, text or image comes back for two different links of the same
   kind, one of which cannot exist. Proven by a recorded two-paste test, never by impression.
-- *Specific*: about this item and supplied by the site — a tag on the page, an endpoint
+- _Specific_: about this item and supplied by the site — a tag on the page, an endpoint
   field that is the item's own name, description or image, or a composition of the site's
   own data for this item (C3).
-- *Count* vs *instant state*: a count is how many people did something with the thing
+- _Count_ vs _instant state_: a count is how many people did something with the thing
   (likes, points, votes, comments, answers, stars, downloads, members, followers, views) -
   it ages, but it is data like any other; instant state is what is true only right now
   ("online now", live viewers, "Live") and is wrong within minutes.
-- *Furniture*: the description, image and favicon of a page we have decided not to believe.
+- _Furniture_: the description, image and favicon of a page we have decided not to believe.
 
 **A. When a site gets code of its own** (a dedicated fetcher, or a hook in or after
 `fetchGeneric` — both count)
 
 - **A1.** Only with recorded evidence (the URLs used and what they returned) of at least one of:
-  - (a) a live link answers with a page that is not about the link: a shell, a sign-in
-    wall, a challenge, the site's homepage;
-  - (b) a dead link's page does not prove it is dead (a 200, or a redirect to something that
-    parses as a confident card), and an endpoint does;
-  - (c) the plugin cannot read the page — after the whole generic path, preview agents
-    included (rule 1), confirmed in Obsidian, not by a script — and an
-    endpoint answers;
-  - (d) the generic read's description and image are both generic or absent, and a
-    documented endpoint has data specific to the item.
+    - (a) a live link answers with a page that is not about the link: a shell, a sign-in
+      wall, a challenge, the site's homepage;
+    - (b) a dead link's page does not prove it is dead (a 200, or a redirect to something that
+      parses as a confident card), and an endpoint does;
+    - (c) the plugin cannot read the page — after the whole generic path, preview agents
+      included (rule 1), confirmed in Obsidian, not by a script — and an
+      endpoint answers;
+    - (d) the generic read's description and image are both generic or absent, and a
+      documented endpoint has data specific to the item.
 
-  Not reasons: an ugly or verbose title, an API existing, extra data (version, licence,
-  counts, duration), a bigger image, removing a count from a title.
+    Not reasons: an ugly or verbose title, an API existing, extra data (version, licence,
+    counts, duration), a bigger image, removing a count from a title.
+
 - **A2.** The code covers only the URL shapes and cases where the failure was shown. The
   rest of the site stays generic.
 - **A3.** Page first. An endpoint is asked only when the generic result is suspect (a
@@ -190,7 +212,7 @@ exception exists only if it is written here, or recorded with its evidence in
 - **A5.** One declared exception to A1: a site template (B6), or a site-specific author
   property (`soundcloud:user`), may justify code with no failure — if it costs no extra
   request and its purpose is filling `author`. The no-extra-request condition applies only
-  to code that exists *because of* this exception; a site A1 already justifies may spend a
+  to code that exists _because of_ this exception; a site A1 already justifies may spend a
   request on the author (A3). Removing a count from a title never justifies code on its
   own; if proposing it for a site anyway, say so to the maintainer explicitly.
 - **A6.** A documented, versioned API is cheap to keep. Scraping and User-Agent sniffing are
@@ -216,7 +238,7 @@ exception exists only if it is written here, or recorded with its evidence in
   ("Discord channel").
 - **B5.** Code that is justified does not rewrite a readable page's title — not with an
   endpoint's cleaner name, not translated (no `name:<lang>`). Only B2, B6 and B7 apply.
-- **B6.** A *site template* is a fixed shape a site builds its title or description with,
+- **B6.** A _site template_ is a fixed shape a site builds its title or description with,
   shown on at least three links and recorded with the examples. On sites that have code,
   it allows exactly four operations: move the author segment into `author`; drop the
   site-name segment; drop a count segment **from a title** (never from a description, C4);
@@ -226,14 +248,14 @@ exception exists only if it is written here, or recorded with its evidence in
   two ways: the author segment matches a handle the URL carries, or the separator occurs
   exactly as often as the template says. Either is enough - a display name the handle does
   not spell ("Graeme Borland" on `graebor.itch.io`) is still the author when the split is
-  unambiguous (Roberto, 2026-09-16).
+  unambiguous (KreNtal, 2026-09-16).
 - **B7.** On a site with code, a declared title that is itself a site template naming nothing
   but the author and a count ("Post di @pepurika · 8 immagini", "Reblog by @staff") yields to
   the page's `<title>`, when that follows a template of its own carrying the item's text
   ("<text> – @pepurika su Tumblr"). Both templates must be shown on at least three links and
   recorded, and both must match exactly, the author segment being the handle the URL carries;
   the `<title>`'s text becomes the title and the author segment moves to `author`. Anything
-  that does not match keeps the declared title (Roberto, 2026-09-22, on Tumblr's posts).
+  that does not match keeps the declared title (KreNtal, 2026-09-22, on Tumblr's posts).
 
 **C. Description**
 
@@ -248,11 +270,15 @@ exception exists only if it is written here, or recorded with its evidence in
   respected. Declared counts stay, wherever they are (" | 430961 members", "33 membri"
   inside a sentence), and a composition may include the counts an endpoint gives (points,
   stars, members, downloads). Two limits: never instant state in what we compose ("online
-  now", live viewers, a "Live" duration - wrong within minutes, and not what a site puts in
-  its own preview); and in a **title** a count segment is dropped via B6 on a site with
-  code, because a title is a name. Decided 2026-09-11, reversing a first version that
-  stripped counts wherever we could - which could only ever be some of them, since a count
-  inside a sentence or on a site without code cannot go.
+  now", live viewers - wrong within minutes, and not what a site puts in its own preview);
+  and in a **title** a count segment is dropped via B6 on a site with code, because a title
+  is a name. Decided 2026-09-11, reversing a first version that stripped counts wherever we
+  could - which could only ever be some of them, since a count inside a sentence or on a
+  site without code cannot go. One exception, the maintainer's call on 2026-09-23: a stream
+  the page itself declares on air gets "LIVE" as its duration - YouTube's `"isLiveNow":true`,
+  never on a guess; the card keeps it after the stream ends, until a refresh. Not Twitch: a
+  Twitch channel is the channel, live or not, and "LIVE" on it was tried and dropped the same
+  day.
 - **C5.** On a dead link, a shell or a sign-in wall, the page's description rides along as
   furniture — always, TikTok's "Log in or sign up…" included. Furniture goes with a card
   built from the URL, when there is no content: it is not added on top of content an
@@ -302,7 +328,7 @@ exception exists only if it is written here, or recorded with its evidence in
 **G. Favicon**
 
 - **G1.** The icon the page declares wins, else the `/favicon.ico` guess. Among the icons a page
-  declares, an SVG `rel="icon"` comes first, as Chromium's own tab bar picks it (Roberto,
+  declares, an SVG `rel="icon"` comes first, as Chromium's own tab bar picks it (KreNtal,
   2026-09-18): Linear's `.ico` decodes fully transparent in Obsidian while the SVG beside it
   renders, and a vector icon is the sharper one at 16px anyway.
 - **G2.** Hardcoded only when the code does not read the page and the guess was measured to
@@ -338,7 +364,7 @@ exception exists only if it is written here, or recorded with its evidence in
 Agreed with the maintainer on 2026-09-17, after a round of pastes showed dead links costing
 more code and more checks than live ones for very little a reader gets from them.
 
-- **J1.** A link is *not found* only on proof that the site has nothing there for an anonymous
+- **J1.** A link is _not found_ only on proof that the site has nothing there for an anonymous
   reader: a 404, 410 or 401 (Hugging Face answers a missing repo and a private one with the
   same 401); a site's own not-found page recognised by a `goneCard` or `emptyPage` tell; an
   endpoint's empty or not-found answer (SE's `items: []`, TikTok's 400, crates.io's 404). A
@@ -385,15 +411,15 @@ In `src/link_metadata_fetcher.ts` unless noted: `buildUrlCard`, `errorPageCard`,
 "sentence" | "title")`, `siteNameFor`, `SITE_NAMES`, `countLabel`, `compactCount`,
 `request(url, headers, timeout)` (already passes `throw: false`, so statuses are visible),
 `decodeHtmlContent`, `CRAWLER_UA`, and `fetchGeneric(url, { isUnusable, goneCard })` —
-`isUnusable` means *we could not read the page* and leads to Microlink, `goneCard` means
-*the page says it is not there*, which is proof, and leads to a URL-built card.
+`isUnusable` means _we could not read the page_ and leads to Microlink, `goneCard` means
+_the page says it is not there_, which is proof, and leads to a URL-built card.
 Domain matchers live in `src/checkif.ts`, response shapes in `src/interfaces.ts`, and
 HTML parsing in `src/link_metadata_parser.ts`.
 
 ### Repository traps
 
 - **Line endings.** Git blobs are LF; some working-tree files are CRLF. `git checkout --
-  <path>` produces doubled CRs and corrupts them. To restore a file, write the blob's bytes
+<path>` produces doubled CRs and corrupts them. To restore a file, write the blob's bytes
   directly (`git cat-file blob HEAD:<path>`). Check a file's endings before editing it with
   a script.
 - Git sometimes reports a file as modified when it is byte-identical to HEAD (a stale index
@@ -472,35 +498,35 @@ npm run build
 - **Organize code into multiple files**: Split functionality across separate modules rather than putting everything in `main.ts`.
 - Source lives in `src/`. Keep `main.ts` small and focused on plugin lifecycle (loading, unloading, registering commands).
 - **Example file structure**:
-  ```
-  src/
-    main.ts           # Plugin entry point, lifecycle management
-    settings.ts       # Settings interface and defaults
-    commands/         # Command implementations
-      command1.ts
-      command2.ts
-    ui/              # UI components, modals, views
-      modal.ts
-      view.ts
-    utils/           # Utility functions, helpers
-      helpers.ts
-      constants.ts
-    types.ts         # TypeScript interfaces and types
-  ```
+    ```
+    src/
+      main.ts           # Plugin entry point, lifecycle management
+      settings.ts       # Settings interface and defaults
+      commands/         # Command implementations
+        command1.ts
+        command2.ts
+      ui/              # UI components, modals, views
+        modal.ts
+        view.ts
+      utils/           # Utility functions, helpers
+        helpers.ts
+        constants.ts
+      types.ts         # TypeScript interfaces and types
+    ```
 - **Do not commit build artifacts**: Never commit `node_modules/`, `main.js`, or other generated files to version control.
 - Keep the plugin small. Avoid large dependencies. Prefer browser-compatible packages.
 - Generated output should be placed at the plugin root or `dist/` depending on your build setup. Release artifacts must end up at the top level of the plugin folder in the vault (`main.js`, `manifest.json`, `styles.css`).
 
 ## Manifest rules (`manifest.json`)
 
-- Must include (non-exhaustive):  
-  - `id` (plugin ID; for local dev it should match the folder name)  
-  - `name`  
-  - `version` (Semantic Versioning `x.y.z`)  
-  - `minAppVersion`  
-  - `description`  
-  - `isDesktopOnly` (boolean)  
-  - Optional: `author`, `authorUrl`, `fundingUrl` (string or map)
+- Must include (non-exhaustive):
+    - `id` (plugin ID; for local dev it should match the folder name)
+    - `name`
+    - `version` (Semantic Versioning `x.y.z`)
+    - `minAppVersion`
+    - `description`
+    - `isDesktopOnly` (boolean)
+    - Optional: `author`, `authorUrl`, `fundingUrl` (string or map)
 - Never change `id` after release. Treat it as stable API.
 - Keep `minAppVersion` accurate when using newer APIs.
 - Canonical requirements are coded here: https://github.com/obsidianmd/obsidian-releases/blob/master/.github/workflows/validate-plugin-entry.yml
@@ -508,9 +534,9 @@ npm run build
 ## Testing
 
 - Manual install for testing: copy `main.js`, `manifest.json`, `styles.css` (if any) to:
-  ```
-  <Vault>/.obsidian/plugins/<plugin-id>/
-  ```
+    ```
+    <Vault>/.obsidian/plugins/<plugin-id>/
+    ```
 - Reload Obsidian and enable the plugin in **Settings → Community plugins**.
 
 ## Commands & settings
@@ -574,12 +600,14 @@ Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particula
 ## Agent do/don't
 
 **Do**
+
 - Add commands with stable IDs (don't rename once released).
 - Provide defaults and validation in settings.
 - Write idempotent code paths so reload/unload doesn't leak listeners or intervals.
 - Use `this.register*` helpers for everything that needs cleanup.
 
 **Don't**
+
 - Introduce network calls without an obvious user-facing reason and documentation.
 - Ship features that require cloud services without clear disclosure and explicit opt-in.
 - Store or transmit vault contents unless essential and consented.
@@ -589,45 +617,52 @@ Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particula
 ### Organize code across multiple files
 
 **main.ts** (minimal, lifecycle only):
+
 ```ts
 import { Plugin } from "obsidian";
 import { MySettings, DEFAULT_SETTINGS } from "./settings";
 import { registerCommands } from "./commands";
 
 export default class MyPlugin extends Plugin {
-  settings: MySettings;
+	settings: MySettings;
 
-  async onload() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-    registerCommands(this);
-  }
+	async onload() {
+		this.settings = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			await this.loadData(),
+		);
+		registerCommands(this);
+	}
 }
 ```
 
 **settings.ts**:
+
 ```ts
 export interface MySettings {
-  enabled: boolean;
-  apiKey: string;
+	enabled: boolean;
+	apiKey: string;
 }
 
 export const DEFAULT_SETTINGS: MySettings = {
-  enabled: true,
-  apiKey: "",
+	enabled: true,
+	apiKey: "",
 };
 ```
 
 **commands/index.ts**:
+
 ```ts
 import { Plugin } from "obsidian";
 import { doSomething } from "./my-command";
 
 export function registerCommands(plugin: Plugin) {
-  plugin.addCommand({
-    id: "do-something",
-    name: "Do something",
-    callback: () => doSomething(plugin),
-  });
+	plugin.addCommand({
+		id: "do-something",
+		name: "Do something",
+		callback: () => doSomething(plugin),
+	});
 }
 ```
 
@@ -635,9 +670,9 @@ export function registerCommands(plugin: Plugin) {
 
 ```ts
 this.addCommand({
-  id: "your-command-id",
-  name: "Do the thing",
-  callback: () => this.doTheThing(),
+	id: "your-command-id",
+	name: "Do the thing",
+	callback: () => this.doTheThing(),
 });
 ```
 
@@ -656,14 +691,24 @@ async onload() {
 ### Register listeners safely
 
 ```ts
-this.registerEvent(this.app.workspace.on("file-open", f => { /* ... */ }));
-this.registerDomEvent(window, "resize", () => { /* ... */ });
-this.registerInterval(window.setInterval(() => { /* ... */ }, 1000));
+this.registerEvent(
+	this.app.workspace.on("file-open", (f) => {
+		/* ... */
+	}),
+);
+this.registerDomEvent(window, "resize", () => {
+	/* ... */
+});
+this.registerInterval(
+	window.setInterval(() => {
+		/* ... */
+	}, 1000),
+);
 ```
 
 ## Troubleshooting
 
-- Plugin doesn't load after build: ensure `main.js` and `manifest.json` are at the top level of the plugin folder under `<Vault>/.obsidian/plugins/<plugin-id>/`. 
+- Plugin doesn't load after build: ensure `main.js` and `manifest.json` are at the top level of the plugin folder under `<Vault>/.obsidian/plugins/<plugin-id>/`.
 - Build issues: if `main.js` is missing, run `npm run build` or `npm run dev` to compile your TypeScript source code.
 - Commands not appearing: verify `addCommand` runs after `onload` and IDs are unique.
 - Settings not persisting: ensure `loadData`/`saveData` are awaited and you re-render the UI after changes.
