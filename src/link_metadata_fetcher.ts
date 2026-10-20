@@ -176,7 +176,7 @@ export class LinkMetadataFetcher {
       if (CheckIf.isAniListUrl(url)) return this.fetchAniList(url, refresh);
       if (CheckIf.isJiraServerIssueUrl(url)) return this.fetchJiraServer(url, refresh);
 
-      return this.fetchGeneric(url);
+      return this.fetchGeneric(url, { fillMissing: true });
    }
 
    /**
@@ -425,6 +425,11 @@ export class LinkMetadataFetcher {
          fallback?: () => Promise<LinkMetadata | undefined>;
          /** A touch-up of a page that read, with its HTML in hand - for what only the markup says. */
          refine?: (metadata: LinkMetadata, html: string) => LinkMetadata;
+         /**
+          * A site with no code of its own: a page that read but declares no description or no
+          * image may have them filled from Microlink, if the user opted in (field rule I4).
+          */
+         fillMissing?: boolean;
       }
    ): Promise<LinkMetadata | undefined> {
       const fallback = checks?.fallback ?? (() => this.fetchFallback(url, checks?.goneCard));
@@ -566,7 +571,46 @@ export class LinkMetadataFetcher {
       }
 
       if (metadata && checks?.refine) return checks.refine(metadata, decodedText);
+      if (metadata && checks?.fillMissing) return this.fillFromMicrolink(url, metadata);
       return metadata ?? fallback();
+   }
+
+   /**
+    * Field rule I4: the description and image a readable page does not declare, asked of
+    * Microlink when the user turned it on. Its answer is composed from the page's body (the
+    * first paragraph, an image in it) - offeco.nl/it/ declares a title and an empty
+    * description, and Microlink's card carries both - which is why this is opt-in and only
+    * ever fills a gap: a declared title, description or image is never replaced.
+    */
+   private async fillFromMicrolink(url: string, metadata: LinkMetadata): Promise<LinkMetadata> {
+      // Only the fields the user chose are asked for and filled: Microlink's description is
+      // usually the page's first paragraph, its image a pick from the body, the riskier guess.
+      const fields = this.settings?.useExternalFallback ? this.settings.completeCards : "off";
+      const wantDescription = (fields === "description" || fields === "both") && !metadata.description;
+      const wantImage = (fields === "image" || fields === "both") && !metadata.image;
+      if (!wantDescription && !wantImage) return metadata;
+      // Out of quota for the day, or a host it will not fetch: the card stays as read, and
+      // nothing is said - unlike the fallback, the card is a good one either way.
+      if (LinkMetadataFetcher.microlinkExhausted
+         || LinkMetadataFetcher.microlinkProxyHosts.has(new URL(url).hostname)) return metadata;
+
+      const result = await this.fetchViaMicrolink(url);
+      if (result.rateLimited) LinkMetadataFetcher.microlinkExhausted = true;
+      const extra = result.metadata;
+      if (!extra || LinkMetadataFetcher.looksLikeInterstitial(extra)) return metadata;
+
+      const same = (a?: string, b?: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+      // The site's logo or icon as the card's image is the duplicated icon rejected on 2026-08-31.
+      const image = extra.image && extra.image !== extra.favicon && extra.image !== metadata.favicon
+         ? extra.image : undefined;
+      const description = extra.description && !same(extra.description, metadata.title)
+         && !same(extra.description, extra.title) ? extra.description : undefined;
+
+      return {
+         ...metadata,
+         description: wantDescription ? description : metadata.description,
+         image: wantImage ? image : metadata.image,
+      };
    }
 
    /** The plugin naming itself. Spotify's page and fetchGeneric's 403 retry use it. */

@@ -143,5 +143,40 @@ await test("B6 eBay: ' | eBay' once, on an item", async () => {
    assert.equal((await fetcherReading({ title: "tazza | eBay" }).fetchEbay("https://www.ebay.it/sch/i.html?_nkw=tazza")).title, "tazza | eBay");
 });
 
+// I4: Microlink fills only what a readable page left empty, and only when the user opted in.
+await test("I4: fills the gaps, keeps what the page declared, drops the icon and a repeated title", async () => {
+   const url = "https://offeco.nl/it/";
+   const page: LinkMetadata = { url, title: "Home | Offeco", host: "offeco.nl", favicon: "https://offeco.nl/favicon.ico", indent: 0 };
+   let calls = 0;
+   const answering = (fields: string, extra: Partial<LinkMetadata>, external = true) => {
+      const f = new LinkMetadataFetcher({ useExternalFallback: external, completeCards: fields } as any) as any;
+      f.fetchViaMicrolink = () => { calls++; return Promise.resolve({ metadata: { url, title: "Home | Offeco", indent: 0, ...extra } }); };
+      return f;
+   };
+   const both = { description: "Da Offeco trovi…", image: "https://offeco.nl/chair.webp" };
+   const filled = await answering("both", both).fillFromMicrolink(url, page);
+   assert.equal(filled.description, "Da Offeco trovi…");
+   assert.equal(filled.image, "https://offeco.nl/chair.webp");
+   assert.equal(filled.title, "Home | Offeco");
+   const descOnly = await answering("description", both).fillFromMicrolink(url, page);
+   assert.equal(descOnly.description, "Da Offeco trovi…");
+   assert.equal(descOnly.image, undefined, "only the chosen field is filled");
+   const imageOnly = await answering("image", both).fillFromMicrolink(url, page);
+   assert.equal(imageOnly.image, "https://offeco.nl/chair.webp");
+   assert.equal(imageOnly.description, undefined);
+   calls = 0;
+   assert.equal((await answering("off", both).fillFromMicrolink(url, page)).description, undefined);
+   assert.equal((await answering("both", both, false).fillFromMicrolink(url, page)).description, undefined, "off with the external service");
+   await answering("description", both).fillFromMicrolink(url, { ...page, description: "declared" });
+   assert.equal(calls, 0, "no call when the chosen field is already there");
+   const kept = await answering("both", { description: "other", image: "https://offeco.nl/other.webp" })
+      .fillFromMicrolink(url, { ...page, description: "declared" });
+   assert.equal(kept.description, "declared");
+   assert.equal(kept.image, "https://offeco.nl/other.webp");
+   const icon = await answering("both", { description: "home | offeco", image: "https://offeco.nl/logo.png", favicon: "https://offeco.nl/logo.png" }).fillFromMicrolink(url, page);
+   assert.equal(icon.image, undefined);
+   assert.equal(icon.description, undefined);
+});
+
 console.log(failed ? `\n${failed} failed.` : "All rules hold.");
 process.exitCode = failed ? 1 : 0;

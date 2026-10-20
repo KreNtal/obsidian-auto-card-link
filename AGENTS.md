@@ -358,6 +358,27 @@ exception exists only if it is written here, or recorded with its evidence in
 - **I1.** Microlink's answer counts as a read of the page; the same rules apply to it.
 - **I2.** A refresh never clears a field.
 - **I3.** Every exception is recorded with its evidence. Without it, it does not exist.
+- **I4.** One exception the user opts into: a setting, off by default, that asks Microlink for
+  the description and image a page read on the generic path does not declare (KreNtal,
+  2026-10-20, on `offeco.nl/it/`, whose homepage declares a title and an empty description
+  while Microlink composes both from its body). With it off, C1 and D3 hold as written, and the
+  2026-08-31 rejection of DOM image heuristics stands. It rides on the external-service
+  setting: off with it, and greyed out in the settings. The user picks what it fills -
+  description only, image only, or both - and only a missing field among those asks Microlink
+  and is filled: the description is usually the page's first paragraph, the image a pick from
+  the body and the riskier guess, so the two are trusted separately. With it on:
+    - it runs only on a card read by `fetchGeneric` that lacks a description or an image -
+      never on a dedicated fetcher's card, a not-found card (J3), or a card built from the URL
+      after a failure;
+    - it fills only what is missing: a declared title, description or image is never
+      replaced, and the title is never asked for;
+    - Microlink's image is dropped when it is the site's logo or icon (the duplicated icon
+      rejected on 2026-08-31), and its description when it repeats the title;
+    - the favicon is not part of it: G1 always yields one, so it can never be what is missing,
+      and Microlink's `logo` is not a better icon than the one the page declares or the
+      `/favicon.ico` guess;
+    - the user is told, with the usual notice, since the call is slow; once the daily quota is
+      gone the card stays as read, with no further call that day.
 
 **J. Dead links**
 

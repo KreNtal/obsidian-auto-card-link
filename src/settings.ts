@@ -48,6 +48,8 @@ export interface ObsidianAutoCardLinkSettings {
   cardStyle: "classic" | "modern" | "glass" | "compact";
   thumbnailQuality: "better-preview" | "max-resolution";
   useExternalFallback: boolean;
+  /** Which gaps in a readable page's card Microlink is asked to fill (field rule I4). */
+  completeCards: "off" | "description" | "image" | "both";
   thumbnailFit: "cover" | "contain";
   notFoundMarker: "strikethrough" | "prefix" | "none";
   notFoundPrefix: string;
@@ -67,6 +69,7 @@ export const DEFAULT_SETTINGS: ObsidianAutoCardLinkSettings = {
   cardStyle: "classic",
   thumbnailQuality: "better-preview",
   useExternalFallback: false,
+  completeCards: "off",
   thumbnailFit: "cover",
   notFoundMarker: "strikethrough",
   notFoundPrefix: "Not found:",
@@ -130,7 +133,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
         .onChange(async (value: string) => {
           assign(value as OutputShape);
           await this.plugin.saveSettings();
-          this.display();
+          this.redisplay();
         }));
   }
 
@@ -192,6 +195,13 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
     setIcon(label.createSpan({ cls: "auto-card-link-warning-icon" }), "alert-triangle");
     label.appendText(text);
     return label;
+  }
+
+  /** Redraws after a setting that shows or hides others, without jumping back to the top. */
+  private redisplay(): void {
+    const top = this.containerEl.scrollTop;
+    this.display();
+    this.containerEl.scrollTop = top;
   }
 
   display(): void {
@@ -270,11 +280,67 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
           });
       });
 
+    // --- Appearance ---
+    new Setting(containerEl).setName("Appearance").setHeading();
+
+    new Setting(containerEl)
+      .setName("Card style")
+      .setDesc("Visual style of the card link.")
+      .addDropdown((drop) => {
+        if (!this.plugin.settings) return drop;
+        return drop
+          .addOption("classic", "Classic")
+          .addOption("modern", "Modern")
+          .addOption("glass", "Glass")
+          .addOption("compact", "Compact")
+          .setValue(this.plugin.settings.cardStyle)
+          .onChange(async (value: string) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.cardStyle = value as "classic" | "modern" | "glass" | "compact";
+            await this.plugin.saveSettings();
+            applyCardStyle(this.plugin.settings.cardStyle);
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Thumbnail position")
+      .setDesc("Which side of the card the thumbnail appears on.")
+      .addDropdown((drop) => {
+        if (!this.plugin.settings) return drop;
+        return drop
+          .addOption("left", "Left")
+          .addOption("right", "Right")
+          .setValue(this.plugin.settings.thumbnailPosition)
+          .onChange(async (value: string) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.thumbnailPosition = value as "left" | "right";
+            await this.plugin.saveSettings();
+            applyThumbnailPosition(value as "left" | "right");
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Thumbnail fit")
+      .setDesc("How the thumbnail image fills its frame: crop to fill, or shrink to show the whole image.")
+      .addDropdown((drop) => {
+        if (!this.plugin.settings) return drop;
+        return drop
+          .addOption("cover", "Crop to fill")
+          .addOption("contain", "Show whole image")
+          .setValue(this.plugin.settings.thumbnailFit)
+          .onChange(async (value: string) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.thumbnailFit = value as "cover" | "contain";
+            await this.plugin.saveSettings();
+            applyThumbnailFit(this.plugin.settings.thumbnailFit);
+          });
+      });
+
     new Setting(containerEl).setName("Fetching").setHeading();
 
     new Setting(containerEl)
       .setName("Use external service for blocked sites")
-      .setDesc("When a site blocks direct fetching, fetch its metadata through the external microlink.io service as a last resort. This sends the link's URL to microlink.io. Off by default for privacy; only used when the normal fetch fails.")
+      .setDesc("When a site blocks the plugin, or answers with a placeholder instead of the page, fetch the link's metadata through the external microlink.io service instead. This sends the link's URL to microlink.io. Its free tier has a reduced daily quota. Off by default for privacy.")
       .addToggle((val) => {
         if (!this.plugin.settings) return;
         return val
@@ -282,6 +348,38 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             if (!this.plugin.settings) return;
             this.plugin.settings.useExternalFallback = value;
+            await this.plugin.saveSettings();
+            this.redisplay();
+          });
+      });
+
+    // Rides on the external service: off with it, whatever it is set to (field rule I4).
+    const externalOn = !!this.plugin.settings?.useExternalFallback;
+    new Setting(containerEl)
+      .setName("Complete cards through the external service")
+      .setDesc(this.optionListDesc(
+        "When a page reads fine but declares no description or no image, ask microlink.io for them. Microlink picks them from the page's content, so they are a guess rather than what the site chose to show. Each call uses the daily quota.",
+        [
+          ["Never", "cards show only what the page declares"],
+          ["Description only", "a missing description is filled, a missing image stays missing"],
+          ["Image only", "a missing image is filled, a missing description stays missing"],
+          ["Description and image", "whichever of the two is missing is filled"],
+        ],
+        externalOn ? undefined : "Needs the external service above."
+      ))
+      .setDisabled(!externalOn)
+      .addDropdown((drop) => {
+        if (!this.plugin.settings) return drop;
+        return drop
+          .addOption("off", "Never")
+          .addOption("description", "Description only")
+          .addOption("image", "Image only")
+          .addOption("both", "Description and image")
+          .setValue(this.plugin.settings.completeCards)
+          .setDisabled(!externalOn)
+          .onChange(async (value: string) => {
+            if (!this.plugin.settings) return;
+            this.plugin.settings.completeCards = value as ObsidianAutoCardLinkSettings["completeCards"];
             await this.plugin.saveSettings();
           });
       });
@@ -304,7 +402,7 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
             this.plugin.settings.notFoundMarker = value as "strikethrough" | "prefix" | "none";
             await this.plugin.saveSettings();
             this.plugin.refreshNotFoundTitles();
-            this.display();
+            this.redisplay();
           });
       });
 
@@ -409,62 +507,6 @@ export class ObsidianAutoCardLinkSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
         new FolderSuggest(this.app, search.inputEl);
-      });
-
-    // --- Appearance ---
-    new Setting(containerEl).setName("Appearance").setHeading();
-
-    new Setting(containerEl)
-      .setName("Card style")
-      .setDesc("Visual style of the card link.")
-      .addDropdown((drop) => {
-        if (!this.plugin.settings) return drop;
-        return drop
-          .addOption("classic", "Classic")
-          .addOption("modern", "Modern")
-          .addOption("glass", "Glass")
-          .addOption("compact", "Compact")
-          .setValue(this.plugin.settings.cardStyle)
-          .onChange(async (value: string) => {
-            if (!this.plugin.settings) return;
-            this.plugin.settings.cardStyle = value as "classic" | "modern" | "glass" | "compact";
-            await this.plugin.saveSettings();
-            applyCardStyle(this.plugin.settings.cardStyle);
-          });
-      });
-
-    new Setting(containerEl)
-      .setName("Thumbnail position")
-      .setDesc("Which side of the card the thumbnail appears on.")
-      .addDropdown((drop) => {
-        if (!this.plugin.settings) return drop;
-        return drop
-          .addOption("left", "Left")
-          .addOption("right", "Right")
-          .setValue(this.plugin.settings.thumbnailPosition)
-          .onChange(async (value: string) => {
-            if (!this.plugin.settings) return;
-            this.plugin.settings.thumbnailPosition = value as "left" | "right";
-            await this.plugin.saveSettings();
-            applyThumbnailPosition(value as "left" | "right");
-          });
-      });
-
-    new Setting(containerEl)
-      .setName("Thumbnail fit")
-      .setDesc("How the thumbnail image fills its frame: crop to fill, or shrink to show the whole image.")
-      .addDropdown((drop) => {
-        if (!this.plugin.settings) return drop;
-        return drop
-          .addOption("cover", "Crop to fill")
-          .addOption("contain", "Show whole image")
-          .setValue(this.plugin.settings.thumbnailFit)
-          .onChange(async (value: string) => {
-            if (!this.plugin.settings) return;
-            this.plugin.settings.thumbnailFit = value as "cover" | "contain";
-            await this.plugin.saveSettings();
-            applyThumbnailFit(this.plugin.settings.thumbnailFit);
-          });
       });
   }
 }
