@@ -1227,18 +1227,24 @@ export class LinkMetadataFetcher {
     * Site template (B6, A5), three of three for each (xQc, AdinRoss, Amouranth): a channel is
     * "<Name> Stream - Watch Live on Kick", a clip "<Name> - Watch clips on Kick"; the name is
     * the author when it is the URL's channel. Titles stay whole.
+    * Changed by 2026-10-20, three of three again (xQc, AdinRoss, Trainwreckstv, by script and in
+    * Obsidian): a channel is "<Name> Live Stream - Watch Live on KICK", a clip
+    * "<clip title> - <Name> Clip on KICK" - the name now last, after the clip's own title, which
+    * may hold " - " itself, so the last separator splits it. Matched without case, the old
+    * shapes kept: they cost nothing, and an answer cached elsewhere may still carry them.
     */
    private async fetchKick(url: string): Promise<LinkMetadata | undefined> {
       const [, channel = "", route, id = ""] = url.match(/kick\.com\/([^/?#]+)(?:\/(videos|clips)\/([^/?#]+))?/i) ?? [];
       if (route === "videos") return this.fetchKickVideo(url, id);
 
       const metadata = await this.fetchGeneric(url, {
-         goneCard: (page) => /Not Found - Kick Streaming$/.test(page.title.trim())
+         goneCard: (page) => /Not Found - Kick Streaming$/i.test(page.title.trim())
             ? this.withPageFurniture(this.buildUrlCard(url), page)
             : undefined,
          fallback: route === "clips" ? () => this.fetchKickClip(url, id) : undefined,
       });
-      const name = metadata?.title.match(/^(.+?)(?: Stream - Watch Live| - Watch clips) on Kick$/)?.[1];
+      const m = metadata?.title.match(/^(?:(.+?)(?: Live)? Stream - Watch Live|(.+?) - Watch clips|.+ - (.+?) Clip) on Kick$/i);
+      const name = m?.[1] ?? m?.[2] ?? m?.[3];
       if (!metadata || metadata.author || name?.toLowerCase() !== channel.toLowerCase()) return metadata;
       return { ...metadata, author: name };
    }

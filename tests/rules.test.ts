@@ -112,6 +112,17 @@ await test("B6 Kick: the channel is the author when it is the URL's", async () =
    const other = await fetcherReading({ title: "Amouranth Stream - Watch Live on Kick" }).fetchKick("https://kick.com/xqc");
    assert.equal(other.author, undefined);
 });
+await test("B6 Kick: the 2026-10 templates, the name last on a clip", async () => {
+   const channel = await fetcherReading({ title: "xQc Live Stream - Watch Live on KICK" }).fetchKick("https://kick.com/xqc");
+   assert.equal(channel.title, "xQc Live Stream - Watch Live on KICK");
+   assert.equal(channel.author, "xQc");
+   const clip = await fetcherReading({ title: "part 2 - AdinRoss Clip on KICK" }).fetchKick("https://kick.com/adinross/clips/clip_01M5CPMFG313RGP5AK0R3B1S6T");
+   assert.equal(clip.author, "AdinRoss");
+   const dashed = await fetcherReading({ title: "a - b - xQc Clip on KICK" }).fetchKick("https://kick.com/xqc/clips/clip_1");
+   assert.equal(dashed.author, "xQc");
+   const other = await fetcherReading({ title: "soda - xQc Clip on KICK" }).fetchKick("https://kick.com/adinross/clips/clip_1");
+   assert.equal(other.author, undefined);
+});
 await test("B6 Twitch: '<title> - <channel> on Twitch', the channel the URL's", () => {
    assert.deepEqual(F.parseTwitchVideoTitle("Big play - shroud on Twitch", "shroud"), { title: "Big play", author: "shroud" });
    assert.equal(F.parseTwitchVideoTitle("Big play - someoneelse on Twitch", "shroud"), undefined);

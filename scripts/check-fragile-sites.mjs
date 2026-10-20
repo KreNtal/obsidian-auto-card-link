@@ -70,8 +70,10 @@ const checks = [
    ["Twitch channel, dead, shell", "https://www.twitch.tv/zzqq_no_such_channel_81723", TWITCH, 200, (r) => r.twitchTitle === undefined],
 
    // Kick: fetchKick's templates and not-found title, its two endpoints.
-   ["Kick channel", "https://kick.com/xqc", { "User-Agent": PLUGIN }, 200, (r) => /^xQc Stream - Watch Live on Kick$/i.test(r.title)],
-   ["Kick channel, dead", "https://kick.com/nonexistentuserxyz123abc", { "User-Agent": PLUGIN }, 200, (r) => /Not Found - Kick Streaming$/.test(r.title)],
+   ["Kick channel", "https://kick.com/xqc", { "User-Agent": PLUGIN }, 200, (r) => /^xQc Live Stream - Watch Live on Kick$/i.test(r.title)],
+   ["Kick clip", "https://kick.com/xqc/clips/clip_01H811MXG4FBR62FXPE1AXABDH", { "User-Agent": PLUGIN }, 200, (r) => / - xQc Clip on Kick$/i.test(r.title)],
+   // A real 404 since 2026-10: errorPageCard, before the goneCard tell is even read.
+   ["Kick channel, dead", "https://kick.com/nonexistentuserxyz123abc", { "User-Agent": PLUGIN }, 404],
    ["Kick video endpoint", "https://kick.com/api/v1/video/d252b88b-188e-4d38-ac65-278ad209dff4", { "User-Agent": PLUGIN }, 200,
       (r) => !!r.json?.livestream?.session_title],
    ["Kick video endpoint, dead, 404", "https://kick.com/api/v1/video/00000000-1111-2222-3333-444444444444", { "User-Agent": PLUGIN }, 404],
