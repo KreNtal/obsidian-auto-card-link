@@ -113,4 +113,4 @@ For anything else, [open a bug report](https://github.com/KreNtal/obsidian-auto-
 
 ## Credits
 
-This is a fork of [obsidian-auto-card-link](https://github.com/nekoshita/obsidian-auto-card-link) by Nekoshita Yuki, and has been maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-04.
+This is a fork of the original obsidian-auto-card-link by [Nekoshita Yuki](https://github.com/nekoshita), and has been maintained by [KreNtal](https://github.com/KreNtal) since 2026-05-04.
