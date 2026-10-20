@@ -961,10 +961,14 @@ export default class ObsidianAutoCardLink extends Plugin {
       });
     }
 
-    menu.addSeparator();
+    // A section Obsidian's editor menu doesn't declare is sorted after all the ones it does,
+    // in a group of its own. Without one the entries land in the unsectioned group, mixed with
+    // other plugins' - an addSeparator() is sorted into that same group and sets nothing apart.
+    const addItem = (cb: (item: MenuItem) => void) =>
+      menu.addItem((item: MenuItem) => cb(item.setSection("auto-card-link")));
 
     if (cardlinkAtCursor) {
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle("Refresh card link")
           .setIcon("refresh-cw")
@@ -972,7 +976,7 @@ export default class ObsidianAutoCardLink extends Plugin {
             void this.withPreservedScroll(() => this.refetchCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor));
           });
       });
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle("Delete card link")
           .setIcon("trash")
@@ -980,7 +984,7 @@ export default class ObsidianAutoCardLink extends Plugin {
             void this.withPreservedScroll(() => { this.deleteCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor); });
           });
       });
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle("Add line after card link")
           .setIcon("arrow-down")
@@ -988,7 +992,7 @@ export default class ObsidianAutoCardLink extends Plugin {
             void this.withPreservedScroll(() => { this.addLineAfterCardlink(editor, cardlinkAtMouse ?? cardlinkAtCursor); });
           });
       });
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle("Convert card to Markdown link")
           .setIcon("link")
@@ -1003,7 +1007,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     // Within each group the entries run in one direction - plain, then Markdown link, then
     // card - so the same shape sits in the same position in both groups.
     if (canPastePlain) {
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle("Paste URL without enhancing")
           .setIcon("link-2")
@@ -1011,13 +1015,13 @@ export default class ObsidianAutoCardLink extends Plugin {
       });
     }
     if (canPaste) {
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle("Paste URL to a Markdown link")
           .setIcon("link")
           .onClick(() => { void this.withPreservedScroll(() => this.manualPasteAndEnhanceURL(editor, "markdown-link")); });
       });
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle("Paste URL to a card link")
           .setIcon("rectangle-horizontal")
@@ -1026,7 +1030,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     }
 
     if (online && linkToRefresh) {
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle("Refresh Markdown link")
           .setIcon("refresh-cw")
@@ -1038,7 +1042,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     }
 
     if (canStrip) {
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle(`Convert ${markdownLinkCount > 1 ? "URLs" : "URL"} to plain URL`)
           .setIcon("unlink")
@@ -1047,7 +1051,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     }
 
     if (canConvertToMarkdown) {
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle(`Convert ${bareUrlCount > 1 ? "URLs" : "URL"} to Markdown link`)
           .setIcon("link")
@@ -1056,7 +1060,7 @@ export default class ObsidianAutoCardLink extends Plugin {
     }
 
     if (canConvertToCard) {
-      menu.addItem((item: MenuItem) => {
+      addItem((item: MenuItem) => {
         item
           .setTitle(`Convert ${urlCount > 1 ? "URLs" : "URL"} to card link`)
           .setIcon("rectangle-horizontal")
